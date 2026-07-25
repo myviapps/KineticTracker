@@ -1,10 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, ExternalLink, Terminal, LogIn } from "lucide-react";
+import { Search, ExternalLink, Terminal, LogIn, LayoutDashboard } from "lucide-react";
 
 import { searchStudents } from "@/lib/search.functions";
-import { ThemeToggle, useTheme } from "@/components/theme-toggle";
+import { getCurrentUserClient } from "@/lib/auth.functions";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
@@ -20,16 +21,20 @@ export const Route = createFileRoute("/")({
 function LandingPage() {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
+  const [signedIn, setSignedIn] = useState(false);
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [theme] = useTheme();
+
+  useEffect(() => {
+    getCurrentUserClient().then(({ user }) => setSignedIn(!!user));
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), 200);
     return () => clearTimeout(t);
   }, [query]);
 
-  const { data: results = [] } = useQuery({
+  const { data: results = [], isFetching } = useQuery({
     queryKey: ["search", debounced],
     queryFn: () => searchStudents({ data: { q: debounced } }),
     enabled: debounced.length >= 2,
@@ -53,11 +58,26 @@ function LandingPage() {
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button asChild variant="outline" size="sm">
-            <Link to="/auth">
-              <LogIn className="mr-1 size-4" /> Staff sign in
-            </Link>
-          </Button>
+          {signedIn ? (
+            <>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/">
+                  <Search className="mr-1 size-4" /> Search
+                </Link>
+              </Button>
+              <Button asChild variant="default" size="sm">
+                <Link to="/dashboard">
+                  <LayoutDashboard className="mr-1 size-4" /> Dashboard
+                </Link>
+              </Button>
+            </>
+          ) : (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/auth">
+                <LogIn className="mr-1 size-4" /> Staff sign in
+              </Link>
+            </Button>
+          )}
         </div>
       </header>
 
@@ -86,7 +106,12 @@ function LandingPage() {
           {/* Results */}
           {debounced.length >= 2 && (
             <div className="mt-4 overflow-hidden rounded-xl border border-border bg-surface text-left">
-              {results.length === 0 ? (
+              {isFetching ? (
+                <div className="flex items-center justify-center gap-2 px-6 py-6 text-sm text-muted-foreground">
+                  <span className="inline-block size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Searching...
+                </div>
+              ) : results.length === 0 ? (
                 <div className="px-6 py-8 text-center text-sm text-muted-foreground">
                   No students found for "{debounced}"
                 </div>
@@ -130,14 +155,15 @@ function LandingPage() {
             </div>
           )}
 
-          {/* Footer hint */}
-          <p className="mt-8 text-xs text-muted-foreground">
-            Staff members can{" "}
-            <Link to="/auth" className="text-primary hover:underline">
-              sign in
-            </Link>{" "}
-            to manage classrooms, import students, and refresh stats.
-          </p>
+          {!signedIn && (
+            <p className="mt-8 text-xs text-muted-foreground">
+              Staff members can{" "}
+              <Link to="/auth" className="text-primary hover:underline">
+                sign in
+              </Link>{" "}
+              to manage classrooms, import students, and refresh stats.
+            </p>
+          )}
         </div>
       </main>
     </div>

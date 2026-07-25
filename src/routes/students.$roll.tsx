@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Flame, Trophy, Calendar, Star, Code, Brain } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 import { getStudentByRoll, refreshStudent, deleteStudent } from "@/lib/students.functions";
 import { useCssVars } from "@/hooks/use-css-vars";
@@ -71,8 +72,8 @@ function StudentPage() {
     onError: (e) => toast.error(String(e)),
   });
 
-  const [cBorder, cMutedFg, cPrimary, cSurface2] = useCssVars(
-    "--border", "--muted-foreground", "--primary", "--surface-2",
+  const [cBorder, cMutedFg, cPrimary, cSurface2, cEasy, cMedium, cHard] = useCssVars(
+    "--border", "--muted-foreground", "--primary", "--surface-2", "--easy", "--medium", "--hard",
   );
 
   const cal = (stats?.submission_calendar ?? {}) as Record<string, number>;
@@ -108,6 +109,16 @@ function StudentPage() {
         })),
       }
     : { fundamental: [], intermediate: [], advanced: [] };
+
+  const [activeDiff, setActiveDiff] = useState<number | null>(null);
+  const totalSolved = (stats?.easy_solved ?? 0) + (stats?.medium_solved ?? 0) + (stats?.hard_solved ?? 0);
+  const difficultyData = [
+    { name: "Easy", value: stats?.easy_solved ?? 0, color: cEasy },
+    { name: "Medium", value: stats?.medium_solved ?? 0, color: cMedium },
+    { name: "Hard", value: stats?.hard_solved ?? 0, color: cHard },
+  ];
+  const hasDifficulty = difficultyData.some(d => d.value > 0);
+  const center = activeDiff != null ? difficultyData[activeDiff] : null;
 
   const badges = (stats?.badges ?? []) as { id: string; name: string; icon: string; date: string }[];
 
@@ -221,11 +232,43 @@ function StudentPage() {
         </div>
         <div className="rounded-lg border border-border bg-surface p-6">
           <SectionTitle>Difficulty Breakdown</SectionTitle>
-          <div className="mt-2 space-y-4">
-            <DifficultyBar label="EASY" color="easy" solved={stats?.easy_solved ?? 0} total={stats?.easy_total ?? 0} />
-            <DifficultyBar label="MEDIUM" color="medium" solved={stats?.medium_solved ?? 0} total={stats?.medium_total ?? 0} />
-            <DifficultyBar label="HARD" color="hard" solved={stats?.hard_solved ?? 0} total={stats?.hard_total ?? 0} />
-          </div>
+          {hasDifficulty ? (
+            <div className="mt-2 flex justify-center">
+              <div className="relative size-36">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={difficultyData}
+                      cx="50%" cy="50%"
+                      innerRadius={48} outerRadius={68}
+                      dataKey="value"
+                      strokeWidth={0}
+                      activeIndex={activeDiff ?? undefined}
+                      onMouseEnter={(_, i) => setActiveDiff(i)}
+                      onMouseLeave={() => setActiveDiff(null)}
+                    >
+                      {difficultyData.map((e) => <Cell key={e.name} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip content={<DiffTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-xl font-bold leading-none">{center ? center.value : totalSolved}</div>
+                    <div className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                      {center ? center.name : "Solved"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2 space-y-4">
+              <DifficultyBar label="EASY" color="easy" solved={stats?.easy_solved ?? 0} total={stats?.easy_total ?? 0} />
+              <DifficultyBar label="MEDIUM" color="medium" solved={stats?.medium_solved ?? 0} total={stats?.medium_total ?? 0} />
+              <DifficultyBar label="HARD" color="hard" solved={stats?.hard_solved ?? 0} total={stats?.hard_total ?? 0} />
+            </div>
+          )}
           <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 font-mono text-xs">
             <div>
               <div className="text-muted-foreground">Acceptance</div>
@@ -297,6 +340,7 @@ function StudentPage() {
                         borderRadius: 6,
                         fontFamily: "var(--font-mono)",
                         fontSize: 12,
+                        color: cMutedFg,
                       }}
                     />
                     <Line type="monotone" dataKey="total" stroke={cPrimary} strokeWidth={2} dot={false} />
@@ -374,6 +418,22 @@ function DifficultyBar({
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
         <div className={cn("h-full", bg)} style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function DiffTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const e = payload[0];
+  return (
+    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs shadow-md">
+      <div className="flex items-center gap-1.5 font-semibold">
+        <span className="size-2.5 rounded-full" style={{ background: e.payload.fill }} />
+        {e.payload.name}
+      </div>
+      <div className="mt-0.5 font-mono text-muted-foreground">
+        {e.value} solved
       </div>
     </div>
   );

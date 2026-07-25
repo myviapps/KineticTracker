@@ -24,11 +24,18 @@ function SettingsPage() {
     mutationFn: async (enabled: boolean) => {
       await updateGoogleAuth(enabled);
     },
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({ queryKey: ["settings"] });
+      queryClient.setQueryData(["settings"], { google_auth_enabled: enabled });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       toast.success("Settings updated successfully");
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (_e) => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      toast.error("Failed to update settings");
+    },
   });
 
   const googleEnabled = settings?.google_auth_enabled ?? true;
