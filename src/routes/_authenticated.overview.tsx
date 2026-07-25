@@ -140,11 +140,14 @@ function OverviewPage() {
     "--easy", "--medium", "--hard", "--surface", "--border", "--muted-foreground", "--primary",
   );
 
+  const [activeDiff, setActiveDiff] = useState<number | null>(null);
   const diff = [
     { name: "Easy", value: totals.easy, color: cEasy },
     { name: "Medium", value: totals.medium, color: cMedium },
     { name: "Hard", value: totals.hard, color: cHard },
   ];
+  const totalSolved = totals.total;
+  const center = activeDiff != null ? diff[activeDiff] : null;
 
 
   const trend: { day: string; solved: number }[] = [];
@@ -218,7 +221,7 @@ function OverviewPage() {
                 <CartesianGrid stroke={cBorder} strokeDasharray="3 3" />
                 <XAxis dataKey="day" fontSize={10} stroke={cMutedFg} />
                 <YAxis fontSize={10} stroke={cMutedFg} />
-                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12 }} />
+                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
                 <Line type="monotone" dataKey="solved" stroke={cPrimary} strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -230,15 +233,33 @@ function OverviewPage() {
             <h3 className="text-sm font-bold uppercase tracking-wider">Difficulty Split</h3>
             <Target className="size-4 text-primary" />
           </div>
-          <div className="h-64">
+          <div className="relative h-64">
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={diff} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                <Pie
+                  data={diff}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={50}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  strokeWidth={0}
+                  activeIndex={activeDiff ?? undefined}
+                  onMouseEnter={(_, i) => setActiveDiff(i)}
+                  onMouseLeave={() => setActiveDiff(null)}
+                >
                   {diff.map((d, i) => <Cell key={i} fill={d.color} />)}
                 </Pie>
-                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12 }} />
               </PieChart>
             </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-2xl font-bold leading-none text-foreground">{center ? center.value : totalSolved}</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {center ? center.name : "Total Solved"}
+                </div>
+              </div>
+            </div>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-2 text-center font-mono text-[10px]">
             <div><span className="text-easy">■</span> Easy {totals.easy}</div>
@@ -259,7 +280,7 @@ function OverviewPage() {
               <BarChart data={top10} layout="vertical" margin={{ left: 20 }}>
                 <XAxis type="number" fontSize={10} stroke={cMutedFg} />
                 <YAxis type="category" dataKey="name" fontSize={10} width={110} stroke={cMutedFg} />
-                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12 }} />
+                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
                 <Bar dataKey="total" fill={cPrimary} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>

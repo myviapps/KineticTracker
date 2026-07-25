@@ -249,12 +249,11 @@ function StudentPage() {
                     >
                       {difficultyData.map((e) => <Cell key={e.name} fill={e.color} />)}
                     </Pie>
-                    <Tooltip content={<DiffTooltip />} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="text-center">
-                    <div className="text-xl font-bold leading-none">{center ? center.value : totalSolved}</div>
+                    <div className="text-xl font-bold leading-none text-foreground">{center ? center.value : totalSolved}</div>
                     <div className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
                       {center ? center.name : "Solved"}
                     </div>
@@ -418,22 +417,6 @@ function DifficultyBar({
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
         <div className={cn("h-full", bg)} style={{ width: `${Math.min(100, pct)}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function DiffTooltip({ active, payload }: any) {
-  if (!active || !payload?.length) return null;
-  const e = payload[0];
-  return (
-    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs shadow-md">
-      <div className="flex items-center gap-1.5 font-semibold">
-        <span className="size-2.5 rounded-full" style={{ background: e.payload.fill }} />
-        {e.payload.name}
-      </div>
-      <div className="mt-0.5 font-mono text-muted-foreground">
-        {e.value} solved
       </div>
     </div>
   );
