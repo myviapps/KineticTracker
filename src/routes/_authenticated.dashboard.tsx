@@ -1,0 +1,206 @@
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { queryOptions, useSuspenseQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { toast } from "sonner";
+import { Plus, Users, Trash2, ArrowRight, Sparkles, BarChart3, Shield, UserCog } from "lucide-react";
+
+import { listClassrooms, deleteClassroom } from "@/lib/classrooms.functions";
+import { seedMockClassroom } from "@/lib/mock.functions";
+import { getCurrentUserClient } from "@/lib/auth.functions";
+import { Button } from "@/components/ui/button";
+import { SectionTitle } from "@/components/stat-card";
+import { BulkUploader } from "@/components/bulk-uploader";
+
+const classroomsQO = queryOptions({
+  queryKey: ["classrooms"],
+  queryFn: () => listClassrooms(),
+});
+
+export const Route = createFileRoute("/_authenticated/dashboard")({
+  head: () => ({
+    meta: [
+      { title: "Dashboard — Kinetic" },
+      { name: "description", content: "Manage classrooms and track LeetCode progress." },
+    ],
+  }),
+  loader: ({ context }) => {
+    if (typeof window !== "undefined") {
+      return context.queryClient.ensureQueryData(classroomsQO);
+    }
+  },
+  component: DashboardPage,
+  errorComponent: ({ error }) => (
+    <div className="p-8 text-sm text-destructive">{error.message}</div>
+  ),
+});
+
+function DashboardPage() {
+  const { data: userData } = useQuery({
+    queryKey: ["currentUser"],
+    queryFn: () => getCurrentUserClient(),
+  });
+  const role = userData?.role;
+  const isAdmin = role === "admin";
+  const isPO = role === "placement_officer";
+  const { data: classrooms } = useSuspenseQuery(classroomsQO);
+  const router = useRouter();
+  const del = useServerFn(deleteClassroom);
+  const mock = useServerFn(seedMockClassroom);
+
+  const mutation = useMutation({
+    mutationFn: (id: string) => del({ data: { id } }),
+    onSuccess: () => {
+      toast.success("Classroom deleted");
+      router.invalidate();
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const mockM = useMutation({
+    mutationFn: () => mock(),
+    onSuccess: (r) => {
+      toast.success(r.created ? "Demo classroom seeded" : "Demo classroom already exists");
+      router.invalidate();
+      router.navigate({ to: "/classrooms/$id", params: { id: r.id } });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
+            Kinetic / {role === "admin" ? "Admin" : role === "placement_officer" ? "Overview" : "Dashboard"}
+          </h1>
+          <h2 className="mt-2 text-3xl font-bold tracking-tight">
+            {isAdmin ? "Command Center" : isPO ? "College Overview" : "My Classrooms"}
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {classrooms.length} cohort{classrooms.length === 1 ? "" : "s"} ·{" "}
+            {classrooms.reduce((s, c) => s + c.student_count, 0)} students.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {isPO && (
+            <Button asChild variant="outline">
+              <Link to="/overview">
+                <BarChart3 className="mr-1 size-4" /> Cross-Classroom Analytics
+              </Link>
+            </Button>
+          )}
+          {isAdmin && (
+            <>
+              <Button asChild variant="outline">
+                <Link to="/staff">
+                  <UserCog className="mr-1 size-4" /> Manage Staff
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => mockM.mutate()}
+                disabled={mockM.isPending}
+              >
+                <Sparkles className="mr-1 size-4" />
+                {mockM.isPending ? "Seeding…" : "Try Demo Data"}
+              </Button>
+              <Button asChild>
+                <Link to="/classrooms/new">
+                  <Plus className="mr-1 size-4" /> New Classroom
+                </Link>
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {(isAdmin) && (
+        <div className="mb-10">
+          <BulkUploader />
+        </div>
+      )}
+
+      <SectionTitle>Active Cohorts</SectionTitle>
+      {classrooms.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-16 text-center">
+          <Users className="mx-auto mb-3 size-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            {isAdmin
+              ? "No classrooms yet. Upload a file above, or spin up demo data to explore the UI."
+              : "No classrooms assigned yet. Contact your admin."}
+          </p>
+          {isAdmin && (
+            <div className="mt-6 flex justify-center gap-2">
+              <Button onClick={() => mockM.mutate()} disabled={mockM.isPending}>
+                <Sparkles className="mr-1 size-4" /> Seed Demo Classroom
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/classrooms/new">
+                  <Plus className="mr-1 size-4" /> Create Manually
+                </Link>
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {classrooms.map((c, i) => (
+            <Link
+              key={c.id}
+              to="/classrooms/$id"
+              params={{ id: c.id }}
+              className="group relative block rounded-lg border border-border bg-surface p-6 transition-colors hover:border-primary/50"
+            >
+              <div className="mb-6 flex items-start justify-between">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-primary">
+                  [ COHORT_{String(i + 1).padStart(2, "0")} ]
+                </span>
+                <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-primary">
+                  LIVE
+                </span>
+              </div>
+              <h3 className="mb-1 text-lg font-bold">{c.name}</h3>
+              <p className="mb-6 line-clamp-2 min-h-[2.5rem] text-sm text-muted-foreground">
+                {c.description || <span className="italic">No description</span>}
+              </p>
+              <div className="mb-6 flex gap-6 font-mono text-[10px]">
+                <div>
+                  <span className="block text-muted-foreground">STUDENTS</span>
+                  <span className="text-base font-bold">{c.student_count}</span>
+                </div>
+                <div>
+                  <span className="block text-muted-foreground">CREATED</span>
+                  <span className="text-base font-bold">
+                    {new Date(c.created_at).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="inline-flex items-center gap-1 text-sm font-semibold text-primary group-hover:underline">
+                  Open <ArrowRight className="size-4" />
+                </span>
+                {isAdmin && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (confirm(`Delete "${c.name}" and all its students?`))
+                        mutation.mutate(c.id);
+                    }}
+                    className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                    aria-label="Delete classroom"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                )}
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
