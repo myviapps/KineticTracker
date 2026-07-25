@@ -320,7 +320,7 @@ export const refreshClassroom = createServerFn({ method: "POST" })
         try {
           await scrapeStudent(s.id);
           ok += 1;
-          await new Promise((r) => setTimeout(r, 1500));
+          await new Promise((r) => setTimeout(r, 300));
         } catch (e) {
           console.error(`Scrape failed for ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
           failed += 1;
@@ -333,7 +333,7 @@ export const refreshClassroom = createServerFn({ method: "POST" })
   });
 
 export const refreshPlatform = createServerFn({ method: "POST" })
-  .validator((d: { force?: boolean } = {}) => d)
+  .inputValidator((d: { force?: boolean }) => z.object({ force: z.boolean().optional() }).parse(d))
   .middleware([requireSupabaseAuth])
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -386,7 +386,7 @@ export const refreshPlatform = createServerFn({ method: "POST" })
         try {
           await scrapeStudent(s.id);
           ok += 1;
-          await new Promise((r) => setTimeout(r, 1500));
+          await new Promise((r) => setTimeout(r, 300));
         } catch (e) {
           console.error(`Scrape failed for ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
           failed += 1;

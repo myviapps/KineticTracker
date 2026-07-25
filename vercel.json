@@ -2,5 +2,10 @@
   "buildCommand": "npm run build",
   "framework": null,
   "outputDirectory": ".vercel/output",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "functions": {
+    "api/**/*.func": {
+      "maxDuration": 60
+    }
+  }
 }

@@ -98,7 +98,7 @@ export const Route = createFileRoute("/api/public/cron/refresh")({
               .eq("id", s.id);
             failed += 1;
           }
-          await new Promise((r) => setTimeout(r, 1500));
+          await new Promise((r) => setTimeout(r, 300));
         }
 
         return Response.json({ ok, failed, total: (students ?? []).length });

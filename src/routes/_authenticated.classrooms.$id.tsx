@@ -175,6 +175,7 @@ function ClassroomDetail() {
       toast.success("Deleted");
       router.navigate({ to: "/dashboard" });
     },
+    onError: (e) => toast.error(String(e)),
   });
 
   const rows = useMemo(
