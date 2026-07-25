@@ -18,36 +18,7 @@ import { DailyMatrix } from "@/components/daily-matrix";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-
-/**
- * Resolve CSS custom properties to their computed values.
- * Recharts renders SVG and cannot resolve var(--x) strings inside SVG fill/stroke attributes.
- * This hook reads real values from getComputedStyle and re-resolves on theme change.
- */
-function useCssVars(...vars: string[]): string[] {
-  const resolve = useCallback(() => {
-    const style = getComputedStyle(document.documentElement);
-    return vars.map((v) => style.getPropertyValue(v).trim() || v);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const [values, setValues] = useState<string[]>(() =>
-    typeof window !== "undefined" ? resolve() : vars,
-  );
-
-  useEffect(() => {
-    setValues(resolve());
-    // Re-resolve whenever the theme class changes (dark ↔ light toggle)
-    const observer = new MutationObserver(() => setValues(resolve()));
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, [resolve]);
-
-  return values;
-}
+import { useCssVars } from "@/hooks/use-css-vars";
 
 const clsQO = (id: string) =>
   queryOptions({

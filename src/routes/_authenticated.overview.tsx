@@ -6,7 +6,7 @@ import {
   BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from "recharts";
 import { Trophy, Users, Flame, Target, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { getOverview } from "@/lib/overview.functions";
 import { refreshPlatform } from "@/lib/students.functions";
@@ -15,24 +15,7 @@ import { Button } from "@/components/ui/button";
 import { toStudentRow, bucketCounts, BUCKETS } from "@/lib/buckets";
 import { lastNDaysCount } from "@/lib/date-buckets";
 import { cn } from "@/lib/utils";
-
-function useCssVars(...vars: string[]): string[] {
-  const resolve = useCallback(() => {
-    const style = getComputedStyle(document.documentElement);
-    return vars.map((v) => style.getPropertyValue(v).trim() || v);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const [values, setValues] = useState<string[]>(() =>
-    typeof window !== "undefined" ? resolve() : vars,
-  );
-  useEffect(() => {
-    setValues(resolve());
-    const observer = new MutationObserver(() => setValues(resolve()));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, [resolve]);
-  return values;
-}
+import { useCssVars } from "@/hooks/use-css-vars";
 
 const qo = queryOptions({ queryKey: ["overview"], queryFn: () => getOverview() });
 

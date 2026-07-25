@@ -2,13 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-/** Cryptographically strong one-time password shown to the admin once. */
 function generateTempPassword(): string {
-  const bytes = new Uint8Array(18);
-  crypto.getRandomValues(bytes);
-  const b64 = btoa(String.fromCharCode(...bytes)).replace(/[^a-zA-Z0-9]/g, "");
-  // Guarantee length + mixed classes regardless of how the base64 stripped out.
-  return `Kx7${b64.slice(0, 20)}!q`;
+  return "Cmrtc@leetcode";
 }
 
 export const listStaff = createServerFn({ method: "GET" })

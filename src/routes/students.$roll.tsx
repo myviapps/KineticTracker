@@ -6,6 +6,7 @@ import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Flame, Trophy, Calendar, St
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 import { getStudentByRoll, refreshStudent, deleteStudent } from "@/lib/students.functions";
+import { useCssVars } from "@/hooks/use-css-vars";
 import { Button } from "@/components/ui/button";
 import { Heatmap } from "@/components/heatmap";
 import { StatCard, SectionTitle } from "@/components/stat-card";
@@ -69,6 +70,10 @@ function StudentPage() {
     onSuccess: () => { toast.success("Refreshed"); router.invalidate(); },
     onError: (e) => toast.error(String(e)),
   });
+
+  const [cBorder, cMutedFg, cPrimary, cSurface2] = useCssVars(
+    "--border", "--muted-foreground", "--primary", "--surface-2",
+  );
 
   const cal = (stats?.submission_calendar ?? {}) as Record<string, number>;
   const today = todayCount(cal);
@@ -282,19 +287,19 @@ function StudentPage() {
               <div className="mt-2 h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={chartData}>
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-                    <XAxis dataKey="date" stroke="var(--muted-foreground)" fontSize={10} />
-                    <YAxis stroke="var(--muted-foreground)" fontSize={10} />
+                    <CartesianGrid stroke={cBorder} strokeDasharray="3 3" />
+                    <XAxis dataKey="date" stroke={cMutedFg} fontSize={10} />
+                    <YAxis stroke={cMutedFg} fontSize={10} />
                     <Tooltip
                       contentStyle={{
-                        background: "var(--surface-2)",
-                        border: "1px solid var(--border)",
+                        background: cSurface2,
+                        border: `1px solid ${cBorder}`,
                         borderRadius: 6,
                         fontFamily: "var(--font-mono)",
                         fontSize: 12,
                       }}
                     />
-                    <Line type="monotone" dataKey="total" stroke="var(--primary)" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="total" stroke={cPrimary} strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

@@ -4,7 +4,7 @@
   "outputDirectory": ".vercel/output",
   "installCommand": "npm install",
   "functions": {
-    "api/**/*.func": {
+    "api/**": {
       "maxDuration": 60
     }
   }
