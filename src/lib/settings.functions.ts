@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
 
 export const getSiteSettings = createServerFn({ method: "GET" }).handler(async () => {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -11,33 +11,23 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(async (
 
   if (error) {
     console.error("Error fetching site settings:", error);
-    return { google_auth_enabled: true }; // Default safe fallback
+    return { google_auth_enabled: true };
   }
 
   return data;
 });
 
 export const updateGoogleAuth = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .validator((enabled: boolean) => enabled)
-  .handler(async ({ data: enabled, context }) => {
+  .handler(async ({ data: enabled }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: role } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (role?.role !== "admin") throw new Error("Forbidden");
-
     const { error } = await supabaseAdmin
       .from("site_settings")
       .update({ google_auth_enabled: enabled })
       .eq("id", 1);
 
-    if (error) {
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
 
     return true;
   });

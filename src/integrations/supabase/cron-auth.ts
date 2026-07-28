@@ -12,6 +12,10 @@ export function requireCronSecret(): void {
   if (!secret) throw new Error('CRON_SECRET not configured')
 
   const request = getRequest()
+
+  // Vercel Cron Jobs send x-vercel-cron: 1 (platform-authenticated)
+  if (request.headers.get('x-vercel-cron') === '1') return
+
   const provided =
     request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
     request.headers.get('x-cron-secret') ??

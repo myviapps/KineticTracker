@@ -2,7 +2,7 @@
 import { createMiddleware } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@supabase/supabase-js'
-import type { Database } from './types'
+import type { Database, AppRole } from './types'
 
 
 
@@ -107,3 +107,44 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
     });
   },
 );
+
+async function getAdminClient() {
+  const mod = await import("@/integrations/supabase/client.server");
+  return mod.supabaseAdmin as ReturnType<typeof createClient<Database>>;
+}
+
+async function getUserRole(userId: string): Promise<AppRole | null> {
+  const supabaseAdmin = await getAdminClient();
+  const { data } = await supabaseAdmin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return data?.role ?? null;
+}
+
+export const requireAdmin = createMiddleware({ type: 'function' }).server(
+  async ({ next, context }: any) => {
+    const ctx = context as { userId: string };
+    const role = await getUserRole(ctx.userId);
+    if (role !== "admin") throw new Error("Forbidden");
+    return next({ context: { ...ctx, role } });
+  },
+);
+
+export const requireFacultyAccess = (classroomId: string) =>
+  createMiddleware({ type: 'function' }).server(async ({ next, context }: any) => {
+    const ctx = context as { userId: string; role?: AppRole };
+    const role = ctx.role ?? await getUserRole(ctx.userId);
+    if (role === "admin" || role === "placement_officer") return next({ context: { ...ctx, role } });
+    if (role !== "faculty") throw new Error("Forbidden");
+    const supabaseAdmin = await getAdminClient();
+    const { data: assignment } = await supabaseAdmin
+      .from("faculty_assignments")
+      .select("classroom_id")
+      .eq("faculty_user_id", ctx.userId)
+      .eq("classroom_id", classroomId)
+      .maybeSingle();
+    if (!assignment) throw new Error("Forbidden");
+    return next({ context: { ...ctx, role } });
+  });

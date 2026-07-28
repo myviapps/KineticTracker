@@ -18,6 +18,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedOverviewRouteImport } from './routes/_authenticated.overview'
 import { Route as StudentsRollRouteImport } from './routes/students.$roll'
 import { Route as AuthenticatedAdminImportRouteImport } from './routes/_authenticated._admin.import'
+import { Route as AuthenticatedAdminScrapeRunsRouteImport } from './routes/_authenticated._admin.scrape-runs'
 import { Route as AuthenticatedAdminSettingsRouteImport } from './routes/_authenticated._admin.settings'
 import { Route as AuthenticatedAdminStaffRouteImport } from './routes/_authenticated._admin.staff'
 import { Route as AuthenticatedClassroomsIndexRouteImport } from './routes/_authenticated.classrooms.index'
@@ -70,6 +71,12 @@ const AuthenticatedAdminImportRoute =
     path: '/import',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedAdminScrapeRunsRoute =
+  AuthenticatedAdminScrapeRunsRouteImport.update({
+    id: '/scrape-runs',
+    path: '/scrape-runs',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const AuthenticatedAdminSettingsRoute =
   AuthenticatedAdminSettingsRouteImport.update({
     id: '/settings',
@@ -119,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/overview': typeof AuthenticatedOverviewRoute
   '/students/$roll': typeof StudentsRollRoute
   '/import': typeof AuthenticatedAdminImportRoute
+  '/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/settings': typeof AuthenticatedAdminSettingsRoute
   '/staff': typeof AuthenticatedAdminStaffRoute
   '/classrooms/$id': typeof AuthenticatedClassroomsIdRouteWithChildren
@@ -134,6 +142,7 @@ export interface FileRoutesByTo {
   '/overview': typeof AuthenticatedOverviewRoute
   '/students/$roll': typeof StudentsRollRoute
   '/import': typeof AuthenticatedAdminImportRoute
+  '/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/settings': typeof AuthenticatedAdminSettingsRoute
   '/staff': typeof AuthenticatedAdminStaffRoute
   '/classrooms/$id': typeof AuthenticatedClassroomsIdRouteWithChildren
@@ -153,6 +162,7 @@ export interface FileRoutesById {
   '/_authenticated/overview': typeof AuthenticatedOverviewRoute
   '/students/$roll': typeof StudentsRollRoute
   '/_authenticated/_admin/import': typeof AuthenticatedAdminImportRoute
+  '/_authenticated/_admin/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/_authenticated/_admin/settings': typeof AuthenticatedAdminSettingsRoute
   '/_authenticated/_admin/staff': typeof AuthenticatedAdminStaffRoute
   '/_authenticated/classrooms/$id': typeof AuthenticatedClassroomsIdRouteWithChildren
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/overview'
     | '/students/$roll'
     | '/import'
+    | '/scrape-runs'
     | '/settings'
     | '/staff'
     | '/classrooms/$id'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/overview'
     | '/students/$roll'
     | '/import'
+    | '/scrape-runs'
     | '/settings'
     | '/staff'
     | '/classrooms/$id'
@@ -204,6 +216,7 @@ export interface FileRouteTypes {
     | '/_authenticated/overview'
     | '/students/$roll'
     | '/_authenticated/_admin/import'
+    | '/_authenticated/_admin/scrape-runs'
     | '/_authenticated/_admin/settings'
     | '/_authenticated/_admin/staff'
     | '/_authenticated/classrooms/$id'
@@ -286,6 +299,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminImportRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/_admin/scrape-runs': {
+      id: '/_authenticated/_admin/scrape-runs'
+      path: '/scrape-runs'
+      fullPath: '/scrape-runs'
+      preLoaderRoute: typeof AuthenticatedAdminScrapeRunsRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/_admin/settings': {
       id: '/_authenticated/_admin/settings'
       path: '/settings'
@@ -340,6 +360,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminImportRoute: typeof AuthenticatedAdminImportRoute
+  AuthenticatedAdminScrapeRunsRoute: typeof AuthenticatedAdminScrapeRunsRoute
   AuthenticatedAdminSettingsRoute: typeof AuthenticatedAdminSettingsRoute
   AuthenticatedAdminStaffRoute: typeof AuthenticatedAdminStaffRoute
   AuthenticatedAdminClassroomsNewRoute: typeof AuthenticatedAdminClassroomsNewRoute
@@ -347,6 +368,7 @@ interface AuthenticatedAdminRouteChildren {
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminImportRoute: AuthenticatedAdminImportRoute,
+  AuthenticatedAdminScrapeRunsRoute: AuthenticatedAdminScrapeRunsRoute,
   AuthenticatedAdminSettingsRoute: AuthenticatedAdminSettingsRoute,
   AuthenticatedAdminStaffRoute: AuthenticatedAdminStaffRoute,
   AuthenticatedAdminClassroomsNewRoute: AuthenticatedAdminClassroomsNewRoute,

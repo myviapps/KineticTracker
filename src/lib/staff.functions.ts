@@ -1,23 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
 
 function generateTempPassword(): string {
   return "Cmrtc@leetcode";
 }
 
 export const listStaff = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .middleware([requireSupabaseAuth, requireAdmin])
+  .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    
-    // Check caller is admin
-    const { data: callerRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (callerRole?.role !== "admin") throw new Error("Forbidden");
 
     // Get all users with roles
     const { data: userRoles } = await supabaseAdmin
@@ -58,23 +50,15 @@ export const listStaff = createServerFn({ method: "GET" })
   });
 
 export const createStaffUser = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: unknown) => z.object({
     email: z.string().email(),
     name: z.string().min(1),
     role: z.enum(["admin", "placement_officer", "faculty"]),
     classroom_ids: z.array(z.string().uuid()).optional(),
   }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    // Check caller is admin
-    const { data: callerRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (callerRole?.role !== "admin") throw new Error("Forbidden");
 
     const password = generateTempPassword();
     const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
@@ -107,16 +91,10 @@ export const createStaffUser = createServerFn({ method: "POST" })
   });
 
 export const deactivateUser = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: { user_id: string }) => z.object({ user_id: z.string() }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: callerRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (callerRole?.role !== "admin") throw new Error("Forbidden");
 
     await supabaseAdmin.from("faculty_assignments").delete().eq("faculty_user_id", data.user_id);
     await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id);
@@ -127,20 +105,12 @@ export const deactivateUser = createServerFn({ method: "POST" })
   });
 
 export const resetStaffPassword = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: { user_id: string }) =>
     z.object({ user_id: z.string().uuid() }).parse(d),
   )
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    // Verify caller is admin
-    const { data: callerRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (callerRole?.role !== "admin") throw new Error("Forbidden");
 
     const password = generateTempPassword();
     const { error } = await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
@@ -152,20 +122,13 @@ export const resetStaffPassword = createServerFn({ method: "POST" })
   });
 
 export const assignFacultyToClassroom = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: unknown) => z.object({
     faculty_user_id: z.string().uuid(),
     classroom_id: z.string().uuid(),
   }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: callerRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (callerRole?.role !== "admin") throw new Error("Forbidden");
 
     const { error } = await supabaseAdmin
       .from("faculty_assignments")
@@ -175,20 +138,13 @@ export const assignFacultyToClassroom = createServerFn({ method: "POST" })
   });
 
 export const unassignFaculty = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: unknown) => z.object({
     faculty_user_id: z.string().uuid(),
     classroom_id: z.string().uuid(),
   }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: callerRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (callerRole?.role !== "admin") throw new Error("Forbidden");
 
     const { error } = await supabaseAdmin
       .from("faculty_assignments")
@@ -200,16 +156,9 @@ export const unassignFaculty = createServerFn({ method: "POST" })
   });
 
 export const forceReleaseRefreshLock = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .middleware([requireSupabaseAuth, requireAdmin])
+  .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: callerRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (callerRole?.role !== "admin") throw new Error("Forbidden");
 
     await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global");
     await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global_all");

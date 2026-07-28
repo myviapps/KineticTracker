@@ -19,8 +19,16 @@ export const Route = createFileRoute("/api/public/cron/refresh")({
           .select("id, leetcode_id");
         if (error) return Response.json({ error: error.message }, { status: 500 });
 
+        const runId = crypto.randomUUID();
+        try {
+          await supabaseAdmin.from("scrape_runs").insert({
+            id: runId, source: "cron", started_at: new Date().toISOString(), total_students: (students ?? []).length,
+          });
+        } catch {}
+
         let ok = 0;
         let failed = 0;
+        const errors: string[] = [];
         for (const s of students ?? []) {
           try {
             const p = await fetchLeetCodeProfile(s.leetcode_id);
@@ -92,6 +100,7 @@ export const Route = createFileRoute("/api/public/cron/refresh")({
               .eq("id", s.id);
             ok += 1;
           } catch (e: any) {
+            errors.push(String(e?.message ?? e).slice(0, 200));
             await supabaseAdmin
               .from("students")
               .update({ last_scraped_at: new Date().toISOString(), scrape_error: String(e?.message ?? e).slice(0, 300) })
@@ -100,6 +109,12 @@ export const Route = createFileRoute("/api/public/cron/refresh")({
           }
           await new Promise((r) => setTimeout(r, 300));
         }
+
+        try {
+          await supabaseAdmin.from("scrape_runs").update({
+            completed_at: new Date().toISOString(), success_count: ok, failed_count: failed, errors: errors.length ? JSON.stringify(errors.slice(0, 20)) : null,
+          }).eq("id", runId);
+        } catch {}
 
         return Response.json({ ok, failed, total: (students ?? []).length });
       },

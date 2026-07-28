@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
 
 const StudentInput = z.object({
   classroom_id: z.string().uuid(),
@@ -91,7 +91,12 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
       if (!assignment) throw new Error("Forbidden");
     }
 
-    const payload = data.rows.map((r) => ({
+    const keyed = new Map<string, (typeof data.rows)[number]>();
+    for (const r of data.rows) {
+      const key = `${data.classroom_id}:${r.roll}`;
+      keyed.set(key, r);
+    }
+    const payload = Array.from(keyed.values()).map((r) => ({
       classroom_id: data.classroom_id,
       name: r.name,
       roll: r.roll,
@@ -249,8 +254,21 @@ export const refreshStudent = createServerFn({ method: "POST" })
         .maybeSingle();
       if (!assignment) throw new Error("Forbidden");
     }
-    await scrapeStudent(data.id);
-    return { ok: true };
+    const runId = crypto.randomUUID();
+    const startedAt = new Date().toISOString();
+    try {
+      await supabaseAdmin.from("scrape_runs").insert({
+        id: runId, source: "student", student_id: data.id, started_at: startedAt, total_students: 1,
+      });
+    } catch {}
+    try {
+      await scrapeStudent(data.id);
+      try { await supabaseAdmin.from("scrape_runs").update({ completed_at: new Date().toISOString(), success_count: 1, failed_count: 0 }).eq("id", runId); } catch {}
+      return { ok: true };
+    } catch (e) {
+      try { await supabaseAdmin.from("scrape_runs").update({ completed_at: new Date().toISOString(), success_count: 0, failed_count: 1, errors: JSON.stringify([String(e)]) }).eq("id", runId); } catch {}
+      throw e;
+    }
   });
 
 export const refreshClassroom = createServerFn({ method: "POST" })
@@ -309,6 +327,13 @@ export const refreshClassroom = createServerFn({ method: "POST" })
       expires_at: expires.toISOString(),
     }, { onConflict: "lock_key" });
 
+    const runId = crypto.randomUUID();
+    try {
+      await supabaseAdmin.from("scrape_runs").insert({
+        id: runId, source: "classroom", classroom_id: data.id, started_at: new Date().toISOString(), total_students: 0,
+      });
+    } catch {}
+
     try {
       const { data: students } = await supabaseAdmin
         .from("students")
@@ -316,16 +341,22 @@ export const refreshClassroom = createServerFn({ method: "POST" })
         .eq("classroom_id", data.id);
       let ok = 0;
       let failed = 0;
+      const errors: string[] = [];
       for (const s of students ?? []) {
         try {
           await scrapeStudent(s.id);
           ok += 1;
           await new Promise((r) => setTimeout(r, 300));
         } catch (e) {
-          console.error(`Scrape failed for ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
+          errors.push(String(e));
           failed += 1;
         }
       }
+      try {
+        await supabaseAdmin.from("scrape_runs").update({
+          completed_at: new Date().toISOString(), total_students: (students ?? []).length, success_count: ok, failed_count: failed, errors: errors.length ? JSON.stringify(errors) : null,
+        }).eq("id", runId);
+      } catch {}
       return { ok, failed };
     } finally {
       await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global");
@@ -334,19 +365,9 @@ export const refreshClassroom = createServerFn({ method: "POST" })
 
 export const refreshPlatform = createServerFn({ method: "POST" })
   .inputValidator((d: { force?: boolean }) => z.object({ force: z.boolean().optional() }).parse(d))
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    const { data: roles } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-
-    if (roles?.role !== "admin") {
-      throw new Error("Unauthorized: Admins only");
-    }
 
     const now = new Date();
     const expires = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour TTL for global
@@ -378,20 +399,33 @@ export const refreshPlatform = createServerFn({ method: "POST" })
       expires_at: expires.toISOString(),
     }, { onConflict: "lock_key" });
 
+    const runId = crypto.randomUUID();
+    try {
+      await supabaseAdmin.from("scrape_runs").insert({
+        id: runId, source: "platform", started_at: new Date().toISOString(), total_students: 0,
+      });
+    } catch {}
+
     try {
       const { data: students } = await supabaseAdmin.from("students").select("id");
       let ok = 0;
       let failed = 0;
+      const errors: string[] = [];
       for (const s of students ?? []) {
         try {
           await scrapeStudent(s.id);
           ok += 1;
           await new Promise((r) => setTimeout(r, 300));
         } catch (e) {
-          console.error(`Scrape failed for ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
+          errors.push(String(e));
           failed += 1;
         }
       }
+      try {
+        await supabaseAdmin.from("scrape_runs").update({
+          completed_at: new Date().toISOString(), total_students: (students ?? []).length, success_count: ok, failed_count: failed, errors: errors.length ? JSON.stringify(errors) : null,
+        }).eq("id", runId);
+      } catch {}
       return { ok, failed };
     } finally {
       await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global_all");

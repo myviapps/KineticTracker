@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
 
 const CreateClassroomInput = z.object({
   name: z.string().trim().min(1).max(100),
@@ -37,7 +37,6 @@ export const getClassroom = createServerFn({ method: "GET" })
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // Faculty can only access classrooms they're assigned to
     const { data: role } = await supabaseAdmin
       .from("user_roles")
       .select("role")
@@ -63,7 +62,7 @@ export const getClassroom = createServerFn({ method: "GET" })
 
     const { data: students } = await supabaseAdmin
       .from("students")
-      .select("id, name, roll, leetcode_id, last_scraped_at, scrape_error")
+      .select("id, name, roll, email, leetcode_id, last_scraped_at, scrape_error")
       .eq("classroom_id", data.id)
       .order("roll", { ascending: true });
 
@@ -84,17 +83,10 @@ export const getClassroom = createServerFn({ method: "GET" })
   });
 
 export const createClassroom = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: unknown) => CreateClassroomInput.parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    // Check admin
-    const { data: role } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (role?.role !== "admin") throw new Error("Forbidden");
 
     const { data: row, error } = await supabaseAdmin
       .from("classrooms")
@@ -106,16 +98,10 @@ export const createClassroom = createServerFn({ method: "POST" })
   });
 
 export const deleteClassroom = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: role } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (role?.role !== "admin") throw new Error("Forbidden");
 
     const { error } = await supabaseAdmin.from("classrooms").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
@@ -159,13 +145,16 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
     
     const { data: snapshots } = await supabaseAdmin
       .from("daily_snapshots")
-      .select("student_id, snapshot_date, easy_solved, medium_solved, hard_solved")
+      .select("student_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved")
       .in("student_id", studentIds)
       .gte("snapshot_date", data.startDate)
       .lte("snapshot_date", data.endDate)
       .order("snapshot_date", { ascending: true });
       
-    const breakdown: Record<string, { easy: number; medium: number; hard: number; total: number }> = {};
+    const result: Record<string, {
+      latest: { total: number; easy: number; medium: number; hard: number };
+      snapshots: { date: string; total: number; easy: number; medium: number; hard: number }[];
+    }> = {};
     
     if (snapshots && snapshots.length > 0) {
       const byStudent = new Map<string, typeof snapshots>();
@@ -176,20 +165,25 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
       
       for (const [studentId, snaps] of byStudent.entries()) {
         if (snaps.length > 0) {
-          const first = snaps[0];
           const last = snaps[snaps.length - 1];
-          const easy = Math.max(0, last.easy_solved - first.easy_solved);
-          const medium = Math.max(0, last.medium_solved - first.medium_solved);
-          const hard = Math.max(0, last.hard_solved - first.hard_solved);
-          breakdown[studentId] = {
-            easy,
-            medium,
-            hard,
-            total: easy + medium + hard
+          result[studentId] = {
+            latest: {
+              total: last.total_solved,
+              easy: last.easy_solved,
+              medium: last.medium_solved,
+              hard: last.hard_solved,
+            },
+            snapshots: snaps.map(s => ({
+              date: s.snapshot_date,
+              total: s.total_solved,
+              easy: s.easy_solved,
+              medium: s.medium_solved,
+              hard: s.hard_solved,
+            })),
           };
         }
       }
     }
     
-    return breakdown;
+    return result;
   });

@@ -12,6 +12,11 @@ import { getOverview } from "@/lib/overview.functions";
 import { refreshPlatform } from "@/lib/students.functions";
 import { StatCard, SectionTitle } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { toStudentRow, bucketCounts, BUCKETS } from "@/lib/buckets";
 import { lastNDaysCount } from "@/lib/date-buckets";
 import { cn } from "@/lib/utils";
@@ -59,7 +64,7 @@ function OverviewPage() {
       setRefreshStartedAt(Date.now());
       return refreshP({ data: { force } });
     },
-    onSuccess: (r) => {
+    onSuccess: (r: { ok: number; failed: number }) => {
       toast.success(`Platform Refreshed ${r.ok} · ${r.failed} failed`);
       setRefreshStartedAt(null);
       router.invalidate();
@@ -173,18 +178,29 @@ function OverviewPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => {
-              if (confirm("Are you sure you want to scrape all students across the entire platform? This may take several minutes.")) {
-                refreshM.mutate();
-              }
-            }}
-            disabled={refreshM.isPending}
-          >
-            <RefreshCw className={cn("mr-2 size-4", refreshM.isPending && "animate-spin")} />
-            {refreshM.isPending ? `Scraping... (${processedCount}/${totalStudents})` : "Refresh Platform"}
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={refreshM.isPending}
+              >
+                <RefreshCw className={cn("mr-2 size-4", refreshM.isPending && "animate-spin")} />
+                {refreshM.isPending ? `Scraping... (${processedCount}/${totalStudents})` : "Refresh Platform"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Refresh all students?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to scrape all students across the entire platform? This may take several minutes.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => refreshM.mutate(undefined)}>Refresh</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

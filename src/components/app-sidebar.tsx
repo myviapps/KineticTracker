@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Terminal, BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, X } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Terminal, BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, X, History } from "lucide-react";
 import { useState } from "react";
 import {
   Sidebar,
@@ -18,7 +18,7 @@ import {
 import { listClassrooms } from "@/lib/classrooms.functions";
 import { getCurrentUserClient } from "@/lib/auth.functions";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery as useAuthQuery, useMutation } from "@tanstack/react-query";
+
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
@@ -48,7 +48,7 @@ export function AppSidebar() {
     onError: (e) => toast.error(String(e)),
   });
 
-  const { data: userData } = useAuthQuery({
+  const { data: userData } = useQuery({
     queryKey: ["currentUser"],
     queryFn: () => getCurrentUserClient(),
   });
@@ -136,6 +136,14 @@ export function AppSidebar() {
                       <Link to="/settings" className="flex items-center gap-2">
                         <Settings2 className="size-4" />
                         {!collapsed && <span>Settings</span>}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={currentPath === "/scrape-runs"}>
+                      <Link to="/scrape-runs" className="flex items-center gap-2">
+                        <History className="size-4" />
+                        {!collapsed && <span>Scrape History</span>}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

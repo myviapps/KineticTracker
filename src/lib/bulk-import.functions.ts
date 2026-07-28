@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
 
 const Row = z.object({
   name: z.string().trim().min(1).max(100),
@@ -15,18 +15,10 @@ const Input = z.object({
 });
 
 export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, requireAdmin])
   .inputValidator((d: unknown) => Input.parse(d))
-  .handler(async ({ data, context }) => {
+  .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    // Check caller is admin
-    const { data: role } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (role?.role !== "admin") throw new Error("Forbidden");
 
     const { data: existing } = await supabaseAdmin
       .from("classrooms")
@@ -49,7 +41,12 @@ export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
       createdCount = created?.length ?? 0;
     }
 
-    const payload = data.rows.map((r) => ({
+    const keyed = new Map<string, (typeof data.rows)[number]>();
+    for (const r of data.rows) {
+      const key = `${byName.get(r.classroom.toLowerCase())!}:${r.roll}`;
+      keyed.set(key, r);
+    }
+    const payload = Array.from(keyed.values()).map((r) => ({
       classroom_id: byName.get(r.classroom.toLowerCase())!,
       name: r.name,
       roll: r.roll,

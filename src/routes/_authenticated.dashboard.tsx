@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { queryOptions, useSuspenseQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Plus, Users, Trash2, ArrowRight, Sparkles, BarChart3, Shield, UserCog } from "lucide-react";
@@ -8,6 +8,11 @@ import { listClassrooms, deleteClassroom } from "@/lib/classrooms.functions";
 import { seedMockClassroom } from "@/lib/mock.functions";
 import { getCurrentUserClient } from "@/lib/auth.functions";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { SectionTitle } from "@/components/stat-card";
 import { BulkUploader } from "@/components/bulk-uploader";
 
@@ -44,14 +49,15 @@ function DashboardPage() {
   const isPO = role === "placement_officer";
   const { data: classrooms } = useSuspenseQuery(classroomsQO);
   const router = useRouter();
+  const qc = useQueryClient();
   const del = useServerFn(deleteClassroom);
   const mock = useServerFn(seedMockClassroom);
 
   const mutation = useMutation({
     mutationFn: (id: string) => del({ data: { id } }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
       toast.success("Classroom deleted");
-      router.invalidate();
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -183,18 +189,31 @@ function DashboardPage() {
                   Open <ArrowRight className="size-4" />
                 </span>
                 {isAdmin && (
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (confirm(`Delete "${c.name}" and all its students?`))
-                        mutation.mutate(c.id);
-                    }}
-                    className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                    aria-label="Delete classroom"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                        className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                        aria-label="Delete classroom"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete classroom</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Delete "{c.name}" and all its students? This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => mutation.mutate(c.id)}>
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               </div>
             </Link>

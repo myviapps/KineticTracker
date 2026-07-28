@@ -1,12 +1,17 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery, useMutation, useQuery } from "@tanstack/react-query";
+import { queryOptions, useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from "recharts";
-import { Plus, RefreshCw, Trash2, ExternalLink, Search, ArrowUpDown, Download, Lock, Unlock, Pencil, X } from "lucide-react";
+import { Plus, RefreshCw, Trash2, ExternalLink, Search, ArrowUpDown, Download, Pencil, X } from "lucide-react";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 import { getClassroom, deleteClassroom } from "@/lib/classrooms.functions";
 import { refreshClassroom, updateStudent } from "@/lib/students.functions";
@@ -139,10 +144,12 @@ function ClassroomDetail() {
     ? data.students.filter((s) => new Date(s.last_scraped_at ?? 0).getTime() > refreshStartedAt).length
     : 0;
 
+  const qc = useQueryClient();
   const del = useServerFn(deleteClassroom);
   const delM = useMutation({
     mutationFn: () => del({ data: { id } }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
       toast.success("Deleted");
       router.navigate({ to: "/dashboard" });
     },
@@ -208,11 +215,13 @@ function ClassroomDetail() {
     "--easy", "--medium", "--hard", "--surface", "--border", "--muted-foreground", "--primary",
   );
 
+  const [activeDiff, setActiveDiff] = useState<number | null>(null);
   const diff = [
     { name: "Easy", value: cohort.easy, color: cEasy },
     { name: "Medium", value: cohort.medium, color: cMedium },
     { name: "Hard", value: cohort.hard, color: cHard },
   ];
+  const centerDiff = activeDiff != null ? diff[activeDiff] : null;
 
 
   const trend = useMemo(() => {
@@ -257,37 +266,7 @@ function ClassroomDetail() {
     URL.revokeObjectURL(url);
   }
 
-  function exportMatrixCsv() {
-    const start = new Date(data.classroom.created_at);
-    const startUtc = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-    const today = new Date();
-    const endUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-    const days: { key: string; label: string; n: number }[] = [];
-    let n = 1;
-    for (let d = new Date(startUtc); d <= endUtc; d.setUTCDate(d.getUTCDate() + 1)) {
-      const key = String(Math.floor(d.getTime() / 1000));
-      const label = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-      days.push({ key, label, n: n++ });
-    }
-    const header = ["Name", "Roll", "LeetCode", "Total", ...days.map((d) => `Day ${d.n} (${d.label})`)];
-    const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const lines = filtered.map((r) => {
-      const perDay = days.map((d) => r.calendar[d.key] ?? 0);
-      const rowTotal = perDay.reduce((s, v) => s + v, 0);
-      return [r.name, r.roll, r.leetcode_id, rowTotal, ...perDay].map(escape).join(",");
-    });
-    const dailyTotals = days.map((d) => filtered.reduce((s, r) => s + (r.calendar[d.key] ?? 0), 0));
-    const totalsRow = ["Cohort / day", "", "", dailyTotals.reduce((a, b) => a + b, 0), ...dailyTotals]
-      .map(escape).join(",");
-    const csv = [header.join(","), ...lines, totalsRow].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${data.classroom.name.replace(/\s+/g, "_")}_matrix.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -308,8 +287,6 @@ function ClassroomDetail() {
         el?.focus();
       } else if (e.key.toLowerCase() === "e") {
         exportCsv();
-      } else if (e.key.toLowerCase() === "m") {
-        exportMatrixCsv();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -346,14 +323,25 @@ function ClassroomDetail() {
           <Button variant="outline" onClick={exportCsv} title="Export summary CSV (E)">
             <Download className="mr-1 size-4" /> Export summary
           </Button>
-          <Button
-            variant="destructive"
-            onClick={() => {
-              if (confirm(`Delete "${data.classroom.name}" and all its students?`)) delM.mutate();
-            }}
-          >
-            <Trash2 className="mr-1 size-4" />
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive">
+                <Trash2 className="mr-1 size-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete classroom</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Delete "{data.classroom.name}" and all its students? This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => delM.mutate()}>Delete</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
@@ -432,7 +420,7 @@ function ClassroomDetail() {
                 <CartesianGrid stroke={cBorder} strokeDasharray="3 3" />
                 <XAxis dataKey="day" fontSize={10} stroke={cMutedFg} />
                 <YAxis fontSize={10} stroke={cMutedFg} />
-                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12 }} />
+                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
                 <Line type="monotone" dataKey="solved" stroke={cPrimary} strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -440,15 +428,38 @@ function ClassroomDetail() {
         </div>
         <div className="rounded-lg border border-border bg-surface p-6">
           <h3 className="mb-4 text-sm font-bold uppercase tracking-wider">Difficulty</h3>
-          <div className="h-56">
+          <div className="relative h-56">
             <ResponsiveContainer>
               <PieChart>
-                <Pie data={diff} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                <Pie
+                  data={diff}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={45}
+                  outerRadius={75}
+                  paddingAngle={2}
+                  strokeWidth={0}
+                  activeIndex={activeDiff ?? undefined}
+                  onMouseEnter={(_, i) => setActiveDiff(i)}
+                  onMouseLeave={() => setActiveDiff(null)}
+                >
                   {diff.map((d, i) => <Cell key={i} fill={d.color} />)}
                 </Pie>
-                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12 }} />
               </PieChart>
             </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-2xl font-bold leading-none text-foreground">{centerDiff ? centerDiff.value : cohort.total}</div>
+                <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {centerDiff ? centerDiff.name : "Solved"}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2 text-center font-mono text-[10px]">
+            <div><span className="text-easy">■</span> Easy {cohort.easy}</div>
+            <div><span className="text-medium">■</span> Med {cohort.medium}</div>
+            <div><span className="text-hard">■</span> Hard {cohort.hard}</div>
           </div>
         </div>
       </div>
@@ -461,7 +472,7 @@ function ClassroomDetail() {
               <CartesianGrid stroke={cBorder} strokeDasharray="3 3" />
               <XAxis dataKey="name" fontSize={9} stroke={cMutedFg} angle={-25} textAnchor="end" height={60} />
               <YAxis fontSize={10} stroke={cMutedFg} />
-              <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12 }} />
+               <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
               <Bar dataKey="easy" stackId="a" fill={cEasy} />
               <Bar dataKey="medium" stackId="a" fill={cMedium} />
               <Bar dataKey="hard" stackId="a" fill={cHard} />
@@ -674,19 +685,10 @@ function ClassroomDetail() {
             <span>Anchor: <b className="text-foreground">{new Date(data.classroom.created_at).toUTCString().slice(5, 16)}</b></span>
             <span>·</span>
             <span>Filter follows bucket: <b className="text-primary">{BUCKETS.find((b) => b.id === bucket)?.label}</b></span>
-            <Button size="sm" variant="outline" onClick={exportMatrixCsv} className="ml-auto h-7" title="Export matrix CSV (M)">
-              <Download className="mr-1 size-3" /> Export matrix CSV
-            </Button>
-            <span className="flex items-center gap-2">
-              <span className="inline-block size-3 rounded bg-primary/15" /> 1
-              <span className="inline-block size-3 rounded bg-primary/35" /> 2-3
-              <span className="inline-block size-3 rounded bg-primary/60" /> 4-6
-              <span className="inline-block size-3 rounded bg-primary" /> 7+
-            </span>
           </div>
           <DailyMatrix
             classroomId={data.classroom.id}
-            rows={filtered.map((r) => ({ id: r.id, name: r.name, roll: r.roll, calendar: r.calendar }))}
+            rows={filtered.map((r) => ({ id: r.id, name: r.name, roll: r.roll }))}
             startDate={new Date(data.classroom.created_at)}
           />
         </TabsContent>

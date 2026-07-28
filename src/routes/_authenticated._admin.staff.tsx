@@ -8,6 +8,11 @@ import { UserPlus, Trash2, Unlock, Link as LinkIcon, Unlink, Key } from "lucide-
 import { listStaff, createStaffUser, deactivateUser, assignFacultyToClassroom, unassignFaculty, forceReleaseRefreshLock, resetStaffPassword } from "@/lib/staff.functions";
 import { listClassrooms } from "@/lib/classrooms.functions";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -204,47 +209,87 @@ function StaffPage() {
               <div className="flex gap-2">
                 {s.role === "faculty" && classrooms.map((c) => {
                   const assigned = s.classroom_ids.includes(c.id);
+                  if (assigned) {
+                    return (
+                      <AlertDialog key={c.id}>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-primary/10 text-primary"
+                            title={`Click to unassign ${c.name}`}
+                          >
+                            <LinkIcon className="size-3" /> {c.name}
+                          </button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Unassign classroom?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Unassign {c.name} from {s.email}?
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => unassignM.mutate({ facultyUserId: s.user_id, classroomId: c.id })}>
+                              Unassign
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    );
+                  }
                   return (
                     <button
                       key={c.id}
-                      onClick={() => {
-                        if (assigned) {
-                          if (confirm(`Unassign ${c.name}?`)) unassignM.mutate({ facultyUserId: s.user_id, classroomId: c.id });
-                        } else {
-                          assignM.mutate({ facultyUserId: s.user_id, classroomId: c.id });
-                        }
-                      }}
-                      className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium ${
-                        assigned ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground hover:bg-accent"
-                      }`}
-                      title={assigned ? `Click to unassign ${c.name}` : `Click to assign ${c.name}`}
+                      onClick={() => assignM.mutate({ facultyUserId: s.user_id, classroomId: c.id })}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-muted text-muted-foreground hover:bg-accent"
+                      title={`Click to assign ${c.name}`}
                     >
-                      {assigned ? <LinkIcon className="size-3" /> : <Unlink className="size-3" />}
-                      {c.name}
+                      <Unlink className="size-3" /> {c.name}
                     </button>
                   );
                 })}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (confirm(`Reset ${s.email}'s password to their email address?`))
-                      resetPwM.mutate({ userId: s.user_id });
-                  }}
-                  title="Reset password to email address"
-                >
-                  <Key className="size-3" />
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => {
-                    if (confirm(`Deactivate ${s.email}? This permanently removes their account.`))
-                      deactivateM.mutate(s.user_id);
-                  }}
-                >
-                  <Trash2 className="size-3" />
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" title="Reset password to email address">
+                      <Key className="size-3" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Reset password?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Reset {s.email}'s password to their email address?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => resetPwM.mutate({ userId: s.user_id })}>
+                        Reset
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Deactivate account?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Deactivate {s.email}? This permanently removes their account.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => deactivateM.mutate(s.user_id)}>
+                        Deactivate
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </div>
           </div>

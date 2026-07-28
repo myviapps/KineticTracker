@@ -358,6 +358,60 @@ export type Database = {
         }
         Relationships: []
       }
+      scrape_runs: {
+        Row: {
+          id: string
+          source: string
+          classroom_id: string | null
+          student_id: string | null
+          started_at: string
+          completed_at: string | null
+          total_students: number
+          success_count: number
+          failed_count: number
+          errors: Json | null
+        }
+        Insert: {
+          id?: string
+          source: string
+          classroom_id?: string | null
+          student_id?: string | null
+          started_at?: string
+          completed_at?: string | null
+          total_students?: number
+          success_count?: number
+          failed_count?: number
+          errors?: Json | null
+        }
+        Update: {
+          id?: string
+          source?: string
+          classroom_id?: string | null
+          student_id?: string | null
+          started_at?: string
+          completed_at?: string | null
+          total_students?: number
+          success_count?: number
+          failed_count?: number
+          errors?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scrape_runs_classroom_id_fkey"
+            columns: ["classroom_id"]
+            isOneToOne: false
+            referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scrape_runs_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

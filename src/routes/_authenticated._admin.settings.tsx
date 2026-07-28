@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Settings2, Chrome, Check, X } from "lucide-react";
 import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 
 import { getSiteSettings, updateGoogleAuth } from "@/lib/settings.functions";
@@ -22,7 +23,7 @@ function SettingsPage() {
 
   const toggleGoogle = useMutation({
     mutationFn: async (enabled: boolean) => {
-      await updateGoogleAuth(enabled);
+      await updateGoogleAuth({ data: enabled });
     },
     onMutate: async (enabled) => {
       await queryClient.cancelQueries({ queryKey: ["settings"] });

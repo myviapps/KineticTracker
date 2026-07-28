@@ -2,5 +2,11 @@
   "buildCommand": "npm run build",
   "framework": null,
   "outputDirectory": ".vercel/output",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "crons": [
+    {
+      "path": "/api/public/cron/refresh",
+      "schedule": "30 18 * * *"
+    }
+  ]
 }
