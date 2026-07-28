@@ -89,10 +89,11 @@ function ClassroomDetail() {
   const editM = useMutation({
     mutationFn: (s: { id: string; name: string; roll: string; email: string; leetcode_id: string }) =>
       updateStu({ data: { id: s.id, name: s.name, roll: s.roll, email: s.email || null, leetcode_id: s.leetcode_id } }),
-    onSuccess: () => {
+    onSuccess: (_data, s) => {
       toast.success("Student updated");
       setEditingStudent(null);
-      router.invalidate();
+      qc.invalidateQueries({ queryKey: ["classroom", id] });
+      qc.invalidateQueries({ queryKey: ["student", s.roll] });
     },
     onError: (e) => toast.error(String(e)),
   });
