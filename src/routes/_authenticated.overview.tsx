@@ -1,26 +1,16 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
-import { toast } from "sonner";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import {
   BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from "recharts";
-import { Trophy, Users, Flame, Target, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Trophy, Users, Flame, Target } from "lucide-react";
 
 import { getOverview } from "@/lib/overview.functions";
-import { refreshPlatform } from "@/lib/students.functions";
 import { StatCard, SectionTitle } from "@/components/stat-card";
-import { Button } from "@/components/ui/button";
-import {
-  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
-  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogCancel, AlertDialogAction,
-} from "@/components/ui/alert-dialog";
 import { toStudentRow, bucketCounts, BUCKETS } from "@/lib/buckets";
-import { lastNDaysCount } from "@/lib/date-buckets";
-import { cn } from "@/lib/utils";
 import { useCssVars } from "@/hooks/use-css-vars";
+import { RefreshButton } from "@/components/refresh-button";
 
 const qo = queryOptions({ queryKey: ["overview"], queryFn: () => getOverview() });
 
@@ -54,55 +44,7 @@ function PendingOverview() {
 }
 
 function OverviewPage() {
-  const router = useRouter();
   const { data } = useSuspenseQuery(qo);
-  const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
-
-  const refreshP = useServerFn(refreshPlatform);
-  const refreshM = useMutation({
-    mutationFn: (force?: boolean) => {
-      setRefreshStartedAt(Date.now());
-      return refreshP({ data: { force } });
-    },
-    onSuccess: (r: { ok: number; failed: number }) => {
-      toast.success(`Platform Refreshed ${r.ok} · ${r.failed} failed`);
-      setRefreshStartedAt(null);
-      router.invalidate();
-    },
-    onError: (e: any) => {
-      let msg = e.message;
-      try {
-        const parsed = JSON.parse(e.message);
-        if (parsed.code === "REFRESH_BUSY") {
-          toast.error("Another refresh is currently running.", {
-            action: {
-              label: "Force Unlock",
-              onClick: () => refreshM.mutate(true),
-            },
-          });
-          setRefreshStartedAt(null);
-          return;
-        }
-      } catch {
-        // Fallback
-      }
-      toast.error(msg);
-      setRefreshStartedAt(null);
-    },
-  });
-
-  useEffect(() => {
-    if (!refreshM.isPending) return;
-    const t = setInterval(() => {
-      router.invalidate();
-    }, 2000);
-    return () => clearInterval(t);
-  }, [refreshM.isPending, router]);
-
-  const totalStudents = data.students.length;
-  const processedCount = refreshStartedAt
-    ? data.students.filter((s) => new Date(s.last_scraped_at ?? 0).getTime() > refreshStartedAt).length
-    : 0;
 
   const statsById = new Map(data.stats.map((s: any) => [s.student_id, s]));
 
@@ -178,29 +120,7 @@ function OverviewPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                disabled={refreshM.isPending}
-              >
-                <RefreshCw className={cn("mr-2 size-4", refreshM.isPending && "animate-spin")} />
-                {refreshM.isPending ? `Scraping... (${processedCount}/${totalStudents})` : "Refresh Platform"}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Refresh all students?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to scrape all students across the entire platform? This may take several minutes.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => refreshM.mutate(undefined)}>Refresh</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <RefreshButton scope="platform" />
         </div>
       </div>
 

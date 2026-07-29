@@ -4,6 +4,8 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { supabase } from "@/integrations/supabase/client";
+import { useRefreshJob } from "@/hooks/use-refresh-job";
+import { RefreshProgressStrip } from "@/components/refresh-progress-strip";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -33,6 +35,7 @@ function AuthenticatedLayout() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [pinned, setPinned] = useState(true);
+  useRefreshJob();
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -65,6 +68,7 @@ function AuthenticatedLayout() {
             <ThemeToggle />
           </div>
         </header>
+        <RefreshProgressStrip />
         <main className="min-w-0 flex-1">
           <Outlet />
         </main>

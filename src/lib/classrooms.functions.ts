@@ -17,13 +17,15 @@ export const listClassrooms = createServerFn({ method: "GET" })
     .order("created_at", { ascending: false });
   if (error) throw new Error("Failed to list classrooms");
 
-  const { data: counts } = await supabaseAdmin
-    .from("students")
-    .select("classroom_id");
   const countMap = new Map<string, number>();
-  for (const r of counts ?? []) {
-    countMap.set(r.classroom_id, (countMap.get(r.classroom_id) ?? 0) + 1);
-  }
+  try {
+    const { data: counts } = await supabaseAdmin
+      .from("students")
+      .select("classroom_id");
+    for (const r of counts ?? []) {
+      countMap.set(r.classroom_id, (countMap.get(r.classroom_id) ?? 0) + 1);
+    }
+  } catch { /* student counts are decorative — non-fatal */ }
 
   return (classrooms ?? []).map((c) => ({
     ...c,
@@ -67,11 +69,13 @@ export const getClassroom = createServerFn({ method: "GET" })
       .order("roll", { ascending: true });
 
     const ids = (students ?? []).map((s) => s.id);
-    const { data: stats } = ids.length
-      ? await supabaseAdmin.from("student_stats").select("*").in("student_id", ids)
-      : { data: [] as any[] };
+    const statsPromise = ids.length
+      ? supabaseAdmin.from("student_stats").select("*").in("student_id", ids)
+      : Promise.resolve({ data: [] as any[], error: null });
+    const [statsRes] = await Promise.allSettled([statsPromise]);
+    const stats = statsRes.status === "fulfilled" ? statsRes.value.data ?? [] : [];
 
-    const statsById = new Map((stats ?? []).map((s: any) => [s.student_id, s]));
+    const statsById = new Map(stats.map((s: any) => [s.student_id, s]));
 
     return {
       classroom,

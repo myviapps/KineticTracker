@@ -8,6 +8,17 @@ const HEADERS = {
   Referer: "https://leetcode.com/",
 };
 
+export class LeetCodeError extends Error {
+  kind: 'throttle' | 'fail';
+  status: number;
+  constructor(kind: 'throttle' | 'fail', status: number, message: string) {
+    super(message);
+    this.name = 'LeetCodeError';
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
 // LeetCode's public GraphQL has no documented limit but throttles around
 // ~30 req/min per IP. We retry on 429/5xx with exponential backoff and
 // serialize the per-user calls (see fetchLeetCodeProfile below).
@@ -16,22 +27,38 @@ async function gql<T>(
   variables: Record<string, unknown>,
   attempt = 0,
 ): Promise<T> {
-  const res = await fetch(LC_URL, {
-    method: "POST",
-    headers: HEADERS,
-    body: JSON.stringify({ query, variables }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(LC_URL, {
+      method: "POST",
+      headers: HEADERS,
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(12_000),
+    });
+  } catch (e: unknown) {
+    const isAbort = e instanceof DOMException && e.name === 'TimeoutError';
+    const status = isAbort ? 408 : 0;
+    if (isAbort && attempt < 3) {
+      const wait = 1500 * Math.pow(2, attempt);
+      await new Promise((r) => setTimeout(r, wait));
+      return gql<T>(query, variables, attempt + 1);
+    }
+    throw new LeetCodeError('fail', status, isAbort ? 'Request timed out' : `Network error: ${e instanceof Error ? e.message : String(e)}`);
+  }
   if (res.status === 429 || res.status >= 500) {
-    if (attempt >= 3) throw new Error(`LeetCode HTTP ${res.status} after retries`);
+    if (attempt >= 3) throw new LeetCodeError('throttle', res.status, `LeetCode HTTP ${res.status} after retries`);
     const retryAfter = Number(res.headers.get("retry-after")) || 0;
     const wait = retryAfter > 0 ? retryAfter * 1000 : 1500 * Math.pow(2, attempt);
     await new Promise((r) => setTimeout(r, wait));
     return gql<T>(query, variables, attempt + 1);
   }
-  if (!res.ok) throw new Error(`LeetCode HTTP ${res.status}`);
+  if (!res.ok) {
+    const isCloudflare = res.status === 403 || res.status === 503;
+    throw new LeetCodeError(isCloudflare ? 'throttle' : 'fail', res.status, `LeetCode HTTP ${res.status}`);
+  }
   const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
-  if (json.errors?.length) throw new Error(json.errors.map((e) => e.message).join("; "));
-  if (!json.data) throw new Error("Empty response from LeetCode");
+  if (json.errors?.length) throw new LeetCodeError('fail', res.status, json.errors.map((e) => e.message).join("; "));
+  if (!json.data) throw new LeetCodeError('fail', res.status, "Empty response from LeetCode");
   return json.data;
 }
 
@@ -199,12 +226,19 @@ export async function fetchLeetCodeProfile(username: string): Promise<ParsedProf
   // per-IP throttle.
   const profile = await gql<LcProfileData>(PROFILE_QUERY, { username });
   await new Promise((r) => setTimeout(r, 250));
-  const calendar = await gql<LcCalendarData>(CALENDAR_QUERY, {
-    username,
-    year: new Date().getUTCFullYear(),
-  });
+
+  let calendar: LcCalendarData | null = null;
+  let recent: LcRecentData | null = null;
+  try {
+    calendar = await gql<LcCalendarData>(CALENDAR_QUERY, {
+      username,
+      year: new Date().getUTCFullYear(),
+    });
+  } catch { /* calendar may be private or unavailable — non-fatal */ }
   await new Promise((r) => setTimeout(r, 250));
-  const recent = await gql<LcRecentData>(RECENT_QUERY, { username, limit: 20 });
+  try {
+    recent = await gql<LcRecentData>(RECENT_QUERY, { username, limit: 20 });
+  } catch { /* recent submissions may be unavailable — non-fatal */ }
 
   if (!profile.matchedUser) throw new Error(`LeetCode user "${username}" not found`);
 
@@ -219,7 +253,7 @@ export async function fetchLeetCodeProfile(username: string): Promise<ParsedProf
   const acceptanceRate =
     totalAllSubs > 0 ? Math.round(((totalAcSubs / totalAllSubs) * 100) * 10) / 10 : null;
 
-  const cal = calendar.matchedUser?.userCalendar;
+  const cal = calendar?.matchedUser?.userCalendar;
   const submissionCalendar: Record<string, number> = cal?.submissionCalendar
     ? JSON.parse(cal.submissionCalendar)
     : {};
@@ -260,7 +294,7 @@ export async function fetchLeetCodeProfile(username: string): Promise<ParsedProf
       advanced: mu.tagProblemCounts.advanced.map((t) => ({ tag: t.tagName, solved: t.problemsSolved })),
     },
     badges: mu.badges.map((b) => ({ id: b.id, name: b.displayName, icon: b.icon, date: b.creationDate })),
-    recent: recent.recentAcSubmissionList.map((r) => ({
+    recent: (recent?.recentAcSubmissionList ?? []).map((r) => ({
       title: r.title,
       titleSlug: r.titleSlug,
       lang: r.lang,

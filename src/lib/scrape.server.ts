@@ -46,40 +46,48 @@ export async function scrapeStudentById(id: string) {
 
     const today = new Date();
     const dateStr = today.toISOString().slice(0, 10);
-    const { data: prev } = await supabaseAdmin
-      .from("daily_snapshots")
-      .select("total_solved")
-      .eq("student_id", id)
-      .lt("snapshot_date", dateStr)
-      .order("snapshot_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    let prev: { total_solved: number } | null = null;
+    try {
+      const { data } = await supabaseAdmin
+        .from("daily_snapshots")
+        .select("total_solved")
+        .eq("student_id", id)
+        .lt("snapshot_date", dateStr)
+        .order("snapshot_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      prev = data;
+    } catch { /* prev stays null — safe default */ }
     const solvedThatDay = Math.max(
       0,
       p.totalSolved - (prev?.total_solved ?? p.totalSolved),
     );
-    await supabaseAdmin.from("daily_snapshots").upsert({
-      student_id: id,
-      snapshot_date: dateStr,
-      total_solved: p.totalSolved,
-      easy_solved: p.easySolved,
-      medium_solved: p.mediumSolved,
-      hard_solved: p.hardSolved,
-      solved_that_day: solvedThatDay,
-    });
+    try {
+      await supabaseAdmin.from("daily_snapshots").upsert({
+        student_id: id,
+        snapshot_date: dateStr,
+        total_solved: p.totalSolved,
+        easy_solved: p.easySolved,
+        medium_solved: p.mediumSolved,
+        hard_solved: p.hardSolved,
+        solved_that_day: solvedThatDay,
+      });
+    } catch { /* snapshot non-critical — already have stats */ }
 
-    await supabaseAdmin.from("recent_submissions").delete().eq("student_id", id);
-    if (p.recent.length) {
-      await supabaseAdmin.from("recent_submissions").insert(
-        p.recent.map((r) => ({
-          student_id: id,
-          title: r.title,
-          title_slug: r.titleSlug,
-          lang: r.lang,
-          submitted_at: r.submittedAt,
-        })),
-      );
-    }
+    try {
+      await supabaseAdmin.from("recent_submissions").delete().eq("student_id", id);
+      if (p.recent.length) {
+        await supabaseAdmin.from("recent_submissions").insert(
+          p.recent.map((r) => ({
+            student_id: id,
+            title: r.title,
+            title_slug: r.titleSlug,
+            lang: r.lang,
+            submitted_at: r.submittedAt,
+          })),
+        );
+      }
+    } catch { /* recent submissions non-critical */ }
 
     await supabaseAdmin
       .from("students")

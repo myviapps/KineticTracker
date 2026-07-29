@@ -48,16 +48,17 @@ export const getOverview = createServerFn({ method: "GET" })
 
     const studentIds = (students ?? []).map((s: any) => s.id);
 
-    // Build query for stats
-    let statsQuery = supabaseAdmin.from("student_stats").select("*");
+    let stats: any = [];
     if (studentIds.length > 0) {
-      statsQuery = statsQuery.in("student_id", studentIds);
+      const [statsRes] = await Promise.allSettled([
+        supabaseAdmin.from("student_stats").select("*").in("student_id", studentIds),
+      ]);
+      stats = statsRes.status === "fulfilled" ? statsRes.value.data ?? [] : [];
     }
-    const { data: stats } = await statsQuery;
 
     return {
       classrooms: classrooms ?? [],
       students: students ?? [],
-      stats: stats ?? [],
+      stats,
     };
   });

@@ -13,7 +13,14 @@ export default defineConfig({
       server: { entry: "server" },
     }),
     react(),
-    nitro({ preset: "vercel" }),
+    nitro({
+      preset: "vercel",
+      vercel: {
+        functionRules: {
+          "/api/public/jobs/**": { maxDuration: 60 },
+        },
+      },
+    }),
   ],
   css: { transformer: "lightningcss" },
 });

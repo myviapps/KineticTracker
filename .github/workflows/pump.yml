@@ -1,0 +1,21 @@
+name: Refresh Job Pump
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+env:
+  DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://kinetic-tracker.vercel.app' }}
+
+jobs:
+  pump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pump refresh jobs
+        run: |
+          curl -X POST "${{ env.DEPLOY_URL }}/api/public/jobs/pump" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --max-time 55 \
+            --fail-with-body

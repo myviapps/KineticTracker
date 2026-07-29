@@ -25,6 +25,8 @@ import { Route as AuthenticatedClassroomsIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedClassroomsIdRouteImport } from './routes/_authenticated.classrooms.$id'
 import { Route as AuthenticatedAdminClassroomsNewRouteImport } from './routes/_authenticated._admin.classrooms.new'
 import { Route as ApiPublicCronRefreshRouteImport } from './routes/api/public/cron/refresh'
+import { Route as ApiPublicJobsPumpRouteImport } from './routes/api/public/jobs/pump'
+import { Route as ApiPublicJobsRunRouteImport } from './routes/api/public/jobs/run'
 import { Route as AuthenticatedClassroomsIdStudentsNewRouteImport } from './routes/_authenticated.classrooms.$id.students.new'
 
 const IndexRoute = IndexRouteImport.update({
@@ -111,6 +113,16 @@ const ApiPublicCronRefreshRoute = ApiPublicCronRefreshRouteImport.update({
   path: '/api/public/cron/refresh',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicJobsPumpRoute = ApiPublicJobsPumpRouteImport.update({
+  id: '/api/public/jobs/pump',
+  path: '/api/public/jobs/pump',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicJobsRunRoute = ApiPublicJobsRunRouteImport.update({
+  id: '/api/public/jobs/run',
+  path: '/api/public/jobs/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedClassroomsIdStudentsNewRoute =
   AuthenticatedClassroomsIdStudentsNewRouteImport.update({
     id: '/students/new',
@@ -133,6 +145,8 @@ export interface FileRoutesByFullPath {
   '/classrooms/': typeof AuthenticatedClassroomsIndexRoute
   '/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
+  '/api/public/jobs/pump': typeof ApiPublicJobsPumpRoute
+  '/api/public/jobs/run': typeof ApiPublicJobsRunRoute
   '/classrooms/$id/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
 }
 export interface FileRoutesByTo {
@@ -149,6 +163,8 @@ export interface FileRoutesByTo {
   '/classrooms': typeof AuthenticatedClassroomsIndexRoute
   '/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
+  '/api/public/jobs/pump': typeof ApiPublicJobsPumpRoute
+  '/api/public/jobs/run': typeof ApiPublicJobsRunRoute
   '/classrooms/$id/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
 }
 export interface FileRoutesById {
@@ -169,6 +185,8 @@ export interface FileRoutesById {
   '/_authenticated/classrooms/': typeof AuthenticatedClassroomsIndexRoute
   '/_authenticated/_admin/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
+  '/api/public/jobs/pump': typeof ApiPublicJobsPumpRoute
+  '/api/public/jobs/run': typeof ApiPublicJobsRunRoute
   '/_authenticated/classrooms/$id/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
 }
 export interface FileRouteTypes {
@@ -188,6 +206,8 @@ export interface FileRouteTypes {
     | '/classrooms/'
     | '/classrooms/new'
     | '/api/public/cron/refresh'
+    | '/api/public/jobs/pump'
+    | '/api/public/jobs/run'
     | '/classrooms/$id/students/new'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -204,6 +224,8 @@ export interface FileRouteTypes {
     | '/classrooms'
     | '/classrooms/new'
     | '/api/public/cron/refresh'
+    | '/api/public/jobs/pump'
+    | '/api/public/jobs/run'
     | '/classrooms/$id/students/new'
   id:
     | '__root__'
@@ -223,6 +245,8 @@ export interface FileRouteTypes {
     | '/_authenticated/classrooms/'
     | '/_authenticated/_admin/classrooms/new'
     | '/api/public/cron/refresh'
+    | '/api/public/jobs/pump'
+    | '/api/public/jobs/run'
     | '/_authenticated/classrooms/$id/students/new'
   fileRoutesById: FileRoutesById
 }
@@ -232,6 +256,8 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   StudentsRollRoute: typeof StudentsRollRoute
   ApiPublicCronRefreshRoute: typeof ApiPublicCronRefreshRoute
+  ApiPublicJobsPumpRoute: typeof ApiPublicJobsPumpRoute
+  ApiPublicJobsRunRoute: typeof ApiPublicJobsRunRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -348,6 +374,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCronRefreshRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/jobs/pump': {
+      id: '/api/public/jobs/pump'
+      path: '/api/public/jobs/pump'
+      fullPath: '/api/public/jobs/pump'
+      preLoaderRoute: typeof ApiPublicJobsPumpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/jobs/run': {
+      id: '/api/public/jobs/run'
+      path: '/api/public/jobs/run'
+      fullPath: '/api/public/jobs/run'
+      preLoaderRoute: typeof ApiPublicJobsRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/classrooms/$id/students/new': {
       id: '/_authenticated/classrooms/$id/students/new'
       path: '/students/new'
@@ -432,6 +472,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   StudentsRollRoute: StudentsRollRoute,
   ApiPublicCronRefreshRoute: ApiPublicCronRefreshRoute,
+  ApiPublicJobsPumpRoute: ApiPublicJobsPumpRoute,
+  ApiPublicJobsRunRoute: ApiPublicJobsRunRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

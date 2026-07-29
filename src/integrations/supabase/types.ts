@@ -211,6 +211,7 @@ export type Database = {
       students: {
         Row: {
           classroom_id: string
+          consecutive_failures: number
           created_at: string
           email: string | null
           id: string
@@ -222,6 +223,7 @@ export type Database = {
         }
         Insert: {
           classroom_id: string
+          consecutive_failures?: number
           created_at?: string
           email?: string | null
           id?: string
@@ -233,6 +235,7 @@ export type Database = {
         }
         Update: {
           classroom_id?: string
+          consecutive_failures?: number
           created_at?: string
           email?: string | null
           id?: string
@@ -304,6 +307,98 @@ export type Database = {
           },
           {
             foreignKeyName: "faculty_assignments_classroom_id_fkey"
+            columns: ["classroom_id"]
+            isOneToOne: false
+            referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      refresh_jobs: {
+        Row: {
+          id: string
+          lock_key: string
+          scope: string
+          classroom_id: string | null
+          student_ids: string[] | null
+          filter: string
+          stale_before: string | null
+          status: string
+          total: number
+          processed: number
+          succeeded: number
+          failed: number
+          batch_size: number
+          cooldown_ms: number
+          clean_streak: number
+          cursor_student_id: string | null
+          lease_owner: string | null
+          lease_until: string | null
+          resume_after: string | null
+          created_by: string | null
+          created_at: string
+          started_at: string | null
+          finished_at: string | null
+          last_error: string | null
+          errors: Json
+        }
+        Insert: {
+          id?: string
+          lock_key?: string
+          scope: string
+          classroom_id?: string | null
+          student_ids?: string[] | null
+          filter?: string
+          stale_before?: string | null
+          status?: string
+          total?: number
+          processed?: number
+          succeeded?: number
+          failed?: number
+          batch_size?: number
+          cooldown_ms?: number
+          clean_streak?: number
+          cursor_student_id?: string | null
+          lease_owner?: string | null
+          lease_until?: string | null
+          resume_after?: string | null
+          created_by?: string | null
+          created_at?: string
+          started_at?: string | null
+          finished_at?: string | null
+          last_error?: string | null
+          errors?: Json
+        }
+        Update: {
+          id?: string
+          lock_key?: string
+          scope?: string
+          classroom_id?: string | null
+          student_ids?: string[] | null
+          filter?: string
+          stale_before?: string | null
+          status?: string
+          total?: number
+          processed?: number
+          succeeded?: number
+          failed?: number
+          batch_size?: number
+          cooldown_ms?: number
+          clean_streak?: number
+          cursor_student_id?: string | null
+          lease_owner?: string | null
+          lease_until?: string | null
+          resume_after?: string | null
+          created_by?: string | null
+          created_at?: string
+          started_at?: string | null
+          finished_at?: string | null
+          last_error?: string | null
+          errors?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refresh_jobs_classroom_id_fkey"
             columns: ["classroom_id"]
             isOneToOne: false
             referencedRelation: "classrooms"
@@ -417,7 +512,40 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      enqueue_refresh_job: {
+        Args: {
+          p_scope: string
+          p_classroom_id?: string
+          p_student_ids?: string[]
+          p_filter?: string
+          p_created_by?: string
+          p_stale_before?: string
+        }
+        Returns: string
+      }
+      claim_refresh_job: {
+        Args: {
+          p_job_id: string
+          p_lease_seconds?: number
+          p_owner?: string
+        }
+        Returns: Json
+      }
+      commit_refresh_batch: {
+        Args: {
+          p_job_id: string
+          p_owner: string
+          p_expected_cursor: string | null
+          p_new_cursor: string | null
+          p_ok: number
+          p_failed: number
+          p_cooldown_ms: number
+          p_clean_streak: number
+          p_errors?: Json
+          p_done?: boolean
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: AppRole

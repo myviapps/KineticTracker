@@ -61,7 +61,8 @@ export const addStudent = createServerFn({ method: "POST" })
       .single();
     if (error) throw new Error(error.message);
     try {
-      await scrapeStudent(row.id);
+      const { scrapeStudentById } = await import("./scrape.server");
+      await scrapeStudentById(row.id);
     } catch (e) {
       console.error(`Scrape failed for ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -108,15 +109,16 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
       .upsert(payload, { onConflict: "classroom_id,roll" })
       .select("id");
     if (error) throw new Error(error.message);
-    const INLINE_SCRAPE_LIMIT = 5;
-    for (const r of (rows ?? []).slice(0, INLINE_SCRAPE_LIMIT)) {
-      try {
-        await scrapeStudent(r.id);
-        await new Promise((res) => setTimeout(res, 1500));
-      } catch (e) {
-        console.error(`Scrape failed for ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
-      }
+
+    const ids = (rows ?? []).map((r) => r.id);
+    if (ids.length > 0) {
+      await supabaseAdmin.rpc("enqueue_refresh_job", {
+        p_scope: "students",
+        p_student_ids: ids,
+        p_created_by: context.userId,
+      });
     }
+
     return { inserted: rows?.length ?? 0 };
   });
 
@@ -219,14 +221,20 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
     if (error) throw new Error("Not found");
     if (!student) throw new Error("Student not found");
 
-    const [{ data: stats }, { data: recent }, { data: history }, { data: classroom }] = await Promise.all([
+    const [statsRes, recentRes, historyRes, classroomRes] = await Promise.allSettled([
       supabaseAdmin.from("student_stats").select("student_id, avatar, total_solved, total_questions, easy_solved, easy_total, medium_solved, medium_total, hard_solved, hard_total, acceptance_rate, reputation, ranking, streak, total_active_days, contest_rating, contest_global_ranking, contests_attended, contest_top_percentage, real_name, country, submission_calendar, language_stats, tag_stats, badges").eq("student_id", student.id).maybeSingle(),
       supabaseAdmin.from("recent_submissions").select("title, title_slug, lang, submitted_at").eq("student_id", student.id).order("submitted_at", { ascending: false }).limit(20),
       supabaseAdmin.from("daily_snapshots").select("snapshot_date, total_solved, solved_that_day").eq("student_id", student.id).order("snapshot_date", { ascending: true }),
       supabaseAdmin.from("classrooms").select("id, name").eq("id", student.classroom_id).maybeSingle(),
     ]);
 
-    return { student, stats, recent: recent ?? [], history: history ?? [], classroom };
+    return {
+      student,
+      stats: statsRes.status === "fulfilled" ? statsRes.value.data ?? null : null,
+      recent: recentRes.status === "fulfilled" ? recentRes.value.data ?? [] : [],
+      history: historyRes.status === "fulfilled" ? historyRes.value.data ?? [] : [],
+      classroom: classroomRes.status === "fulfilled" ? classroomRes.value.data ?? null : null,
+    };
   });
 
 export const refreshStudent = createServerFn({ method: "POST" })
@@ -262,7 +270,8 @@ export const refreshStudent = createServerFn({ method: "POST" })
       });
     } catch {}
     try {
-      await scrapeStudent(data.id);
+      const { scrapeStudentById } = await import("./scrape.server");
+      await scrapeStudentById(data.id);
       try { await supabaseAdmin.from("scrape_runs").update({ completed_at: new Date().toISOString(), success_count: 1, failed_count: 0 }).eq("id", runId); } catch {}
       return { ok: true };
     } catch (e) {
@@ -273,7 +282,7 @@ export const refreshStudent = createServerFn({ method: "POST" })
 
 export const refreshClassroom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: string; force?: boolean }) => z.object({ id: z.string().uuid(), force: z.boolean().optional() }).parse(d))
+  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -292,234 +301,28 @@ export const refreshClassroom = createServerFn({ method: "POST" })
       if (!assignment) throw new Error("Forbidden");
     }
 
-    // Try to acquire the global refresh lock
-    const now = new Date();
-    const expires = new Date(now.getTime() + 10 * 60 * 1000); // 10 minute TTL
+    const { data: jobId, error } = await supabaseAdmin.rpc("enqueue_refresh_job", {
+      p_scope: "classroom",
+      p_classroom_id: data.id,
+      p_created_by: context.userId,
+    });
+    if (error) throw new Error(error.message);
 
-    // Best-effort check: see if another refresh is running
-    const { data: existingLock } = await supabaseAdmin
-      .from("refresh_locks")
-      .select("classroom_id, started_by, started_at, expires_at")
-      .eq("lock_key", "global")
-      .maybeSingle();
-
-    if (existingLock && new Date(existingLock.expires_at) > now && !data.force) {
-      const { data: classroom } = await supabaseAdmin
-        .from("classrooms")
-        .select("name")
-        .eq("id", existingLock.classroom_id)
-        .maybeSingle();
-      throw JSON.stringify({
-        code: "REFRESH_BUSY",
-        busyClassroomId: existingLock.classroom_id,
-        busyClassroomName: classroom?.name ?? "Unknown",
-        startedBy: existingLock.started_by,
-        startedAt: existingLock.started_at,
-      });
-    }
-
-    // Atomic acquire/replace via upsert (eliminates delete+insert race)
-    await supabaseAdmin.from("refresh_locks").upsert({
-      lock_key: "global",
-      classroom_id: data.id,
-      started_by: context.userId,
-      started_at: now.toISOString(),
-      expires_at: expires.toISOString(),
-    }, { onConflict: "lock_key" });
-
-    const runId = crypto.randomUUID();
-    try {
-      await supabaseAdmin.from("scrape_runs").insert({
-        id: runId, source: "classroom", classroom_id: data.id, started_at: new Date().toISOString(), total_students: 0,
-      });
-    } catch {}
-
-    try {
-      const { data: students } = await supabaseAdmin
-        .from("students")
-        .select("id")
-        .eq("classroom_id", data.id);
-      let ok = 0;
-      let failed = 0;
-      const errors: string[] = [];
-      for (const s of students ?? []) {
-        try {
-          await scrapeStudent(s.id);
-          ok += 1;
-          await new Promise((r) => setTimeout(r, 300));
-        } catch (e) {
-          errors.push(String(e));
-          failed += 1;
-        }
-      }
-      try {
-        await supabaseAdmin.from("scrape_runs").update({
-          completed_at: new Date().toISOString(), total_students: (students ?? []).length, success_count: ok, failed_count: failed, errors: errors.length ? JSON.stringify(errors) : null,
-        }).eq("id", runId);
-      } catch {}
-      return { ok, failed };
-    } finally {
-      await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global");
-    }
+    return { jobId };
   });
 
 export const refreshPlatform = createServerFn({ method: "POST" })
-  .inputValidator((d: { force?: boolean }) => z.object({ force: z.boolean().optional() }).parse(d))
   .middleware([requireSupabaseAuth, requireAdmin])
-  .handler(async ({ data, context }) => {
+  .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const now = new Date();
-    const expires = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour TTL for global
+    const { data: jobId, error } = await supabaseAdmin.rpc("enqueue_refresh_job", {
+      p_scope: "platform",
+      p_created_by: context.userId,
+    });
+    if (error) throw new Error(error.message);
 
-    const { data: existingLock } = await supabaseAdmin
-      .from("refresh_locks")
-      .select("started_by, started_at, expires_at")
-      .eq("lock_key", "global_all")
-      .maybeSingle();
-
-    if (existingLock && new Date(existingLock.expires_at) > now && !data.force) {
-      throw JSON.stringify({
-        code: "REFRESH_BUSY",
-        busyClassroomId: null,
-        busyClassroomName: "Platform",
-        startedBy: existingLock.started_by,
-        startedAt: existingLock.started_at,
-      });
-    }
-
-    const { data: firstClassroom } = await supabaseAdmin.from("classrooms").select("id").limit(1).maybeSingle();
-    if (!firstClassroom) return { ok: 0, failed: 0 };
-
-    await supabaseAdmin.from("refresh_locks").upsert({
-      lock_key: "global_all",
-      classroom_id: firstClassroom.id,
-      started_by: context.userId,
-      started_at: now.toISOString(),
-      expires_at: expires.toISOString(),
-    }, { onConflict: "lock_key" });
-
-    const runId = crypto.randomUUID();
-    try {
-      await supabaseAdmin.from("scrape_runs").insert({
-        id: runId, source: "platform", started_at: new Date().toISOString(), total_students: 0,
-      });
-    } catch {}
-
-    try {
-      const { data: students } = await supabaseAdmin.from("students").select("id");
-      let ok = 0;
-      let failed = 0;
-      const errors: string[] = [];
-      for (const s of students ?? []) {
-        try {
-          await scrapeStudent(s.id);
-          ok += 1;
-          await new Promise((r) => setTimeout(r, 300));
-        } catch (e) {
-          errors.push(String(e));
-          failed += 1;
-        }
-      }
-      try {
-        await supabaseAdmin.from("scrape_runs").update({
-          completed_at: new Date().toISOString(), total_students: (students ?? []).length, success_count: ok, failed_count: failed, errors: errors.length ? JSON.stringify(errors) : null,
-        }).eq("id", runId);
-      } catch {}
-      return { ok, failed };
-    } finally {
-      await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global_all");
-    }
+    return { jobId };
   });
 
-// --- internal helper ---
-async function scrapeStudent(id: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { fetchLeetCodeProfile } = await import("./leetcode.server");
 
-  const { data: student, error } = await supabaseAdmin
-    .from("students")
-    .select("id, leetcode_id")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!student) throw new Error("Student not found");
-
-  try {
-    const p = await fetchLeetCodeProfile(student.leetcode_id);
-
-    await supabaseAdmin.from("student_stats").upsert({
-      student_id: id,
-      real_name: p.realName,
-      avatar: p.avatar,
-      country: p.country,
-      reputation: p.reputation,
-      ranking: p.ranking,
-      total_solved: p.totalSolved,
-      total_questions: p.totalQuestions,
-      easy_solved: p.easySolved,
-      easy_total: p.easyTotal,
-      medium_solved: p.mediumSolved,
-      medium_total: p.mediumTotal,
-      hard_solved: p.hardSolved,
-      hard_total: p.hardTotal,
-      acceptance_rate: p.acceptanceRate,
-      streak: p.streak,
-      total_active_days: p.totalActiveDays,
-      contest_rating: p.contestRating,
-      contest_global_ranking: p.contestGlobalRanking,
-      contests_attended: p.contestsAttended,
-      contest_top_percentage: p.contestTopPercentage,
-      submission_calendar: p.submissionCalendar,
-      language_stats: p.languageStats,
-      tag_stats: p.tagStats,
-      badges: p.badges,
-      updated_at: new Date().toISOString(),
-    });
-
-    const today = new Date();
-    const dateStr = today.toISOString().slice(0, 10);
-    const { data: prev } = await supabaseAdmin
-      .from("daily_snapshots")
-      .select("total_solved")
-      .eq("student_id", id)
-      .lt("snapshot_date", dateStr)
-      .order("snapshot_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const solvedThatDay = Math.max(0, p.totalSolved - (prev?.total_solved ?? p.totalSolved));
-    await supabaseAdmin.from("daily_snapshots").upsert({
-      student_id: id,
-      snapshot_date: dateStr,
-      total_solved: p.totalSolved,
-      easy_solved: p.easySolved,
-      medium_solved: p.mediumSolved,
-      hard_solved: p.hardSolved,
-      solved_that_day: solvedThatDay,
-    });
-
-    await supabaseAdmin.from("recent_submissions").delete().eq("student_id", id);
-    if (p.recent.length) {
-      await supabaseAdmin.from("recent_submissions").insert(
-        p.recent.map((r) => ({
-          student_id: id,
-          title: r.title,
-          title_slug: r.titleSlug,
-          lang: r.lang,
-          submitted_at: r.submittedAt,
-        })),
-      );
-    }
-
-    await supabaseAdmin
-      .from("students")
-      .update({ last_scraped_at: new Date().toISOString(), scrape_error: null })
-      .eq("id", id);
-  } catch (e: any) {
-    await supabaseAdmin
-      .from("students")
-      .update({ last_scraped_at: new Date().toISOString(), scrape_error: String(e?.message ?? e).slice(0, 300) })
-      .eq("id", id);
-    throw e;
-  }
-}

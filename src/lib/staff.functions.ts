@@ -160,7 +160,20 @@ export const forceReleaseRefreshLock = createServerFn({ method: "POST" })
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global");
-    await supabaseAdmin.from("refresh_locks").delete().eq("lock_key", "global_all");
+    // Cancel any active job instead of deleting refresh_locks rows
+    const { data: active } = await supabaseAdmin
+      .from("refresh_jobs")
+      .select("id")
+      .in("status", ["queued", "running", "paused"])
+      .limit(1)
+      .maybeSingle();
+
+    if (active) {
+      await supabaseAdmin
+        .from("refresh_jobs")
+        .update({ status: "cancelled", finished_at: new Date().toISOString(), lease_owner: null, lease_until: null })
+        .eq("id", active.id);
+    }
+
     return { ok: true };
   });

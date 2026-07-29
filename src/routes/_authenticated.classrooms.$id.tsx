@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from "recharts";
-import { Plus, RefreshCw, Trash2, ExternalLink, Search, ArrowUpDown, Download, Pencil, X } from "lucide-react";
+import { Plus, Trash2, ExternalLink, Search, ArrowUpDown, Download, Pencil, X } from "lucide-react";
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { getClassroom, deleteClassroom } from "@/lib/classrooms.functions";
-import { refreshClassroom, updateStudent } from "@/lib/students.functions";
+import { updateStudent } from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatCard, SectionTitle } from "@/components/stat-card";
@@ -24,6 +24,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCssVars } from "@/hooks/use-css-vars";
+import { RefreshButton } from "@/components/refresh-button";
 
 const clsQO = (id: string) =>
   queryOptions({
@@ -83,7 +84,6 @@ function ClassroomDetail() {
     id: string; name: string; roll: string; email: string; leetcode_id: string;
   } | null>(null);
   const [hideScrapingStatus, setHideScrapingStatus] = useState(false);
-  const [refreshStartedAt, setRefreshStartedAt] = useState<number | null>(null);
 
   const updateStu = useServerFn(updateStudent);
   const editM = useMutation({
@@ -97,53 +97,6 @@ function ClassroomDetail() {
     },
     onError: (e) => toast.error(String(e)),
   });
-
-
-  const refresh = useServerFn(refreshClassroom);
-  const refreshM = useMutation({
-    mutationFn: (force?: boolean) => {
-      setRefreshStartedAt(Date.now());
-      return refresh({ data: { id, force } });
-    },
-    onSuccess: (r) => {
-      toast.success(`Refreshed ${r.ok} · ${r.failed} failed`);
-      setRefreshStartedAt(null);
-      router.invalidate();
-    },
-    onError: (e: any) => {
-      const msg = String(e);
-      if (msg.includes("REFRESH_BUSY")) {
-        try {
-          const parsed = JSON.parse(e.message);
-          toast.error(`Another refresh is currently running (${parsed.busyClassroomName}).`, {
-            action: {
-              label: "Force Unlock",
-              onClick: () => refreshM.mutate(true),
-            },
-          });
-        } catch {
-          toast.error("Another refresh is currently running. Please wait.");
-        }
-      } else {
-        toast.error(msg);
-      }
-      setRefreshStartedAt(null);
-    },
-  });
-
-  // Poll for live progress updates while refreshing
-  useEffect(() => {
-    if (!refreshM.isPending) return;
-    const t = setInterval(() => {
-      router.invalidate();
-    }, 2000);
-    return () => clearInterval(t);
-  }, [refreshM.isPending, router]);
-
-  const totalStudents = data.students.length;
-  const processedCount = refreshStartedAt
-    ? data.students.filter((s) => new Date(s.last_scraped_at ?? 0).getTime() > refreshStartedAt).length
-    : 0;
 
   const qc = useQueryClient();
   const del = useServerFn(deleteClassroom);
@@ -313,14 +266,7 @@ function ClassroomDetail() {
               <Plus className="mr-1 size-4" /> Add students
             </Link>
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => refreshM.mutate(false)}
-            disabled={refreshM.isPending}
-          >
-            <RefreshCw className={cn("mr-1 size-4", refreshM.isPending && "animate-spin")} />
-            {refreshM.isPending ? `Scraping… (${processedCount}/${totalStudents})` : "Refresh all"}
-          </Button>
+          <RefreshButton scope="classroom" classroomId={id} />
           <Button variant="outline" onClick={exportCsv} title="Export summary CSV (E)">
             <Download className="mr-1 size-4" /> Export summary
           </Button>
