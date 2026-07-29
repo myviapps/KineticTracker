@@ -19,6 +19,10 @@ export function useRefreshJobStatus() {
     queryFn: () => getActiveRefreshJob(),
     // Poll fast while a job exists so progress feels live; slow when idle.
     refetchInterval: (q) => (q.state.data ? 2000 : 15_000),
+    // Keep polling while the tab is backgrounded. A 1000-student refresh runs
+    // for ~15 minutes and the user will switch away; with the default (false)
+    // the pump's view of the job froze and it hammered a dead job forever.
+    refetchIntervalInBackground: true,
     staleTime: 0,
   });
   return { ...query, job: query.data as RefreshJob };
@@ -77,33 +81,34 @@ export function useRefreshJobPump() {
     if (!jobId) return;
     let cancelled = false;
 
+    // Statuses worth pumping. Anything else means the job is over.
+    const ACTIVE = new Set(["queued", "running", "paused"]);
+    // Give up after this many consecutive rounds that move nothing. Without a
+    // cap, a backgrounded tab (TanStack Query pauses polling when the window
+    // loses focus, so jobRef goes stale) retried a dead job every few seconds
+    // forever. Sized to outlast one lease so a chunk finishing on another tab
+    // is waited out rather than abandoned.
+    const MAX_IDLE_ROUNDS = 15;
+    const IDLE_BACKOFF_MS = 4000;
+
     void (async () => {
       // True right after a chunk that ended only because it ran out of time —
       // go straight into the next one instead of waiting for the poll to
       // confirm the lease was released.
       let continueImmediately = false;
+      let idleRounds = 0;
 
       while (!cancelled) {
+        if (idleRounds >= MAX_IDLE_ROUNDS) return;
+
         const j = jobRef.current;
-        if (!j || j.id !== jobId) return;
+        if (!j || j.id !== jobId || !ACTIVE.has(j.status)) return;
 
-        if (!continueImmediately) {
-          const now = Date.now();
-          const leaseExpired = !j.lease_until || new Date(j.lease_until).getTime() <= now;
-          const claimable =
-            j.status === "queued" ||
-            // Only steal a running job once its lease has actually lapsed.
-            (j.status === "running" && leaseExpired) ||
-            (j.status === "paused" &&
-              !!j.resume_after &&
-              new Date(j.resume_after).getTime() <= now);
-
-          if (!claimable) {
-            // Another worker holds it, or it's cooling off after a rate limit.
-            await sleep(3000);
-            continue;
-          }
-        }
+        // Deliberately no client-side lease check here. lease_until is written
+        // and compared by the Postgres clock, and the browser's clock can be
+        // wildly out of step with it (a dev machine measured 33s ahead), so any
+        // comparison done here is unreliable. claim_refresh_job is atomic and
+        // cheap — just ask, and let the database be the judge.
         continueImmediately = false;
 
         let res;
@@ -111,7 +116,8 @@ export function useRefreshJobPump() {
           res = await withPumpLock(() => runChunk({ data: { jobId } }));
         } catch {
           // Network/auth/timeout — back off, then the lease check retries.
-          await sleep(3000);
+          idleRounds += 1;
+          await sleep(IDLE_BACKOFF_MS);
           continue;
         }
 
@@ -120,8 +126,18 @@ export function useRefreshJobPump() {
 
         // undefined => another tab is pumping. Let it.
         if (!res) {
-          await sleep(3000);
+          idleRounds += 1;
+          await sleep(IDLE_BACKOFF_MS);
           continue;
+        }
+        // The server's view wins over our possibly-stale cached row.
+        if (res.jobStatus && !ACTIVE.has(res.jobStatus)) {
+          if (res.jobStatus === "completed") {
+            toast.success(`Refresh complete — ${res.succeeded} updated, ${res.failed} failed`);
+            qc.invalidateQueries({ queryKey: ["classroom"] });
+            qc.invalidateQueries({ queryKey: ["overview"] });
+          }
+          return;
         }
         if (res.done) {
           toast.success(`Refresh complete — ${res.succeeded} updated, ${res.failed} failed`);
@@ -136,10 +152,12 @@ export function useRefreshJobPump() {
           return;
         }
         if (!res.claimed || res.aborted) {
-          await sleep(1500);
+          idleRounds += 1;
+          await sleep(IDLE_BACKOFF_MS);
           continue;
         }
         // Chunk hit its time budget with work left — go again now.
+        idleRounds = 0;
         continueImmediately = true;
       }
     })();

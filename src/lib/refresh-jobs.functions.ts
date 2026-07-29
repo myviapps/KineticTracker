@@ -5,13 +5,15 @@ import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-
 export const enqueueRefresh = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) =>
-    z.object({
-      scope: z.enum(["platform", "classroom", "students"]),
-      classroomId: z.string().uuid().optional(),
-      studentIds: z.array(z.string().uuid()).optional(),
-      filter: z.enum(["all", "stale", "failed"]).optional().default("all"),
-      staleBefore: z.string().optional(),
-    }).parse(d),
+    z
+      .object({
+        scope: z.enum(["platform", "classroom", "students"]),
+        classroomId: z.string().uuid().optional(),
+        studentIds: z.array(z.string().uuid()).optional(),
+        filter: z.enum(["all", "stale", "failed"]).optional().default("all"),
+        staleBefore: z.string().optional(),
+      })
+      .parse(d),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -27,7 +29,8 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
 
     if (!isAdmin && !isFaculty) throw new Error("Forbidden");
 
-    if (data.scope === "platform" && !isAdmin) throw new Error("Forbidden: admin required for platform refresh");
+    if (data.scope === "platform" && !isAdmin)
+      throw new Error("Forbidden: admin required for platform refresh");
 
     if (data.scope === "classroom" && data.classroomId && isFaculty) {
       const { data: assignment } = await supabaseAdmin
@@ -70,25 +73,49 @@ export const getActiveRefreshJob = createServerFn({ method: "GET" })
 
 export const runRefreshJobChunk = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) =>
-    z.object({ jobId: z.string().uuid() }).parse(d),
-  )
+  .inputValidator((d: unknown) => z.object({ jobId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const { runChunk } = await import("./refresh-worker.server");
-    return runChunk({ jobId: data.jobId, budgetMs: 50_000 });
+    const { log } = await import("./log.server");
+    try {
+      return await runChunk({ jobId: data.jobId, budgetMs: 50_000 });
+    } catch (e) {
+      // Previously this rejected straight through the server-fn boundary, so the
+      // browser saw a bare 500 and the terminal saw nothing. The job then sat on
+      // its 60s lease until it expired and the whole cycle repeated.
+      log.error("chunk", "runChunk threw — releasing lease so the next pump can retry", e);
+      try {
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        await supabaseAdmin
+          .from("refresh_jobs")
+          .update({
+            lease_owner: null,
+            // Back-dated, not null — see the note in refresh-worker.server.ts.
+            lease_until: new Date(Date.now() - 1000).toISOString(),
+            last_error: String((e as Error)?.message ?? e).slice(0, 300),
+          })
+          .eq("id", data.jobId);
+      } catch (releaseErr) {
+        log.error("chunk", "could not release lease after failure", releaseErr);
+      }
+      throw e;
+    }
   });
 
 export const cancelRefreshJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireAdmin])
-  .inputValidator((d: unknown) =>
-    z.object({ jobId: z.string().uuid() }).parse(d),
-  )
+  .inputValidator((d: unknown) => z.object({ jobId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { error } = await supabaseAdmin
       .from("refresh_jobs")
-      .update({ status: "cancelled", finished_at: new Date().toISOString(), lease_owner: null, lease_until: null })
+      .update({
+        status: "cancelled",
+        finished_at: new Date().toISOString(),
+        lease_owner: null,
+        lease_until: null,
+      })
       .eq("id", data.jobId);
 
     if (error) throw new Error(error.message);

@@ -3,17 +3,24 @@
 export async function scrapeStudentById(id: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { fetchLeetCodeProfile } = await import("./leetcode.server");
+  const { log } = await import("./log.server");
+  const tStart = Date.now();
 
   const { data: student, error } = await supabaseAdmin
     .from("students")
     .select("id, leetcode_id, consecutive_failures")
     .eq("id", id)
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (error) {
+    log.error("scrape", `student lookup failed for ${id.slice(0, 8)}`, error);
+    throw new Error(error.message);
+  }
   if (!student) throw new Error("Student not found");
 
   try {
+    const tFetch = Date.now();
     const p = await fetchLeetCodeProfile(student.leetcode_id);
+    const fetchMs = Date.now() - tFetch;
 
     await supabaseAdmin.from("student_stats").upsert({
       student_id: id,
@@ -100,8 +107,14 @@ export async function scrapeStudentById(id: string) {
         consecutive_failures: 0,
       })
       .eq("id", id);
+
+    log.info(
+      "scrape",
+      `  ✓ ${student.leetcode_id} solved=${p.totalSolved} fetch=${fetchMs}ms db=${Date.now() - tFetch - fetchMs}ms total=${Date.now() - tStart}ms`,
+    );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    log.error("scrape", `  ✕ ${student.leetcode_id} after ${Date.now() - tStart}ms`, e);
     // Track repeat offenders so the worker can skip permanently-broken handles
     // (typo'd leetcode_id) instead of burning a request on them every run.
     await supabaseAdmin
