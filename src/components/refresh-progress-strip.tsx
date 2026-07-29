@@ -1,8 +1,8 @@
 import { Progress } from "@/components/ui/progress";
-import { useRefreshJob } from "@/hooks/use-refresh-job";
+import { useRefreshJobStatus } from "@/hooks/use-refresh-job";
 
 export function RefreshProgressStrip() {
-  const { data: job } = useRefreshJob();
+  const { job } = useRefreshJobStatus();
 
   if (!job) return null;
 
@@ -25,9 +25,7 @@ export function RefreshProgressStrip() {
           ✓ {job.succeeded} · ✕ {job.failed}
         </span>
       </div>
-      {job.total > 0 && (
-        <Progress value={progress} className="mt-1 h-1" />
-      )}
+      {job.total > 0 && <Progress value={progress} className="mt-1 h-1" />}
     </div>
   );
 }

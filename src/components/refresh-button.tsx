@@ -1,11 +1,11 @@
 import { useServerFn } from "@tanstack/react-start";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RefreshCw, Pause } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { enqueueRefresh } from "@/lib/refresh-jobs.functions";
-import { useRefreshJob } from "@/hooks/use-refresh-job";
+import { REFRESH_JOB_KEY, useRefreshJobStatus } from "@/hooks/use-refresh-job";
 
 export function RefreshButton({
   scope,
@@ -14,7 +14,8 @@ export function RefreshButton({
   scope: "classroom" | "platform";
   classroomId?: string;
 }) {
-  const { data: job, isLoading } = useRefreshJob();
+  const { job, isLoading } = useRefreshJobStatus();
+  const qc = useQueryClient();
   const enqueue = useServerFn(enqueueRefresh);
 
   const enqueueM = useMutation({
@@ -22,12 +23,21 @@ export function RefreshButton({
       enqueue({
         data: { scope, classroomId: scope === "classroom" ? classroomId : undefined },
       }),
+    // Without this the UI shows nothing until the next poll — which, while idle,
+    // is up to 15s away. That reads as "the button does nothing".
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: REFRESH_JOB_KEY });
+      toast.success("Refresh queued");
+    },
     onError: (e: unknown) => toast.error(String(e)),
   });
 
   const isActive = job && (job.status === "queued" || job.status === "running");
   const isPaused = job?.status === "paused";
-  const progress = job && job.total > 0 ? Math.round((job.processed / job.total) * 100) : 0;
+  // Label by the RUNNING job's scope, not this button's — a classroom refresh
+  // also disables the platform button (single-flight), and vice versa.
+  const jobLabel =
+    job?.scope === "platform" ? "platform" : job?.scope === "classroom" ? "classroom" : "students";
 
   if (isLoading) {
     return (
@@ -42,7 +52,9 @@ export function RefreshButton({
     return (
       <Button variant="outline" disabled>
         <RefreshCw className="mr-1 size-4 animate-spin" />
-        Refreshing {scope === "platform" ? "platform" : "classroom"} — {job.processed}/{job.total}
+        {job.status === "queued"
+          ? `Starting ${jobLabel} refresh…`
+          : `Refreshing ${jobLabel} — ${job.processed}/${job.total}`}
       </Button>
     );
   }

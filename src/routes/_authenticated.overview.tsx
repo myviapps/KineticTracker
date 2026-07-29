@@ -10,6 +10,7 @@ import { getOverview } from "@/lib/overview.functions";
 import { StatCard, SectionTitle } from "@/components/stat-card";
 import { toStudentRow, bucketCounts, BUCKETS } from "@/lib/buckets";
 import { useCssVars } from "@/hooks/use-css-vars";
+import { CHART_MOTION } from "@/lib/chart-motion";
 import { RefreshButton } from "@/components/refresh-button";
 
 const qo = queryOptions({ queryKey: ["overview"], queryFn: () => getOverview() });
@@ -158,7 +159,14 @@ function OverviewPage() {
                 <XAxis dataKey="day" fontSize={10} stroke={cMutedFg} />
                 <YAxis fontSize={10} stroke={cMutedFg} />
                 <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-                <Line type="monotone" dataKey="solved" stroke={cPrimary} strokeWidth={2} dot={false} />
+                <Line
+                  type="monotone"
+                  dataKey="solved"
+                  stroke={cPrimary}
+                  strokeWidth={2}
+                  dot={false}
+                  {...CHART_MOTION}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -173,6 +181,7 @@ function OverviewPage() {
             <ResponsiveContainer>
               <PieChart>
                 <Pie
+                  {...CHART_MOTION}
                   data={diff}
                   dataKey="value"
                   nameKey="name"
@@ -217,7 +226,7 @@ function OverviewPage() {
                 <XAxis type="number" fontSize={10} stroke={cMutedFg} />
                 <YAxis type="category" dataKey="name" fontSize={10} width={110} stroke={cMutedFg} />
                 <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-                <Bar dataKey="total" fill={cPrimary} radius={[0, 4, 4, 0]} />
+                <Bar dataKey="total" fill={cPrimary} radius={[0, 4, 4, 0]} {...CHART_MOTION} />
               </BarChart>
             </ResponsiveContainer>
           </div>

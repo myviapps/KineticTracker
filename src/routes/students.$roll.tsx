@@ -8,6 +8,7 @@ import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, Responsive
 
 import { getStudentByRoll, refreshStudent, deleteStudent } from "@/lib/students.functions";
 import { useCssVars } from "@/hooks/use-css-vars";
+import { CHART_MOTION } from "@/lib/chart-motion";
 import { Button } from "@/components/ui/button";
 import { Heatmap } from "@/components/heatmap";
 import { StatCard, SectionTitle } from "@/components/stat-card";
@@ -238,6 +239,7 @@ function StudentPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
+                  {...CHART_MOTION}
                       data={difficultyData}
                       cx="50%" cy="50%"
                       innerRadius={48} outerRadius={68}
@@ -342,7 +344,14 @@ function StudentPage() {
                         color: cMutedFg,
                       }}
                     />
-                    <Line type="monotone" dataKey="total" stroke={cPrimary} strokeWidth={2} dot={false} />
+                    <Line
+                      type="monotone"
+                      dataKey="total"
+                      stroke={cPrimary}
+                      strokeWidth={2}
+                      dot={false}
+                      {...CHART_MOTION}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

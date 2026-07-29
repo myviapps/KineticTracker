@@ -24,6 +24,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCssVars } from "@/hooks/use-css-vars";
+import { CHART_MOTION } from "@/lib/chart-motion";
 import { RefreshButton } from "@/components/refresh-button";
 
 const clsQO = (id: string) =>
@@ -368,7 +369,14 @@ function ClassroomDetail() {
                 <XAxis dataKey="day" fontSize={10} stroke={cMutedFg} />
                 <YAxis fontSize={10} stroke={cMutedFg} />
                 <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-                <Line type="monotone" dataKey="solved" stroke={cPrimary} strokeWidth={2} dot={false} />
+                <Line
+                  type="monotone"
+                  dataKey="solved"
+                  stroke={cPrimary}
+                  strokeWidth={2}
+                  dot={false}
+                  {...CHART_MOTION}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -379,6 +387,7 @@ function ClassroomDetail() {
             <ResponsiveContainer>
               <PieChart>
                 <Pie
+                  {...CHART_MOTION}
                   data={diff}
                   dataKey="value"
                   nameKey="name"
@@ -420,9 +429,9 @@ function ClassroomDetail() {
               <XAxis dataKey="name" fontSize={9} stroke={cMutedFg} angle={-25} textAnchor="end" height={60} />
               <YAxis fontSize={10} stroke={cMutedFg} />
                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-              <Bar dataKey="easy" stackId="a" fill={cEasy} />
-              <Bar dataKey="medium" stackId="a" fill={cMedium} />
-              <Bar dataKey="hard" stackId="a" fill={cHard} />
+              <Bar dataKey="easy" stackId="a" fill={cEasy} {...CHART_MOTION} />
+              <Bar dataKey="medium" stackId="a" fill={cMedium} {...CHART_MOTION} />
+              <Bar dataKey="hard" stackId="a" fill={cHard} {...CHART_MOTION} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -461,7 +470,7 @@ function ClassroomDetail() {
               tabIndex={active ? 0 : -1}
               onClick={() => setBucket(b.id)}
               className={cn(
-                "rounded-lg border px-4 py-2 text-left transition-all",
+                "rounded-lg border px-4 py-2 text-left transition-[color,background-color,border-color]",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 active
                   ? "border-primary bg-primary/10"

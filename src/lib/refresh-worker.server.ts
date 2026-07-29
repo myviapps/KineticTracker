@@ -2,6 +2,19 @@ import type { Database } from "@/integrations/supabase/types";
 
 const TAIL_MS = 6_000;
 
+export type ChunkResult = {
+  /** false when another worker already holds the lease */
+  claimed: boolean;
+  /** true when the queue is drained and the job is complete */
+  done: boolean;
+  paused?: boolean;
+  aborted?: boolean;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  total: number;
+};
+
 export async function runChunk({
   jobId,
   budgetMs = 50_000,
@@ -10,24 +23,22 @@ export async function runChunk({
   jobId: string;
   budgetMs?: number;
   ownerId?: string;
-}) {
+}): Promise<ChunkResult> {
   const owner = ownerId ?? crypto.randomUUID();
+  const empty = { processed: 0, succeeded: 0, failed: 0, total: 0 };
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  const { data: claimResult, error: claimError } = await supabaseAdmin.rpc(
-    "claim_refresh_job",
-    {
-      p_job_id: jobId,
-      p_lease_seconds: 60,
-      p_owner: owner,
-    },
-  );
+  const { data: claimResult, error: claimError } = await supabaseAdmin.rpc("claim_refresh_job", {
+    p_job_id: jobId,
+    p_lease_seconds: 60,
+    p_owner: owner,
+  });
   if (claimError) throw claimError;
-  if (!claimResult) return { claimed: false };
+  if (!claimResult) return { claimed: false, done: false, ...empty };
 
   const job = claimResult as Database["public"]["Tables"]["refresh_jobs"]["Row"];
   let cursor: string | null = job.cursor_student_id ?? null;
-  let batchSize = job.batch_size ?? 5;
+  const batchSize = job.batch_size ?? 5;
   let cooldownMs = job.cooldown_ms ?? 3000;
   let cleanStreak = job.clean_streak ?? 0;
   let succeeded = job.succeeded ?? 0;
@@ -61,9 +72,7 @@ export async function runChunk({
       break;
     }
 
-    const scrapeResults = await Promise.allSettled(
-      students.map((s) => scrapeOne(s.id)),
-    );
+    const scrapeResults = await Promise.allSettled(students.map((s) => scrapeOne(s.id)));
 
     let batchOk = 0;
     let batchThrottled = 0;
@@ -75,7 +84,8 @@ export async function runChunk({
         batchOk++;
       } else {
         const err = r.reason;
-        const isThrottle = err?.kind === "throttle" || err?.name === "LeetCodeError" && err?.kind === "throttle";
+        const isThrottle =
+          err?.kind === "throttle" || (err?.name === "LeetCodeError" && err?.kind === "throttle");
         if (isThrottle) {
           batchThrottled++;
         }
@@ -119,7 +129,7 @@ export async function runChunk({
         })
         .eq("id", jobId)
         .eq("lease_owner", owner);
-      return { done: false, paused: true, processed, succeeded, failed, total };
+      return { claimed: true, done: false, paused: true, processed, succeeded, failed, total };
     }
 
     const { data: committed } = await supabaseAdmin.rpc("commit_refresh_batch", {
@@ -136,7 +146,7 @@ export async function runChunk({
     });
 
     if (!committed) {
-      return { done: false, aborted: true, processed, succeeded, failed, total };
+      return { claimed: true, done: false, aborted: true, processed, succeeded, failed, total };
     }
 
     cursor = lastStudent.id;
@@ -169,7 +179,12 @@ export async function runChunk({
 
     if (jobRow) {
       await supabaseAdmin.from("scrape_runs").insert({
-        source: jobRow.scope === "platform" ? "cron" : jobRow.scope === "classroom" ? "classroom" : "student",
+        source:
+          jobRow.scope === "platform"
+            ? "cron"
+            : jobRow.scope === "classroom"
+              ? "classroom"
+              : "student",
         classroom_id: jobRow.classroom_id,
         started_at: jobRow.started_at ?? new Date().toISOString(),
         completed_at: new Date().toISOString(),
@@ -187,7 +202,7 @@ export async function runChunk({
       .eq("lease_owner", owner);
   }
 
-  return { done, processed, succeeded, failed, total };
+  return { claimed: true, done, processed, succeeded, failed, total };
 }
 
 async function scrapeOne(studentId: string): Promise<void> {

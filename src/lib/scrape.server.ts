@@ -6,7 +6,7 @@ export async function scrapeStudentById(id: string) {
 
   const { data: student, error } = await supabaseAdmin
     .from("students")
-    .select("id, leetcode_id")
+    .select("id, leetcode_id, consecutive_failures")
     .eq("id", id)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -57,11 +57,10 @@ export async function scrapeStudentById(id: string) {
         .limit(1)
         .maybeSingle();
       prev = data;
-    } catch { /* prev stays null — safe default */ }
-    const solvedThatDay = Math.max(
-      0,
-      p.totalSolved - (prev?.total_solved ?? p.totalSolved),
-    );
+    } catch {
+      /* prev stays null — safe default */
+    }
+    const solvedThatDay = Math.max(0, p.totalSolved - (prev?.total_solved ?? p.totalSolved));
     try {
       await supabaseAdmin.from("daily_snapshots").upsert({
         student_id: id,
@@ -72,7 +71,9 @@ export async function scrapeStudentById(id: string) {
         hard_solved: p.hardSolved,
         solved_that_day: solvedThatDay,
       });
-    } catch { /* snapshot non-critical — already have stats */ }
+    } catch {
+      /* snapshot non-critical — already have stats */
+    }
 
     try {
       await supabaseAdmin.from("recent_submissions").delete().eq("student_id", id);
@@ -87,19 +88,28 @@ export async function scrapeStudentById(id: string) {
           })),
         );
       }
-    } catch { /* recent submissions non-critical */ }
+    } catch {
+      /* recent submissions non-critical */
+    }
 
     await supabaseAdmin
       .from("students")
-      .update({ last_scraped_at: new Date().toISOString(), scrape_error: null })
+      .update({
+        last_scraped_at: new Date().toISOString(),
+        scrape_error: null,
+        consecutive_failures: 0,
+      })
       .eq("id", id);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Track repeat offenders so the worker can skip permanently-broken handles
+    // (typo'd leetcode_id) instead of burning a request on them every run.
     await supabaseAdmin
       .from("students")
       .update({
         last_scraped_at: new Date().toISOString(),
         scrape_error: msg.slice(0, 300),
+        consecutive_failures: (student.consecutive_failures ?? 0) + 1,
       })
       .eq("id", id);
     throw e;

@@ -31,7 +31,11 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
+  // Was `ease-in-out` at 500ms open / 300ms close. An ease-IN start on a panel
+  // that slides in from offscreen reads as lag; the panel should leave the edge
+  // at speed and decelerate into place. Close is faster than open — dismissing
+  // should feel immediate.
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=closed]:duration-(--duration-menu) data-[state=open]:duration-(--duration-panel) data-[state=open]:ease-glide data-[state=closed]:ease-swap data-[state=open]:animate-in data-[state=closed]:animate-out",
   {
     variants: {
       side: {

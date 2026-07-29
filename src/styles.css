@@ -4,6 +4,69 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─── Motion ──────────────────────────────────────────────────────────────
+   Instrument-panel precision: fast attack, damped settle, no bounce. Every
+   curve here is an ease-OUT with a long tail — motion commits immediately and
+   decelerates into place. That is the difference between "snap" and "settle";
+   linear and the stock cubic-bezier(0.4,0,0.2,1) read as hard because they
+   arrive at full speed.
+   These override Tailwind's and tw-animate-css's global defaults, so every
+   transition-* / animate-in / animate-out utility in the app inherits them. */
+@theme {
+  --ease-snap: cubic-bezier(0.22, 1, 0.36, 1); /* out-quint — default UI */
+  --ease-glide: cubic-bezier(0.16, 1, 0.3, 1); /* out-expo — large surfaces */
+  --ease-swap: cubic-bezier(0.65, 0, 0.35, 1); /* in-out — symmetric moves */
+
+  --duration-fast: 120ms; /* micro: color/opacity on small controls */
+  --duration-base: 180ms; /* default UI state change */
+  --duration-menu: 240ms; /* popovers, menus, tooltips */
+  --duration-panel: 320ms; /* sidebar, sheets, dialogs */
+
+  /* Tailwind ships 150ms / cubic-bezier(0.4,0,0.2,1) for every transition-*. */
+  --default-transition-duration: 180ms;
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* tw-animate-css ships 150ms plain `ease` for enter/exit — the harsh pop on
+     every dialog, dropdown, popover, select, tooltip and sheet. */
+  --animate-in: enter var(--tw-animation-duration, var(--tw-duration, 240ms))
+    var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
+  --animate-out: exit var(--tw-animation-duration, var(--tw-duration, 180ms))
+    var(--tw-ease, cubic-bezier(0.65, 0, 0.35, 1)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
+
+  /* Height animations need a curve that does not stall at the end. */
+  --animate-accordion-down: accordion-down
+    var(--tw-animation-duration, var(--tw-duration, 260ms))
+    var(--tw-ease, cubic-bezier(0.22, 1, 0.36, 1)) var(--tw-animation-fill-mode, none);
+  --animate-accordion-up: accordion-up
+    var(--tw-animation-duration, var(--tw-duration, 200ms))
+    var(--tw-ease, cubic-bezier(0.65, 0, 0.35, 1)) var(--tw-animation-fill-mode, none);
+  --animate-collapsible-down: collapsible-down
+    var(--tw-animation-duration, var(--tw-duration, 260ms))
+    var(--tw-ease, cubic-bezier(0.22, 1, 0.36, 1)) var(--tw-animation-fill-mode, none);
+  --animate-collapsible-up: collapsible-up
+    var(--tw-animation-duration, var(--tw-duration, 200ms))
+    var(--tw-ease, cubic-bezier(0.65, 0, 0.35, 1)) var(--tw-animation-fill-mode, none);
+
+  /* Stock pulse drops to 50% opacity and is timed to feel like a heartbeat.
+     On a dark surface that reads as flicker; a shallower, slower breath is
+     calmer behind a wall of skeleton cards. */
+  --animate-pulse: skeleton-breathe 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes skeleton-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
 @theme inline {
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -149,3 +212,55 @@
 }
 
 .font-mono { font-family: var(--font-mono); }
+
+/* ─── Route transitions ───────────────────────────────────────────────────
+   Switching classrooms is the most frequent action in this app and it used to
+   hard-cut. A short lift-and-fade gives the swap a direction without making
+   navigation feel slow. Browsers without the View Transitions API just cut,
+   exactly as before. */
+::view-transition-old(root) {
+  animation: route-out 130ms var(--ease-swap) both;
+}
+::view-transition-new(root) {
+  animation: route-in 260ms var(--ease-glide) both;
+}
+@keyframes route-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes route-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ─── Reduced motion ──────────────────────────────────────────────────────
+   Collapse transitions rather than deleting them, so state changes still read
+   as changes. Spinners and pulses report live work, so they keep running —
+   just slower — instead of freezing mid-refresh. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+  .animate-spin {
+    animation: spin 1.6s linear infinite !important;
+  }
+  .animate-pulse {
+    animation: skeleton-breathe 3.5s ease-in-out infinite !important;
+  }
+  .animate-caret-blink {
+    animation: caret-blink 1.25s ease-out infinite !important;
+  }
+}

@@ -16,9 +16,13 @@ export default defineConfig({
     nitro({
       preset: "vercel",
       vercel: {
-        functionRules: {
-          "/api/public/jobs/**": { maxDuration: 60 },
-        },
+        // Nitro emits ONE catch-all function (__server.func) that serves both the
+        // /api/public/jobs/* routes and every server function — including
+        // runRefreshJobChunk, which runs a ~50s chunk. So the ceiling has to be
+        // raised on the base config; a functionRules entry would not cover server
+        // functions and would full-copy the server bundle for nothing.
+        // 60s is the Vercel Hobby maximum.
+        functions: { maxDuration: 60 },
       },
     }),
   ],

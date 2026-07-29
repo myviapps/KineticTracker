@@ -4,14 +4,16 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { supabase } from "@/integrations/supabase/client";
-import { useRefreshJob } from "@/hooks/use-refresh-job";
+import { useRefreshJobPump } from "@/hooks/use-refresh-job";
 import { RefreshProgressStrip } from "@/components/refresh-progress-strip";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
     if (typeof window === "undefined") return;
     // Use client-side Supabase (localStorage session) — don't call the server
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) throw new Error("Not authenticated");
   },
   errorComponent: ({ error }) => {
@@ -35,7 +37,8 @@ function AuthenticatedLayout() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [pinned, setPinned] = useState(true);
-  useRefreshJob();
+  // Mounted here (and only here) so the job keeps advancing across route changes.
+  useRefreshJobPump();
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
