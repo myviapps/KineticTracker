@@ -66,15 +66,29 @@ function LandingPage() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           {/* null = not yet known. Holding the space avoids "Staff sign in" flashing
-              in for a frame before being replaced by "Dashboard". */}
+              in for a frame before being replaced by the signed-in actions. */}
           {signedIn === null ? (
-            <Skeleton className="h-8 w-28" />
+            <Skeleton className="h-8 w-44" />
           ) : signedIn ? (
-            <Button asChild variant="default" size="sm">
-              <Link to="/dashboard">
-                <LayoutDashboard className="mr-1 size-4" /> Dashboard
-              </Link>
-            </Button>
+            <>
+              {/* This page IS the search page, so the button focuses the field
+                  rather than navigating to where you already are. */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  inputRef.current?.focus();
+                  inputRef.current?.select();
+                }}
+              >
+                <Search className="mr-1 size-4" /> Search
+              </Button>
+              <Button asChild variant="default" size="sm">
+                <Link to="/dashboard">
+                  <LayoutDashboard className="mr-1 size-4" /> Dashboard
+                </Link>
+              </Button>
+            </>
           ) : (
             <Button asChild variant="outline" size="sm">
               <Link to="/auth">
