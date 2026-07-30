@@ -39,7 +39,7 @@ function PendingDashboard() {
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard — Kinetic" },
+      { title: "Dashboard — Almanac" },
       { name: "description", content: "Manage classrooms and track LeetCode progress." },
     ],
   }),
@@ -87,7 +87,7 @@ function DashboardPage() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
-            Kinetic / {role === "admin" ? "Admin" : role === "placement_officer" ? "Overview" : "Dashboard"}
+            Almanac / {role === "admin" ? "Admin" : role === "placement_officer" ? "Overview" : "Dashboard"}
           </h1>
           <h2 className="mt-2 text-3xl font-bold tracking-tight">
             {isAdmin ? "Command Center" : isPO ? "College Overview" : "My Classrooms"}

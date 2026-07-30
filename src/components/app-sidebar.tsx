@@ -11,7 +11,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarHeader,
   SidebarFooter,
   SidebarMenuSkeleton,
   useSidebar,
@@ -25,7 +24,6 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { KineticLogo } from "@/components/kinetic-logo";
 import { Skeleton } from "@/components/ui/skeleton";
  
  import { useRouter } from "@tanstack/react-router";
@@ -80,14 +78,16 @@ export function AppSidebar() {
   });
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <Link to="/dashboard" className="flex items-center gap-2 px-3 py-2">
-          <KineticLogo showText={!collapsed} />
-        </Link>
-      </SidebarHeader>
-
-      <SidebarContent>
+    /*
+      No brand here — the top nav owns it. The offset parks the fixed panel
+      below the nav bar instead of running the full viewport height, so the nav
+      reads as the primary chrome. (Overrides `inset-y-0 h-svh` in ui/sidebar.)
+    */
+    <Sidebar
+      collapsible="icon"
+      className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]"
+    >
+      <SidebarContent className="pt-2">
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>

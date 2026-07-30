@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { BulkUploader } from "@/components/bulk-uploader";
 
 export const Route = createFileRoute("/_authenticated/_admin/import")({
-  head: () => ({ meta: [{ title: "Import — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Import — Almanac" }] }),
   component: ImportPage,
 });
 

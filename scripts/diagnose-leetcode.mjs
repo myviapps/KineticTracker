@@ -67,7 +67,7 @@ const sleep = (n) => new Promise((r) => setTimeout(r, n));
 const LC_URL = "https://leetcode.com/graphql";
 const HEADERS = {
   "Content-Type": "application/json",
-  "User-Agent": "Mozilla/5.0 (compatible; KineticTracker/1.0; +https://kinetic.example)",
+  "User-Agent": "Mozilla/5.0 (compatible; Almanac/1.0; +https://almanac.example)",
   Referer: "https://leetcode.com/",
 };
 

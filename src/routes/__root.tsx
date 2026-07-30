@@ -8,7 +8,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { type ReactNode } from "react";
-import { KineticLogo } from "@/components/kinetic-logo";
+import { AlmanacLogo } from "@/components/almanac-logo";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
@@ -24,7 +24,7 @@ function NotFoundComponent() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4">
       <div className="flex flex-col items-center gap-3">
-        <KineticLogo animated size={48} showText={false} />
+        <AlmanacLogo animated size={48} showText={false} />
       </div>
       <div className="max-w-md text-center">
         <h1 className="font-mono text-7xl font-bold text-primary">404</h1>
@@ -77,16 +77,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Kinetic Tracker" },
+      { title: "Almanac" },
       { name: "description", content: "Track LeetCode progress across classrooms. Day-wise reports, heatmaps, and full student profiles." },
-      { property: "og:title", content: "Kinetic Tracker" },
+      { property: "og:title", content: "Almanac" },
       { property: "og:description", content: "Day-wise cohort reports and rich student profiles for LeetCode." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "" },

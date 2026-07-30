@@ -20,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 const qo = queryOptions({ queryKey: ["overview"], queryFn: () => getOverview() });
 
 export const Route = createFileRoute("/_authenticated/overview")({
-  head: () => ({ meta: [{ title: "Overview — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Overview — Almanac" }] }),
   loader: ({ context }) => {
     if (typeof window !== "undefined") {
       return context.queryClient.ensureQueryData(qo);
@@ -116,7 +116,7 @@ function OverviewPage() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
-            Kinetic / Overview
+            Almanac / Overview
           </h1>
           {/* This page is reachable by faculty, whose data the server scopes to their
               own assignments — so it can't call itself a cross-classroom Command

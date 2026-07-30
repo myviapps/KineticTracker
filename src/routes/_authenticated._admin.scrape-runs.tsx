@@ -6,7 +6,7 @@ import { listScrapeRuns } from "@/lib/scrape-runs.functions";
 import { SkeletonPageHeader, SkeletonTable } from "@/components/skeletons";
 
 export const Route = createFileRoute("/_authenticated/_admin/scrape-runs")({
-  head: () => ({ meta: [{ title: "Scrape History — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Scrape History — Almanac" }] }),
   component: ScrapeRunsPage,
   pendingComponent: () => (
     <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -38,7 +38,7 @@ function ScrapeRunsPage() {
     <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-6">
         <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
-          Kinetic / Admin
+          Almanac / Admin
         </h1>
         <h2 className="mt-2 text-3xl font-bold tracking-tight">Scrape History</h2>
         <p className="mt-2 text-sm text-muted-foreground">

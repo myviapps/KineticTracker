@@ -56,10 +56,6 @@
      calmer behind a wall of skeleton cards. */
   --animate-pulse: skeleton-breathe 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 
-  /* Radar logo animations */
-  --animate-radar-sweep: radar-sweep 3s linear infinite;
-  --animate-radar-arc: radar-arc 4s linear infinite;
-  --animate-radar-arc-reverse: radar-arc-reverse 3s linear infinite;
 }
 
 @keyframes skeleton-breathe {
@@ -72,33 +68,27 @@
   }
 }
 
-@keyframes radar-sweep {
-  to { transform: rotate(360deg); }
-}
-@keyframes radar-arc {
-  to { transform: rotate(360deg); }
-}
-@keyframes radar-arc-reverse {
-  to { transform: rotate(-360deg); }
-}
-
-/* Dot bursts — fire in sync with the sweep arm (3s cycle) */
-@keyframes dot-burst-0 {
-  0%, 5%, 100% { transform: scale(1); opacity: 0.4; }
-  2% { transform: scale(2.2); opacity: 1; filter: drop-shadow(0 0 6px #ffa116); }
-}
-@keyframes dot-burst-1 {
-  0%, 5%, 100% { transform: scale(1); opacity: 0.4; }
-  2% { transform: scale(2.2); opacity: 1; filter: drop-shadow(0 0 6px #3b82f6); }
-}
-@keyframes dot-burst-2 {
-  0%, 5%, 100% { transform: scale(1); opacity: 0.4; }
-  2% { transform: scale(2.2); opacity: 1; filter: drop-shadow(0 0 6px #ef4743); }
+/*
+  Almanac logo — days fill in along the diagonal, hold, then clear, so the mark
+  animates the way the product's heatmap does over a term. Group opacity
+  multiplies the per-cell base opacity, which is what keeps each day's own
+  intensity intact through the wave.
+*/
+@keyframes almanac-day-fill {
+  0%        { opacity: 0.05; transform: scale(0.6); }
+  16%, 66%  { opacity: 1;    transform: scale(1); }
+  100%      { opacity: 0.05; transform: scale(0.6); }
 }
 
-.dot-pulse-0 { animation: dot-burst-0 3s ease-in-out infinite; animation-delay: 0s; transform-origin: 55px 22px; }
-.dot-pulse-1 { animation: dot-burst-1 3s ease-in-out infinite; animation-delay: 0.514s; transform-origin: 83px 40px; }
-.dot-pulse-2 { animation: dot-burst-2 3s ease-in-out infinite; animation-delay: 1.271s; transform-origin: 68px 80px; }
+.almanac-day {
+  animation: almanac-day-fill 2.6s cubic-bezier(0.33, 1, 0.68, 1) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .almanac-day { animation: none; }
+}
 
 @theme inline {
   --font-sans: 'Inter', system-ui, sans-serif;

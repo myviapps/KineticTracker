@@ -1,12 +1,12 @@
 <div align="center">
-  <img src="public/logo-radar.svg" width="120" height="120" alt="Kinetic Tracker Logo">
+  <img src="public/logo-almanac.svg" width="120" height="120" alt="Almanac logo">
 </div>
 
-# Kinetic Tracker
+# Almanac
 
 **Track, analyze, and motivate student LeetCode activity across classrooms and cohorts.**
 
-Kinetic Tracker is a full-stack classroom analytics platform that monitors competitive programming progress on LeetCode. Built for educators, placement officers, and training programs who want data-driven visibility into their students' practice habits.
+Almanac is a full-stack classroom analytics platform that monitors competitive programming progress on LeetCode. Built for educators, placement officers, and training programs who want data-driven visibility into their students' practice habits.
 
 ## Features
 
@@ -17,7 +17,7 @@ Kinetic Tracker is a full-stack classroom analytics platform that monitors compe
 - **Automated Refresh** — Background worker processes student profiles in chunks. Daily Vercel cron + 10-minute GitHub Actions pump keep data fresh. Rate-limited with lease-based concurrency.
 - **Public Student Lookup** — Unauthenticated users can look up any student by roll number (PII masked).
 - **Dark & Light Themes** — Dark-by-default with an optional light mode. Smooth view transitions and custom motion curves.
-- **Animated Radar Logo** — Inline SVG radar logo with rotating sweep arm, independently-spinning dashed arcs, and proximity-triggered data dot pulses. Used across all brand locations and as the full-page loading animation.
+- **Almanac Mark** — The brand logo is the product's own submission heatmap: a 4×4 grid of days whose density climbs toward the bottom-right. Its animated variant fills along the diagonal and doubles as the full-page loading state. Inline SVG, theme-aware, legible at 16px.
 
 ## Tech Stack
 
@@ -49,7 +49,7 @@ Kinetic Tracker is a full-stack classroom analytics platform that monitors compe
 ```bash
 # Clone the repo
 git clone <repo-url>
-cd kinetic-tracker
+cd almanac
 
 # Install dependencies
 npm install

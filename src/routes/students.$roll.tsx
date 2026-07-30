@@ -36,7 +36,7 @@ function PendingStudent() {
 }
 
 export const Route = createFileRoute("/students/$roll")({
-  head: () => ({ meta: [{ title: "Student — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Student — Almanac" }] }),
   loader: ({ params, context }) => {
     if (typeof window !== "undefined") {
       return context.queryClient.ensureQueryData(studentQO(params.roll));

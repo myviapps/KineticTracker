@@ -1,4 +1,4 @@
-import { KineticLogo } from "@/components/kinetic-logo";
+import { AlmanacLogo } from "@/components/almanac-logo";
 import { cn } from "@/lib/utils";
 
 interface AnimatedLoaderProps {
@@ -14,7 +14,7 @@ export function AnimatedLoader({ className, text }: AnimatedLoaderProps) {
         className,
       )}
     >
-      <KineticLogo size={64} animated showText={false} />
+      <AlmanacLogo size={64} animated showText={false} />
       {text && (
         <p className="text-sm text-muted-foreground">{text}</p>
       )}

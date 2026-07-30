@@ -21,7 +21,7 @@ import { SkeletonRows } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/_authenticated/_admin/staff")({
-  head: () => ({ meta: [{ title: "Staff Management — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Staff Management — Almanac" }] }),
   component: StaffPage,
 });
 
@@ -123,7 +123,7 @@ function StaffPage() {
     <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-8">
         <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
-          Kinetic / Admin
+          Almanac / Admin
         </h1>
         <h2 className="mt-2 text-3xl font-bold tracking-tight">Staff Management</h2>
         <p className="mt-2 text-sm text-muted-foreground">

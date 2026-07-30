@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/_authenticated/_admin/classrooms/new")({
-  head: () => ({ meta: [{ title: "New Classroom — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "New Classroom — Almanac" }] }),
   component: NewClassroomPage,
 });
 

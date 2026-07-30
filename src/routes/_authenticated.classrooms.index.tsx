@@ -21,7 +21,7 @@ function PendingClassrooms() {
 }
 
 export const Route = createFileRoute("/_authenticated/classrooms/")({
-  head: () => ({ meta: [{ title: "Classrooms — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Classrooms — Almanac" }] }),
   // The window guard is not cosmetic. `attachSupabaseAuth` is a CLIENT middleware,
   // so a loader that runs during SSR calls listClassrooms with no Authorization
   // header and `requireSupabaseAuth` rejects it — this route threw
@@ -47,7 +47,7 @@ function ClassroomsListPage() {
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-8">
         <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
-          Kinetic / Classrooms
+          Almanac / Classrooms
         </h1>
         {/* listClassrooms is scoped by role now, so "All Classrooms" would be a lie
             for a faculty member seeing only their assignments. */}

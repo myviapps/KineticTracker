@@ -23,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
  * this route out of that parent layout while keeping the same URL.
  */
 export const Route = createFileRoute("/_authenticated/classrooms/$id_/students/new")({
-  head: () => ({ meta: [{ title: "Add students — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Add students — Almanac" }] }),
   component: AddStudentsPage,
 });
 

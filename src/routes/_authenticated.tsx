@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useRouter } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { LayoutDashboard } from "lucide-react";
-import { KineticLogo } from "@/components/kinetic-logo";
+import { AlmanacLogo } from "@/components/almanac-logo";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -66,35 +66,48 @@ function AuthenticatedLayout() {
   if (checking) return <AppShellSkeleton />;
 
   return (
-    <SidebarProvider open={pinned} onOpenChange={setPinned}>
-      <AppSidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur sm:gap-3 sm:px-4">
-          <SidebarTrigger />
-          {/* Hidden below md so the search field gets the room on a phone. */}
-          <div className="hidden md:block">
-            <KineticLogo size={20} />
-          </div>
-          <StudentSearch className="ml-auto w-full max-w-[220px] sm:max-w-[280px]" />
-          <Button asChild variant="ghost" size="sm" className="shrink-0 px-2">
-            <Link to="/dashboard" title="Dashboard">
-              <LayoutDashboard className="size-4" />
-              <span className="ml-1 hidden lg:inline">Dashboard</span>
-            </Link>
-          </Button>
-          <ThemeToggle />
-        </header>
-        <RefreshProgressStrip />
-        {/*
-          view-transition-name scopes the cross-fade to the content that actually
-          changes. The keyframes in styles.css used to target ::view-transition-*(root),
-          which faded the sidebar and header on every navigation too — visible
-          flicker on static chrome, on the app's most frequent action (switching
-          classrooms).
-        */}
-        <main className="min-w-0 flex-1 [view-transition-name:main-content]">
-          <Outlet />
-        </main>
+    /*
+      The nav bar owns the shell: it spans the full viewport width and the
+      sidebar starts underneath it (see `--app-header-h` below and the offset
+      passed to <Sidebar> in app-sidebar.tsx). Brand lives here, not in the
+      sidebar, so it stays visible when the sidebar collapses to icons.
+    */
+    <SidebarProvider
+      open={pinned}
+      onOpenChange={setPinned}
+      className="flex-col"
+      style={{ "--app-header-h": "3rem" } as CSSProperties}
+    >
+      <header className="sticky top-0 z-40 flex h-(--app-header-h) w-full shrink-0 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur sm:gap-3 sm:px-4">
+        <Link to="/dashboard" className="shrink-0" title="Almanac">
+          <AlmanacLogo size={22} className="[&_span]:hidden sm:[&_span]:inline" />
+        </Link>
+        <SidebarTrigger className="shrink-0" />
+        <StudentSearch className="ml-auto w-full max-w-[140px] sm:max-w-[220px] lg:max-w-[320px]" />
+        <Button asChild variant="ghost" size="sm" className="shrink-0 px-2">
+          <Link to="/dashboard" title="Dashboard">
+            <LayoutDashboard className="size-4" />
+            <span className="ml-1 hidden lg:inline">Dashboard</span>
+          </Link>
+        </Button>
+        <ThemeToggle />
+      </header>
+
+      <div className="flex w-full min-w-0 flex-1">
+        <AppSidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <RefreshProgressStrip />
+          {/*
+            view-transition-name scopes the cross-fade to the content that actually
+            changes. The keyframes in styles.css used to target ::view-transition-*(root),
+            which faded the sidebar and header on every navigation too — visible
+            flicker on static chrome, on the app's most frequent action (switching
+            classrooms).
+          */}
+          <main className="min-w-0 flex-1 [view-transition-name:main-content]">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </SidebarProvider>
   );

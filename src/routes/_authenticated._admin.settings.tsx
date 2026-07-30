@@ -9,7 +9,7 @@ import { SkeletonPageHeader } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/_authenticated/_admin/settings")({
-  head: () => ({ meta: [{ title: "Settings — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Settings — Almanac" }] }),
   loader: async ({ context: { queryClient } }) => {
     queryClient.ensureQueryData({ queryKey: ["settings"], queryFn: () => getSiteSettings() });
   },
@@ -54,11 +54,11 @@ function SettingsPage() {
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-8">
         <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
-          Kinetic / Admin
+          Almanac / Admin
         </h1>
         <h2 className="mt-2 text-3xl font-bold tracking-tight">Settings</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Configure platform-wide preferences for Kinetic.
+          Configure platform-wide preferences for Almanac.
         </p>
       </div>
 

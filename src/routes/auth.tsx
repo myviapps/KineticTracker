@@ -4,14 +4,14 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 
-import { KineticLogo } from "@/components/kinetic-logo";
+import { AlmanacLogo } from "@/components/almanac-logo";
 import { AnimatedLoader } from "@/components/animated-loader";
 import { supabase } from "@/integrations/supabase/client";
 
 import { getSiteSettings } from "@/lib/settings.functions";
 
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: "Sign in — Kinetic Tracker" }] }),
+  head: () => ({ meta: [{ title: "Sign in — Almanac" }] }),
   loader: async () => {
     const settings = await getSiteSettings();
     return { googleEnabled: settings?.google_auth_enabled ?? true };
@@ -47,14 +47,14 @@ function AuthPage() {
         <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
           <ArrowLeft className="size-4" /> Home
         </Link>
-         <KineticLogo />
+         <AlmanacLogo />
       </header>
 
       <main className="flex flex-1 items-center justify-center px-4">
         <div className="w-full max-w-sm">
           <h1 className="text-2xl font-bold tracking-tight">Staff sign in</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Use your Kinetic account credentials to sign in.
+            Use your Almanac account credentials to sign in.
           </p>
 
           <form

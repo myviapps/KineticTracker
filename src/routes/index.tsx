@@ -6,14 +6,14 @@ import { Search, ExternalLink, LogIn, LayoutDashboard } from "lucide-react";
 import { searchStudents } from "@/lib/search.functions";
 import { getCurrentUserClient } from "@/lib/auth.functions";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { KineticLogo } from "@/components/kinetic-logo";
+import { AlmanacLogo } from "@/components/almanac-logo";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Kinetic Tracker" },
+      { title: "Almanac" },
       { name: "description", content: "Track LeetCode progress across classrooms." },
     ],
   }),
@@ -55,18 +55,26 @@ function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* Minimal nav */}
-      <header className="flex h-14 items-center justify-between border-b border-border px-6">
-        <KineticLogo />
-        <div className="flex items-center gap-2">
+      <header className="flex h-14 items-center justify-between border-b border-border px-4 sm:px-6">
+        <AlmanacLogo size={28} />
+        <div className="flex items-center gap-1 sm:gap-2">
           <ThemeToggle />
-          {/* null = not yet known. Holding the space avoids "Staff sign in" flashing
-              in for a frame before being replaced by the signed-in actions. */}
           {signedIn === null ? (
-            <Skeleton className="h-8 w-44" />
+            <Skeleton className="h-8 w-28 sm:w-36" />
           ) : signedIn ? (
             <>
-              {/* This page IS the search page, so the button focuses the field
-                  rather than navigating to where you already are. */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="sm:hidden"
+                onClick={() => {
+                  inputRef.current?.focus();
+                  inputRef.current?.select();
+                }}
+                title="Search"
+              >
+                <Search className="size-4" />
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -74,19 +82,23 @@ function LandingPage() {
                   inputRef.current?.focus();
                   inputRef.current?.select();
                 }}
+                className="hidden sm:inline-flex"
               >
                 <Search className="mr-1 size-4" /> Search
               </Button>
-              <Button asChild variant="default" size="sm">
+              <Button asChild variant="default" size="sm" className="px-2 sm:px-3">
                 <Link to="/dashboard">
-                  <LayoutDashboard className="mr-1 size-4" /> Dashboard
+                  <LayoutDashboard className="size-4 sm:mr-1" />
+                  <span className="hidden sm:inline">Dashboard</span>
                 </Link>
               </Button>
             </>
           ) : (
             <Button asChild variant="outline" size="sm">
               <Link to="/auth">
-                <LogIn className="mr-1 size-4" /> Staff sign in
+                <LogIn className="mr-1 size-4" />
+                <span className="hidden sm:inline">Staff sign in</span>
+                <span className="sm:hidden">Sign in</span>
               </Link>
             </Button>
           )}
@@ -95,20 +107,19 @@ function LandingPage() {
 
       {/* Hero */}
       <main className="flex flex-1 flex-col items-center justify-center px-4">
-        <div className="w-full max-w-2xl text-center">
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
+        <div className="flex w-full max-w-2xl flex-col items-center gap-3 text-center sm:gap-4">
+          <AlmanacLogo animated size={56} showText={false} className="mb-1 sm:mb-2" />
+          <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
             Track LeetCode Progress
           </h1>
-          {/* Email was never searchable — it is deliberately excluded server-side —
-              so the old copy promised something the query could not do. */}
-          <p className="mt-4 text-lg text-muted-foreground">
+          <p className="max-w-lg text-base text-muted-foreground sm:text-lg">
             {signedIn
               ? "Search your classrooms by name, roll number, or LeetCode ID."
               : "Enter a student's full roll number to see their progress."}
           </p>
 
           {/* Search */}
-          <div className="relative mt-10">
+          <div className="relative mt-2 w-full sm:mt-4">
             <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
             <input
               ref={inputRef}

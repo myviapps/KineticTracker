@@ -52,7 +52,7 @@ function PendingClassroom() {
 }
 
 export const Route = createFileRoute("/_authenticated/classrooms/$id")({
-  head: () => ({ meta: [{ title: "Classroom — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Classroom — Almanac" }] }),
   loader: ({ params, context }) => {
     if (typeof window !== "undefined") {
       return context.queryClient.ensureQueryData(clsQO(params.id));
