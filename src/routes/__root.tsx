@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { type ReactNode } from "react";
 import { AlmanacLogo } from "@/components/almanac-logo";
+import { Analytics } from "@vercel/analytics/react";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
@@ -126,6 +127,7 @@ function RootComponent() {
         <Outlet />
       </div>
       <Toaster position="top-right" theme={theme} />
+      <Analytics />
     </QueryClientProvider>
   );
 }
