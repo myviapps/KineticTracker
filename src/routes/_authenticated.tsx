@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { LayoutDashboard } from "lucide-react";
+import { KineticLogo } from "@/components/kinetic-logo";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -71,8 +72,8 @@ function AuthenticatedLayout() {
         <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur sm:gap-3 sm:px-4">
           <SidebarTrigger />
           {/* Hidden below md so the search field gets the room on a phone. */}
-          <div className="hidden truncate font-mono text-[11px] uppercase tracking-widest text-muted-foreground md:block">
-            Kinetic Tracker
+          <div className="hidden md:block">
+            <KineticLogo size={20} />
           </div>
           <StudentSearch className="ml-auto w-full max-w-[220px] sm:max-w-[280px]" />
           <Button asChild variant="ghost" size="sm" className="shrink-0 px-2">

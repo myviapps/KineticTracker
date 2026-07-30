@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
-import { SkeletonGrid, SkeletonPageHeader } from "./components/skeletons";
+import { AnimatedLoader } from "./components/animated-loader";
 
 /**
  * Safety net for any route without its own pendingComponent. Most routes now
@@ -9,12 +9,7 @@ import { SkeletonGrid, SkeletonPageHeader } from "./components/skeletons";
  * rendering nothing while it loads.
  */
 function DefaultPending() {
-  return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <SkeletonPageHeader />
-      <SkeletonGrid count={3} className="grid-cols-1 md:grid-cols-3" itemClassName="h-32" />
-    </div>
-  );
+  return <AnimatedLoader text="Loading…" />;
 }
 
 export const getRouter = () => {

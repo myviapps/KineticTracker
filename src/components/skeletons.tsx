@@ -1,3 +1,4 @@
+import { AnimatedLoader } from "@/components/animated-loader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -114,37 +115,5 @@ export function SkeletonRows({ rows = 4 }: { rows?: number }) {
  * routes, since the layouts nest.
  */
 export function AppShellSkeleton() {
-  return (
-    <div className="flex min-h-screen w-full">
-      <div className="hidden w-64 shrink-0 flex-col gap-6 border-r border-sidebar-border bg-sidebar p-3 md:flex">
-        <div className="flex items-center gap-2 px-1 py-2">
-          <Skeleton className="size-8 rounded-md" />
-          <Skeleton className="h-4 w-28" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="mb-3 h-2.5 w-12" />
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-8 w-full" />
-          ))}
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="mb-3 h-2.5 w-20" />
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-8 w-full" />
-          ))}
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 items-center gap-3 border-b border-border px-3 sm:px-4">
-          <Skeleton className="size-7 rounded" />
-          <Skeleton className="h-3 w-32" />
-          <Skeleton className="ml-auto size-8 rounded" />
-        </header>
-        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <SkeletonPageHeader />
-          <SkeletonGrid count={3} className="grid-cols-1 md:grid-cols-3" itemClassName="h-48" />
-        </div>
-      </div>
-    </div>
-  );
+  return <AnimatedLoader text="Loading…" />;
 }

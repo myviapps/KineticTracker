@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Terminal, BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, History } from "lucide-react";
+import { BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, History } from "lucide-react";
 import { useState } from "react";
 import {
   Sidebar,
@@ -25,9 +25,10 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { KineticLogo } from "@/components/kinetic-logo";
 import { Skeleton } from "@/components/ui/skeleton";
-
-import { useRouter } from "@tanstack/react-router";
+ 
+ import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 export function AppSidebar() {
@@ -82,14 +83,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <Link to="/dashboard" className="flex items-center gap-2 px-3 py-2">
-          <div className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Terminal className="size-4" strokeWidth={2.5} />
-          </div>
-          {!collapsed && (
-            <span className="font-mono text-sm font-bold tracking-tight">
-              KINETIC<span className="text-primary">/</span>LC
-            </span>
-          )}
+          <KineticLogo showText={!collapsed} />
         </Link>
       </SidebarHeader>
 

@@ -1,18 +1,19 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, ExternalLink, Terminal, LogIn, LayoutDashboard } from "lucide-react";
+import { Search, ExternalLink, LogIn, LayoutDashboard } from "lucide-react";
 
 import { searchStudents } from "@/lib/search.functions";
 import { getCurrentUserClient } from "@/lib/auth.functions";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { KineticLogo } from "@/components/kinetic-logo";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Kinetic — LeetCode Classroom Tracker" },
+      { title: "Kinetic Tracker" },
       { name: "description", content: "Track LeetCode progress across classrooms." },
     ],
   }),
@@ -55,14 +56,7 @@ function LandingPage() {
     <div className="flex min-h-screen flex-col bg-background">
       {/* Minimal nav */}
       <header className="flex h-14 items-center justify-between border-b border-border px-6">
-        <div className="flex items-center gap-2">
-          <div className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Terminal className="size-4" strokeWidth={2.5} />
-          </div>
-          <span className="font-mono text-sm font-bold tracking-tight">
-            KINETIC<span className="text-primary">/</span>LC
-          </span>
-        </div>
+        <KineticLogo />
         <div className="flex items-center gap-2">
           <ThemeToggle />
           {/* null = not yet known. Holding the space avoids "Staff sign in" flashing

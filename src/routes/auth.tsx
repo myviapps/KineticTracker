@@ -2,15 +2,16 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Terminal, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
+import { KineticLogo } from "@/components/kinetic-logo";
+import { AnimatedLoader } from "@/components/animated-loader";
 import { supabase } from "@/integrations/supabase/client";
-import { Skeleton } from "@/components/ui/skeleton";
 
 import { getSiteSettings } from "@/lib/settings.functions";
 
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: "Sign in — Kinetic" }] }),
+  head: () => ({ meta: [{ title: "Sign in — Kinetic Tracker" }] }),
   loader: async () => {
     const settings = await getSiteSettings();
     return { googleEnabled: settings?.google_auth_enabled ?? true };
@@ -18,19 +19,7 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
   // Without its own pending state this page would inherit the router's default,
   // which is shaped like a dashboard — wrong for a centred sign-in card.
-  pendingComponent: () => (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-4">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-4 w-64" />
-        <div className="space-y-3 pt-4">
-          <Skeleton className="h-[70px]" />
-          <Skeleton className="h-[70px]" />
-          <Skeleton className="h-11" />
-        </div>
-      </div>
-    </div>
-  ),
+  pendingComponent: () => <AnimatedLoader text="Loading sign in…" />,
 });
 
 function AuthPage() {
@@ -58,14 +47,7 @@ function AuthPage() {
         <Link to="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
           <ArrowLeft className="size-4" /> Home
         </Link>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="grid size-8 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Terminal className="size-4" strokeWidth={2.5} />
-          </div>
-          <span className="font-mono text-sm font-bold tracking-tight">
-            KINETIC<span className="text-primary">/</span>LC
-          </span>
-        </div>
+         <KineticLogo />
       </header>
 
       <main className="flex flex-1 items-center justify-center px-4">
