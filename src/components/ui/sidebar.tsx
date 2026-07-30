@@ -154,6 +154,8 @@ const Sidebar = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> & {
     side?: "left" | "right";
+    /** Edge the mobile sheet enters from. Defaults to `side`. */
+    mobileSide?: "left" | "right" | "top" | "bottom";
     variant?: "sidebar" | "floating" | "inset";
     collapsible?: "offcanvas" | "icon" | "none";
   }
@@ -161,6 +163,7 @@ const Sidebar = React.forwardRef<
   (
     {
       side = "left",
+      mobileSide,
       variant = "sidebar",
       collapsible = "offcanvas",
       className,
@@ -170,6 +173,7 @@ const Sidebar = React.forwardRef<
     ref,
   ) => {
     const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+    const resolvedMobileSide = mobileSide ?? side;
 
     if (collapsible === "none") {
       return (
@@ -187,24 +191,34 @@ const Sidebar = React.forwardRef<
     }
 
     if (isMobile) {
+      // A top sheet is sized by height, not by --sidebar-width, and has to cap
+      // itself so a long classroom list can't run past the viewport.
+      const fromEdge = resolvedMobileSide === "top" || resolvedMobileSide === "bottom";
       return (
         <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            className={cn(
+              "bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden",
+              fromEdge
+                ? "max-h-[85svh] w-full overflow-y-auto"
+                : "w-(--sidebar-width)",
+            )}
             style={
               {
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
               } as React.CSSProperties
             }
-            side={side}
+            side={resolvedMobileSide}
           >
             <SheetHeader className="sr-only">
               <SheetTitle>Sidebar</SheetTitle>
               <SheetDescription>Displays the mobile sidebar.</SheetDescription>
             </SheetHeader>
-            <div className="flex h-full w-full flex-col">{children}</div>
+            <div className={cn("flex w-full flex-col", !fromEdge && "h-full")}>
+              {children}
+            </div>
           </SheetContent>
         </Sheet>
       );

@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Plus, Users, Trash2, ArrowRight, Sparkles, BarChart3, Shield, UserCog } from "lucide-react";
@@ -15,7 +16,7 @@ import {
 import { SectionTitle } from "@/components/stat-card";
 import { BulkUploader } from "@/components/bulk-uploader";
 import { useRole } from "@/hooks/use-role";
-import { SkeletonGrid, SkeletonPageHeader } from "@/components/skeletons";
+import { AnimatedLoader } from "@/components/animated-loader";
 
 const classroomsQO = queryOptions({
   queryKey: ["classrooms"],
@@ -28,12 +29,7 @@ const classroomsQO = queryOptions({
  * nothing at all while classrooms loaded.
  */
 function PendingDashboard() {
-  return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <SkeletonPageHeader />
-      <SkeletonGrid count={3} className="grid-cols-1 md:grid-cols-2 lg:grid-cols-3" itemClassName="h-[248px]" />
-    </div>
-  );
+  return <AnimatedLoader text="Loading dashboard…" />;
 }
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -56,9 +52,24 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 function DashboardPage() {
-  const { role, isAdmin, isPlacementOfficer: isPO } = useRole();
+  const { role, isAdmin, isPlacementOfficer: isPO, isFaculty } = useRole();
   const { data: classrooms } = useSuspenseQuery(classroomsQO);
   const router = useRouter();
+
+  /*
+    Faculty covering more than one cohort get the Overview as their home. For
+    them this page is a list of two-to-N links they already have in the sidebar,
+    while Overview answers the question they actually open the app with: which of
+    my cohorts needs attention today. Single-classroom faculty stay here, where
+    the dashboard is still the shortest path to their one classroom.
+
+    `replace` keeps Back working — without it the redirect and the dashboard
+    fight over the same history entry.
+  */
+  const redirectToOverview = isFaculty && classrooms.length > 1;
+  useEffect(() => {
+    if (redirectToOverview) router.navigate({ to: "/overview", replace: true });
+  }, [redirectToOverview, router]);
   const qc = useQueryClient();
   const del = useServerFn(deleteClassroom);
   const mock = useServerFn(seedMockClassroom);
@@ -81,6 +92,10 @@ function DashboardPage() {
     },
     onError: (e) => toast.error(String(e)),
   });
+
+  // Placed after every hook above — an early return before them would make the
+  // hook order conditional.
+  if (redirectToOverview) return <AnimatedLoader text="Opening overview…" />;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

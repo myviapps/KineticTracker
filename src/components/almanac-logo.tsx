@@ -12,11 +12,12 @@ interface AlmanacLogoProps {
  *
  * A 4x4 grid of days whose density climbs toward the bottom-right, so the mark
  * reads as a cohort improving over a term rather than as a decorative checker.
- * Unlit days use `currentColor` so the mark sits correctly on either theme;
- * only the lit days carry the brand green.
+ *
+ * Colors come from the theme, not from the mark: lit days are `currentColor`
+ * (the wrapper sets `text-primary`, the platform amber) at four intensities,
+ * unlit days use `--muted-foreground`. That keeps the logo correct in both
+ * themes and in step with the rest of the UI if the palette ever moves.
  */
-
-const ACCENT = "#16A34A";
 
 /** Intensity per cell, row-major. 0 = no activity, 3 = a heavy day. */
 const DAYS = [
@@ -26,7 +27,7 @@ const DAYS = [
   2, 3, 2, 3,
 ];
 
-const OPACITY = [0.18, 0.32, 0.62, 1];
+const LIT_OPACITY = [0, 0.34, 0.66, 1];
 const TRACK = [3, 9.5, 16, 22.5]; // 4 columns/rows of 5px cells across a 32 grid
 
 export function AlmanacLogo({
@@ -45,11 +46,12 @@ export function AlmanacLogo({
         xmlns="http://www.w3.org/2000/svg"
         role="img"
         aria-label="Almanac"
-        className="shrink-0"
+        className="shrink-0 text-primary"
       >
         {DAYS.map((intensity, i) => {
           const row = Math.floor(i / 4);
           const col = i % 4;
+          const lit = intensity > 0;
           const cell = (
             <rect
               x={TRACK[col]}
@@ -57,8 +59,8 @@ export function AlmanacLogo({
               width="5"
               height="5"
               rx="1.2"
-              fill={intensity === 0 ? "currentColor" : ACCENT}
-              opacity={OPACITY[intensity]}
+              fill={lit ? "currentColor" : "var(--muted-foreground)"}
+              opacity={lit ? LIT_OPACITY[intensity] : 0.28}
             />
           );
 
@@ -79,8 +81,8 @@ export function AlmanacLogo({
       </svg>
 
       {showText && (
-        <span className="text-sm font-medium lowercase tracking-wide">
-          almanac
+        <span className="font-mono text-sm font-bold uppercase tracking-[0.18em]">
+          Almanac
         </span>
       )}
     </div>

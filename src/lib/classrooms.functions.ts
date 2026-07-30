@@ -56,7 +56,7 @@ export const listClassrooms = createServerFn({ method: "GET" })
 
 export const getClassroom = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId, role } = authContext(context);
@@ -86,18 +86,70 @@ export const getClassroom = createServerFn({ method: "GET" })
 
     const statsById = new Map(stats.map((s: any) => [s.student_id, s]));
 
+    /*
+      Snapshot-derived progress, alongside the LeetCode submission calendar.
+      These answer different questions and were being conflated:
+
+        submission_calendar[day] = SUBMISSIONS that UTC day (retries included),
+                                   frozen at whatever the last scrape saw.
+        total_solved delta       = NEWLY SOLVED unique problems between two
+                                   snapshots — which are not always consecutive
+                                   days, because a student can be skipped by a
+                                   rate limit or the 5-strike failure cutoff.
+
+      Returning the span lets the UI say "+34 over 3 days" instead of implying
+      all 34 landed today.
+    */
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - 14);
+    const { data: snaps } = ids.length
+      ? await supabaseAdmin
+          .from("daily_snapshots")
+          .select("student_id, snapshot_date, total_solved")
+          .in("student_id", ids)
+          .gte("snapshot_date", since.toISOString().slice(0, 10))
+          .order("snapshot_date", { ascending: true })
+      : { data: [] as { student_id: string; snapshot_date: string; total_solved: number }[] };
+
+    const snapsByStudent = new Map<string, { date: string; total: number }[]>();
+    for (const s of snaps ?? []) {
+      const list = snapsByStudent.get(s.student_id) ?? [];
+      list.push({ date: s.snapshot_date, total: s.total_solved });
+      snapsByStudent.set(s.student_id, list);
+    }
+
+    const dayMs = 86_400_000;
+    const progressById = new Map<
+      string,
+      { date: string; solvedSince: number | null; daysSpan: number | null }
+    >();
+    for (const [studentId, list] of snapsByStudent) {
+      const last = list[list.length - 1];
+      const prev = list.length > 1 ? list[list.length - 2] : null;
+      progressById.set(studentId, {
+        date: last.date,
+        solvedSince: prev ? Math.max(0, last.total - prev.total) : null,
+        daysSpan: prev
+          ? Math.round(
+              (Date.parse(`${last.date}T00:00:00Z`) - Date.parse(`${prev.date}T00:00:00Z`)) / dayMs,
+            )
+          : null,
+      });
+    }
+
     return {
       classroom,
       students: (students ?? []).map((s) => ({
         ...s,
         stats: statsById.get(s.id) ?? null,
+        progress: progressById.get(s.id) ?? null,
       })),
     };
   });
 
 export const createClassroom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: unknown) => CreateClassroomInput.parse(d))
+  .validator((d: unknown) => CreateClassroomInput.parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -112,7 +164,7 @@ export const createClassroom = createServerFn({ method: "POST" })
 
 export const deleteClassroom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -123,7 +175,7 @@ export const deleteClassroom = createServerFn({ method: "POST" })
 
 export const getMatrixBreakdown = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: { classroomId: string; startDate: string; endDate: string }) =>
+  .validator((d: { classroomId: string; startDate: string; endDate: string }) =>
     z.object({
       classroomId: z.string().uuid(),
       startDate: z.string(),

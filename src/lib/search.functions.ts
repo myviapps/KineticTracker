@@ -20,7 +20,7 @@ import { maskHandle, maskName } from "@/lib/mask";
  * `email` is deliberately not searchable in either mode.
  */
 export const searchStudents = createServerFn({ method: "GET" })
-  .inputValidator((d: unknown) => z.object({
+  .validator((d: unknown) => z.object({
     // Kept deliberately strict: `q` is interpolated into a PostgREST `or` filter
     // below, and this character class excludes the comma, parens and percent that
     // would let a caller restructure the filter.

@@ -90,7 +90,7 @@ export const listStaff = createServerFn({ method: "GET" })
 
 export const createStaffUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: unknown) => z.object({
+  .validator((d: unknown) => z.object({
     email: z.string().email(),
     name: z.string().min(1),
     role: z.enum(["admin", "placement_officer", "faculty"]),
@@ -137,7 +137,7 @@ export const createStaffUser = createServerFn({ method: "POST" })
  */
 export const deactivateUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: { user_id: string }) => z.object({ user_id: z.string().uuid() }).parse(d))
+  .validator((d: { user_id: string }) => z.object({ user_id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -171,7 +171,7 @@ export const deactivateUser = createServerFn({ method: "POST" })
 
 export const resetStaffPassword = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: { user_id: string }) =>
+  .validator((d: { user_id: string }) =>
     z.object({ user_id: z.string().uuid() }).parse(d),
   )
   .handler(async ({ data }) => {
@@ -190,7 +190,7 @@ export const resetStaffPassword = createServerFn({ method: "POST" })
 
 export const assignFacultyToClassroom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: unknown) => z.object({
+  .validator((d: unknown) => z.object({
     faculty_user_id: z.string().uuid(),
     classroom_id: z.string().uuid(),
   }).parse(d))
@@ -206,7 +206,7 @@ export const assignFacultyToClassroom = createServerFn({ method: "POST" })
 
 export const unassignFaculty = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: unknown) => z.object({
+  .validator((d: unknown) => z.object({
     faculty_user_id: z.string().uuid(),
     classroom_id: z.string().uuid(),
   }).parse(d))

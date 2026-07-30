@@ -12,12 +12,11 @@ import { CHART_MOTION } from "@/lib/chart-motion";
 import { Button } from "@/components/ui/button";
 import { Heatmap } from "@/components/heatmap";
 import { StatCard, SectionTitle } from "@/components/stat-card";
-import { SkeletonGrid } from "@/components/skeletons";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   todayCount, thisWeekCount, thisMonthCount, thisYearCount,
 } from "@/lib/date-buckets";
 import { cn } from "@/lib/utils";
+import { AnimatedLoader } from "@/components/animated-loader";
 
 const studentQO = (roll: string) =>
   queryOptions({
@@ -26,13 +25,7 @@ const studentQO = (roll: string) =>
   });
 
 function PendingStudent() {
-  return (
-    <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <Skeleton className="mb-6 h-32 rounded-lg" />
-      <SkeletonGrid count={4} className="mb-6 grid-cols-2 lg:grid-cols-4" />
-      <SkeletonGrid count={2} className="grid-cols-1 lg:grid-cols-3" itemClassName="h-[400px] lg:first:col-span-2" />
-    </div>
-  );
+  return <AnimatedLoader text="Loading student…" />;
 }
 
 export const Route = createFileRoute("/students/$roll")({

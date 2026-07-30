@@ -17,7 +17,7 @@ import {
  */
 export const enqueueRefresh = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: unknown) =>
+  .validator((d: unknown) =>
     z
       .object({
         scope: z.enum(["platform", "classroom", "students"]),
@@ -107,7 +107,7 @@ export const getActiveRefreshJob = createServerFn({ method: "GET" })
  */
 export const runRefreshJobChunk = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: unknown) => z.object({ jobId: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ jobId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -159,7 +159,7 @@ export const runRefreshJobChunk = createServerFn({ method: "POST" })
 
 export const cancelRefreshJob = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: unknown) => z.object({ jobId: z.string().uuid() }).parse(d))
+  .validator((d: unknown) => z.object({ jobId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 

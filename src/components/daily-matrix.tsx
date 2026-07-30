@@ -3,6 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { getMatrixBreakdown } from "@/lib/classrooms.functions";
 import { SkeletonTable } from "@/components/skeletons";
+import { ArrowUp } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Row = {
   id: string;
@@ -20,6 +22,58 @@ function fmtWeekday(dateStr: string): string {
   return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()];
 }
 
+type MatrixView = "both" | "total" | "gain";
+
+type Cell = {
+  total: number;
+  /** Newly solved since this student's previous snapshot. Null on the first one. */
+  gain: number | null;
+  /** Days that gain covers. >1 when a snapshot was missed. */
+  span: number;
+};
+
+function daysBetween(a: string, b: string): number {
+  const diff = Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`);
+  return Math.max(1, Math.round(diff / 86_400_000));
+}
+
+/**
+ * A day's movement. `null` means "no earlier snapshot", which is not the same as
+ * zero — a flat day is rendered as a dim dash so a wall of "+0" doesn't drown out
+ * the days that actually moved.
+ */
+function GainBadge({
+  gain,
+  span,
+  stacked,
+}: {
+  gain: number | null;
+  span: number;
+  stacked: boolean;
+}) {
+  if (gain === null) {
+    return <span className={cn("text-[9px] text-muted-foreground/40", stacked && "mt-0.5")}>·</span>;
+  }
+  if (gain <= 0) {
+    return <span className={cn("text-[9px] text-muted-foreground/40", stacked && "mt-0.5")}>–</span>;
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-px font-bold",
+        // A gain across a snapshot gap isn't one day's work. Amber marks it so a
+        // caught-up backlog can't be misread as a single heroic day.
+        span > 1 ? "text-medium" : "text-easy",
+        stacked ? "mt-0.5 text-[9px]" : "text-[11px]",
+      )}
+    >
+      <ArrowUp className={stacked ? "size-2.5" : "size-3"} strokeWidth={3} />
+      {gain}
+      {span > 1 && <span className="ml-px opacity-70">/{span}d</span>}
+    </span>
+  );
+}
+
 export function DailyMatrix({
   classroomId,
   rows,
@@ -35,6 +89,7 @@ export function DailyMatrix({
   const [customEnd, setCustomEnd] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
+  const [view, setView] = useState<MatrixView>("both");
 
   // `isPending` matters here: with only `breakdown` to go on, the table rendered a
   // full grid of "—" placeholders during every fetch, which looks exactly like a
@@ -53,15 +108,56 @@ export function DailyMatrix({
     return [...set].sort();
   }, [breakdown]);
 
-  const cohortTotals = useMemo(() => {
-    return allDates.map((date) =>
-      rows.reduce((sum, r) => {
-        const b = breakdown?.[r.id];
-        const snap = b?.snapshots.find((s) => s.date === date);
-        return sum + (snap?.total ?? 0);
-      }, 0)
-    );
-  }, [allDates, rows, breakdown]);
+  /**
+   * Per-student `date -> { total, gain }`.
+   *
+   * `gain` is measured against that student's previous *snapshot*, not the
+   * previous column — a student with no data on the 3rd who reappears on the 4th
+   * gained across the gap, and pretending otherwise would credit the wrong day.
+   * The first snapshot in range has no predecessor, so its gain is null (unknown)
+   * rather than 0 (no progress) — those are different statements.
+   *
+   * This also replaces the per-cell `snapshots.find()` the table used to run,
+   * which was a full scan for every student x date pair.
+   */
+  const byStudent = useMemo(() => {
+    const out = new Map<string, Map<string, Cell>>();
+    for (const [studentId, v] of Object.entries(breakdown ?? {})) {
+      const snaps = [...v.snapshots].sort((a, b) => a.date.localeCompare(b.date));
+      const m = new Map<string, Cell>();
+      let prev: { total: number; date: string } | null = null;
+      for (const s of snaps) {
+        m.set(s.date, {
+          total: s.total,
+          gain: prev === null ? null : s.total - prev.total,
+          span: prev === null ? 1 : daysBetween(prev.date, s.date),
+        });
+        prev = { total: s.total, date: s.date };
+      }
+      out.set(studentId, m);
+    }
+    return out;
+  }, [breakdown]);
+
+  const cohort = useMemo(
+    () =>
+      allDates.map((date) =>
+        rows.reduce(
+          (acc, r) => {
+            const cell = byStudent.get(r.id)?.get(date);
+            return {
+              total: acc.total + (cell?.total ?? 0),
+              gain: acc.gain + (cell?.gain ?? 0),
+              // Widest span wins: if any student's number covers 3 days, the
+              // cohort total for that column does too.
+              span: Math.max(acc.span, cell?.gain ? cell.span : 1),
+            };
+          },
+          { total: 0, gain: 0, span: 1 },
+        ),
+      ),
+    [allDates, rows, byStudent],
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -70,12 +166,18 @@ export function DailyMatrix({
 
   function handleExportCsv() {
     const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const header = ["Name", "Roll", "Total", "Easy", "Medium", "Hard", ...allDates.map((d) => fmtShort(d))];
+    // Each day exports as a total and a gain column, so the CSV carries the same
+    // information the table now shows rather than just the running count.
+    const header = [
+      "Name", "Roll", "Total", "Easy", "Medium", "Hard",
+      ...allDates.flatMap((d) => [fmtShort(d), `${fmtShort(d)} +`]),
+    ];
     const lines = rows.map((r) => {
       const b = breakdown?.[r.id];
-      const perDate = allDates.map((d) => {
-        const snap = b?.snapshots.find((s) => s.date === d);
-        return snap?.total ?? 0;
+      const cells = byStudent.get(r.id);
+      const perDate = allDates.flatMap((d) => {
+        const cell = cells?.get(d);
+        return [cell?.total ?? "", cell?.gain ?? ""];
       });
       return [r.name, r.roll, b?.latest?.total ?? 0, b?.latest?.easy ?? 0, b?.latest?.medium ?? 0, b?.latest?.hard ?? 0, ...perDate]
         .map(escape).join(",");
@@ -112,12 +214,41 @@ export function DailyMatrix({
             className="h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
-        <button
-          onClick={handleExportCsv}
-          className="ml-auto h-8 rounded-md border border-border bg-background px-3 text-sm text-foreground hover:bg-accent"
-        >
-          Export CSV
-        </button>
+        {/*
+          The grid used to show only the running total, which answers "how many
+          have they solved" but not "did they do anything that day" — the question
+          a daily matrix exists to answer.
+        */}
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex rounded-md border border-border p-0.5" role="group" aria-label="Cell display">
+            {(
+              [
+                ["both", "Both"],
+                ["total", "Total"],
+                ["gain", "Daily gain"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setView(id)}
+                aria-pressed={view === id}
+                className={
+                  view === id
+                    ? "rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground"
+                    : "rounded px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleExportCsv}
+            className="h-8 rounded-md border border-border bg-background px-3 text-sm text-foreground hover:bg-accent"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {isPending ? (
@@ -197,15 +328,36 @@ export function DailyMatrix({
                   {latest?.hard ?? <span className="opacity-50">—</span>}
                 </td>
                 {allDates.map((date) => {
-                  const snap = b?.snapshots.find((s) => s.date === date);
-                  const v = snap?.total;
+                  const cell = byStudent.get(r.id)?.get(date);
                   return (
                     <td
                       key={date}
-                      className="border-b border-border/50 px-2 py-2 text-center text-[11px] font-bold tabular-nums text-foreground"
-                      title={`${r.name} · ${fmtShort(date)} · ${v ?? "no data"}`}
+                      className="border-b border-border/50 px-2 py-1.5 text-center tabular-nums"
+                      title={
+                        cell
+                          ? `${r.name} · ${fmtShort(date)} · ${cell.total} solved` +
+                            (cell.gain === null
+                              ? " (no earlier snapshot to compare)"
+                              : cell.gain > 0
+                                ? ` · +${cell.gain} that day`
+                                : " · no change that day")
+                          : `${r.name} · ${fmtShort(date)} · no data`
+                      }
                     >
-                      {v ?? "—"}
+                      {!cell ? (
+                        <span className="text-[11px] font-bold text-foreground">—</span>
+                      ) : (
+                        <div className="flex flex-col items-center leading-none">
+                          {view !== "gain" && (
+                            <span className="text-[11px] font-bold text-foreground">
+                              {cell.total}
+                            </span>
+                          )}
+                          {view !== "total" && (
+                            <GainBadge gain={cell.gain} span={cell.span} stacked={view === "both"} />
+                          )}
+                        </div>
+                      )}
                     </td>
                   );
                 })}
@@ -231,12 +383,18 @@ export function DailyMatrix({
               <td className="sticky left-[360px] z-10 border-t border-r border-border bg-background/95 px-3 py-2 text-right font-bold text-hard">
                 {rows.reduce((s, r) => s + ((breakdown?.[r.id]?.latest?.hard) ?? 0), 0) || "—"}
               </td>
-              {cohortTotals.map((t, i) => (
+              {cohort.map((c, i) => (
                 <td
                   key={i}
-                  className="border-t border-border px-2 py-2 text-center text-[11px] font-bold text-primary"
+                  className="border-t border-border px-2 py-1.5 text-center tabular-nums"
+                  title={`Cohort · ${fmtShort(allDates[i])} · ${c.total} solved · +${c.gain} that day`}
                 >
-                  {t || "·"}
+                  <div className="flex flex-col items-center leading-none">
+                    {view !== "gain" && (
+                      <span className="text-[11px] font-bold text-primary">{c.total || "·"}</span>
+                    )}
+                    {view !== "total" && <GainBadge gain={c.gain} span={c.span} stacked={view === "both"} />}
+                  </div>
                 </td>
               ))}
             </tr>

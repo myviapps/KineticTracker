@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatCard, SectionTitle } from "@/components/stat-card";
 import { toStudentRow, filterBucket, bucketCounts, BUCKETS, type BucketId } from "@/lib/buckets";
+import { LeaderboardBars } from "@/components/leaderboard-bars";
+import { TopNControl } from "@/components/top-n-control";
 import { DailyMatrix } from "@/components/daily-matrix";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -29,8 +31,8 @@ import { RefreshButton } from "@/components/refresh-button";
 import { useRole } from "@/hooks/use-role";
 import { useRefreshJobStatus } from "@/hooks/use-refresh-job";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SkeletonGrid } from "@/components/skeletons";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { AnimatedLoader } from "@/components/animated-loader";
 
 const clsQO = (id: string) =>
   queryOptions({
@@ -39,16 +41,7 @@ const clsQO = (id: string) =>
   });
 
 function PendingClassroom() {
-  return (
-    <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-8 space-y-4">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-8 w-64" />
-      </div>
-      <SkeletonGrid count={5} className="mb-8 grid-cols-2 md:grid-cols-5" />
-      <Skeleton className="h-[600px] rounded-lg" />
-    </div>
-  );
+  return <AnimatedLoader text="Loading classroom…" />;
 }
 
 export const Route = createFileRoute("/_authenticated/classrooms/$id")({
@@ -176,7 +169,43 @@ function ClassroomDetail() {
     avg: rows.length ? Math.round(rows.reduce((s, r) => s + r.total, 0) / rows.length) : 0,
   }), [rows]);
 
-  const top10 = useMemo(() => [...rows].sort((a, b) => b.total - a.total).slice(0, 10), [rows]);
+  /*
+    Cohort progress from daily_snapshots — the same measure the Daily Matrix
+    shows, so the header and the grid can no longer disagree. Only students whose
+    latest snapshot is the cohort's latest snapshot count toward the sum; a
+    student stuck three days back would otherwise fold three days of catch-up
+    into "newly solved" for one day.
+  */
+  const progress = useMemo(() => {
+    const withProgress = data.students
+      .map((s) => s.progress)
+      .filter((p): p is NonNullable<typeof p> => p != null && p.solvedSince != null);
+    if (withProgress.length === 0) {
+      return { solved: null, hint: "no snapshot history yet" };
+    }
+    const latestDate = withProgress.reduce((a, p) => (p.date > a ? p.date : a), "");
+    const current = withProgress.filter((p) => p.date === latestDate);
+    const solved = current.reduce((s, p) => s + (p.solvedSince ?? 0), 0);
+    const span = Math.max(...current.map((p) => p.daysSpan ?? 1));
+    const stale = withProgress.length - current.length;
+
+    return {
+      solved,
+      hint:
+        span > 1
+          ? `over ${span} days to ${latestDate}${stale ? ` · ${stale} behind` : ""}`
+          : `on ${latestDate}${stale ? ` · ${stale} behind` : ""}`,
+    };
+  }, [data.students]);
+
+  const [topN, setTopN] = useState(10);
+  // Bucket-filtered but not search-filtered: typing a name shouldn't reduce the
+  // leaderboard to one row, but selecting "At Risk" should rank that group.
+  const bucketRows = useMemo(() => filterBucket(rows, bucket), [rows, bucket]);
+  const ranked = useMemo(
+    () => [...bucketRows].sort((a, b) => b.total - a.total).slice(0, topN),
+    [bucketRows, topN],
+  );
 
   const [cEasy, cMedium, cHard, cSurface, cBorder, cMutedFg, cPrimary] = useCssVars(
     "--easy", "--medium", "--hard", "--surface", "--border", "--muted-foreground", "--primary",
@@ -319,12 +348,27 @@ function ClassroomDetail() {
         </div>
       </div>
 
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-5">
+      {/*
+        Labels name the measure AND the window. "Today" previously read as
+        "problems solved today" but was submissions on the current UTC day from
+        LeetCode's calendar, which is a different number from the matrix's
+        newly-solved delta — the two disagreed and nothing said why.
+      */}
+      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Students" value={rows.length} />
-        <StatCard label="Cohort Total" value={cohort.total.toLocaleString()} />
-        <StatCard label="Today" value={cohort.today} hint="submissions" />
-        <StatCard label="This Week" value={cohort.week} hint="submissions" />
-        <StatCard label="Avg / Student" value={cohort.avg} hint="lifetime solved" />
+        <StatCard
+          label="Solved (total)"
+          value={cohort.total.toLocaleString()}
+          hint="unique problems"
+        />
+        <StatCard
+          label="Newly solved"
+          value={progress.solved === null ? "—" : `+${progress.solved}`}
+          hint={progress.hint}
+        />
+        <StatCard label="Submissions today" value={cohort.today} hint="UTC day · at last sync" />
+        <StatCard label="Submissions this week" value={cohort.week} hint="UTC Mon–today" />
+        <StatCard label="Avg / student" value={cohort.avg} hint="lifetime solved" />
       </div>
 
       {!hideScrapingStatus && (() => {
@@ -447,19 +491,15 @@ function ClassroomDetail() {
       </div>
 
       <div className="mb-8 rounded-lg border border-border bg-surface p-6">
-        <h3 className="mb-4 text-sm font-bold uppercase tracking-wider">Top 10 Students</h3>
-        <div className="h-72">
-          <ResponsiveContainer>
-            <BarChart data={top10}>
-              <CartesianGrid stroke={cBorder} strokeDasharray="3 3" />
-              <XAxis dataKey="name" fontSize={9} stroke={cMutedFg} angle={-25} textAnchor="end" height={60} />
-              <YAxis fontSize={10} stroke={cMutedFg} />
-               <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-              <Bar dataKey="easy" stackId="a" fill={cEasy} {...chartMotion} />
-              <Bar dataKey="medium" stackId="a" fill={cMedium} {...chartMotion} />
-              <Bar dataKey="hard" stackId="a" fill={cHard} {...chartMotion} />
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-bold uppercase tracking-wider">Leaderboard</h3>
+          <TopNControl value={topN} max={bucketRows.length} onChange={setTopN} />
+        </div>
+        <p className="mb-4 text-[11px] text-muted-foreground">
+          Hover a row to see the count. Follows the bucket filter.
+        </p>
+        <div className="max-h-[520px] overflow-y-auto pr-1">
+          <LeaderboardBars entries={ranked} />
         </div>
       </div>
 
@@ -543,6 +583,11 @@ function ClassroomDetail() {
             </div>
             <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               {filtered.length} / {rows.length} shown · bucket: <b className="text-primary">{BUCKETS.find((b) => b.id === bucket)?.label}</b>
+              {" · "}
+              {/* The two halves of this table are different units and nothing said so. */}
+              <span className="text-muted-foreground">
+                Total/E/M/H are problems solved; Today/Yest./Week/30d are submissions
+              </span>
             </span>
           </div>
 

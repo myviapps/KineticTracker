@@ -1,7 +1,13 @@
 import { createFileRoute, Link, Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useState, type CSSProperties } from "react";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, MoreVertical } from "lucide-react";
 import { AlmanacLogo } from "@/components/almanac-logo";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -79,18 +85,52 @@ function AuthenticatedLayout() {
       style={{ "--app-header-h": "3rem" } as CSSProperties}
     >
       <header className="sticky top-0 z-40 flex h-(--app-header-h) w-full shrink-0 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur sm:gap-3 sm:px-4">
+        {/*
+          Mobile only. The sidebar's own toggle lives inside the sidebar, but on
+          mobile the sidebar is an off-canvas sheet — a control inside it can't
+          open it, so the hamburger has to live out here.
+        */}
+        <SidebarTrigger className="shrink-0 md:hidden" />
+
         <Link to="/dashboard" className="shrink-0" title="Almanac">
           <AlmanacLogo size={22} className="[&_span]:hidden sm:[&_span]:inline" />
         </Link>
-        <SidebarTrigger className="shrink-0" />
-        <StudentSearch className="ml-auto w-full max-w-[140px] sm:max-w-[220px] lg:max-w-[320px]" />
-        <Button asChild variant="ghost" size="sm" className="shrink-0 px-2">
+
+        <StudentSearch className="ml-auto w-full min-w-0 max-w-[180px] sm:max-w-[220px] lg:max-w-[320px]" />
+
+        {/* Inline actions once there's room for them. */}
+        <Button asChild variant="ghost" size="sm" className="hidden shrink-0 px-2 sm:inline-flex">
           <Link to="/dashboard" title="Dashboard">
             <LayoutDashboard className="size-4" />
             <span className="ml-1 hidden lg:inline">Dashboard</span>
           </Link>
         </Button>
-        <ThemeToggle />
+        <div className="hidden sm:block">
+          <ThemeToggle />
+        </div>
+
+        {/*
+          Below `sm` those same actions were being squeezed to slivers next to the
+          search field. They collapse into one menu instead.
+        */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="shrink-0 sm:hidden" aria-label="More">
+              <MoreVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem asChild>
+              <Link to="/dashboard">
+                <LayoutDashboard className="size-4" />
+                Dashboard
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
+              <ThemeToggle variant="menu" />
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
       <div className="flex w-full min-w-0 flex-1">

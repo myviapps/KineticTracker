@@ -67,6 +67,12 @@ export function bucketCounts(rows: StudentRow[]): Record<BucketId, number> {
   return out;
 }
 
+/**
+ * Every count derived from `submission_calendar` is SUBMISSIONS on a UTC day —
+ * retries included — frozen at the last scrape. `total`/`easy`/`medium`/`hard`
+ * are unique problems SOLVED. The two are not interchangeable, which is why the
+ * "Today" figure and the Daily Matrix's newly-solved delta legitimately differ.
+ */
 export function toStudentRow(s: {
   id: string;
   name: string;
@@ -75,6 +81,8 @@ export function toStudentRow(s: {
   stats: any;
 }): StudentRow {
   const cal = (s.stats?.submission_calendar ?? {}) as Record<string, number>;
+  // `month` and `last30` are the same 30-day window; it was being summed twice.
+  const last30 = lastNDaysCount(cal, 30);
   return {
     id: s.id,
     name: s.name,
@@ -90,8 +98,8 @@ export function toStudentRow(s: {
       return cal[String(Math.floor(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate())/1000))] ?? 0;
     })(),
     week: thisWeekCount(cal),
-    month: lastNDaysCount(cal, 30),
-    last30: lastNDaysCount(cal, 30),
+    month: last30,
+    last30,
     streak: s.stats?.streak ?? 0,
     rank: s.stats?.ranking ?? Number.MAX_SAFE_INTEGER,
     calendar: cal,

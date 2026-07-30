@@ -4,7 +4,7 @@ import { Users, ArrowRight } from "lucide-react";
 
 import { listClassrooms } from "@/lib/classrooms.functions";
 import { useRole } from "@/hooks/use-role";
-import { SkeletonGrid, SkeletonPageHeader } from "@/components/skeletons";
+import { AnimatedLoader } from "@/components/animated-loader";
 
 const classroomsQO = queryOptions({
   queryKey: ["classrooms"],
@@ -12,12 +12,7 @@ const classroomsQO = queryOptions({
 });
 
 function PendingClassrooms() {
-  return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <SkeletonPageHeader />
-      <SkeletonGrid count={6} className="grid-cols-1 md:grid-cols-2 lg:grid-cols-3" itemClassName="h-[152px]" />
-    </div>
-  );
+  return <AnimatedLoader text="Loading classrooms…" />;
 }
 
 export const Route = createFileRoute("/_authenticated/classrooms/")({

@@ -115,5 +115,5 @@ export function SkeletonRows({ rows = 4 }: { rows?: number }) {
  * routes, since the layouts nest.
  */
 export function AppShellSkeleton() {
-  return <AnimatedLoader text="Loading…" />;
+  return <AnimatedLoader text="Loading…" fullscreen />;
 }

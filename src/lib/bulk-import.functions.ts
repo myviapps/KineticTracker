@@ -17,7 +17,7 @@ const Input = z.object({
 
 export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .inputValidator((d: unknown) => Input.parse(d))
+  .validator((d: unknown) => Input.parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 

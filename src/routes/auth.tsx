@@ -19,7 +19,7 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
   // Without its own pending state this page would inherit the router's default,
   // which is shaped like a dashboard — wrong for a centred sign-in card.
-  pendingComponent: () => <AnimatedLoader text="Loading sign in…" />,
+  pendingComponent: () => <AnimatedLoader text="Loading sign in…" fullscreen />,
 });
 
 function AuthPage() {

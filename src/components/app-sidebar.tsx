@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, History } from "lucide-react";
-import { useState } from "react";
+import { BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, History, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -11,6 +11,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarHeader,
   SidebarFooter,
   SidebarMenuSkeleton,
   useSidebar,
@@ -25,13 +26,22 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
  
  import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 export function AppSidebar() {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
+  const { state, toggleSidebar, isMobile, setOpenMobile, setOpen } = useSidebar();
+
+  /*
+    `state` tracks the DESKTOP rail only. On mobile the sidebar is a full-width
+    sheet, but `state` is "collapsed" there for any viewport under 1280px (see
+    the media query in _authenticated.tsx) — so every `{!collapsed && <span>}`
+    label was being stripped and the sheet rendered as a column of unlabelled
+    icons with no visible text. Mobile is never the icon rail.
+  */
+  const collapsed = !isMobile && state === "collapsed";
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -55,7 +65,7 @@ export function AppSidebar() {
     onError: (e) => toast.error(String(e)),
   });
 
-  const { role, isAdmin, isPlacementOfficer: isPO, isLoading: roleLoading } = useRole();
+  const { role, isAdmin, isFaculty, isPlacementOfficer: isPO, isLoading: roleLoading } = useRole();
 
   // `isPending` rather than the `= []` default: the sidebar showed "No classrooms
   // yet" during the first fetch on every cold load.
@@ -63,6 +73,27 @@ export function AppSidebar() {
     queryKey: ["classrooms"],
     queryFn: () => listClassrooms(),
   });
+
+  const facultyHomeIsOverview = isFaculty && classrooms.length > 1;
+
+  /*
+    Auto-collapse on every navigation, at every width.
+
+    On mobile that closes the off-canvas sheet, which used to sit over the page
+    you'd just asked for. On desktop it drops to the icon rail and hands 16rem
+    back to the content. Reopening is one click on the toggle above.
+
+    Skipping the first run matters: without it, a deep link would land with the
+    sidebar already closing.
+  */
+  const lastPath = useRef(currentPath);
+  useEffect(() => {
+    if (lastPath.current === currentPath) return;
+    lastPath.current = currentPath;
+
+    if (isMobile) setOpenMobile(false);
+    else setOpen(false);
+  }, [currentPath, isMobile, setOpenMobile, setOpen]);
 
   const logoutM = useMutation({
     mutationFn: async () => {
@@ -85,21 +116,57 @@ export function AppSidebar() {
     */
     <Sidebar
       collapsible="icon"
+      // On small screens the menu drops down from the top rather than sliding in
+      // from the left, so it reads as part of the nav bar it was opened from.
+      mobileSide="top"
       className="top-(--app-header-h) h-[calc(100svh-var(--app-header-h))]"
     >
-      <SidebarContent className="pt-2">
+      {/* Collapse control sits at the top, where the eye lands first. Still no
+          brand here — the nav bar owns that. */}
+      <SidebarHeader className="p-2">
+        <button
+          onClick={isMobile ? () => setOpenMobile(false) : toggleSidebar}
+          title={collapsed ? "Expand sidebar" : "Close menu"}
+          aria-label={collapsed ? "Expand sidebar" : "Close menu"}
+          className={cn(
+            "flex h-8 items-center gap-2 rounded-md text-xs text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            collapsed ? "w-8 justify-center" : "w-full justify-end px-2",
+          )}
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="size-4 shrink-0" />
+          ) : isMobile ? (
+            <>
+              <span>Close</span>
+              <X className="size-4 shrink-0" />
+            </>
+          ) : (
+            <>
+              <span>Collapse</span>
+              <PanelLeftClose className="size-4 shrink-0" />
+            </>
+          )}
+        </button>
+      </SidebarHeader>
+
+      <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={currentPath === "/dashboard"}>
-                  <Link to="/dashboard" className="flex items-center gap-2">
-                    <LayoutDashboard className="size-4" />
-                    {!collapsed && <span>Dashboard</span>}
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {/* Hidden for multi-cohort faculty, whose home is Overview — the
+                  dashboard redirects them there, so the link would only ever
+                  bounce. See the note in _authenticated.dashboard.tsx. */}
+              {!facultyHomeIsOverview && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={currentPath === "/dashboard"}>
+                    <Link to="/dashboard" className="flex items-center gap-2">
+                      <LayoutDashboard className="size-4" />
+                      {!collapsed && <span>Dashboard</span>}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               {/* Shown to faculty too. /overview has always been reachable by them
                   and the server scopes its data to their assignments — hiding the
                   link only meant they couldn't find a page they were allowed to use. */}
@@ -166,7 +233,7 @@ export function AppSidebar() {
                   <SidebarMenuSkeleton key={i} showIcon />
                 ))}
               {!classroomsLoading && classrooms.length === 0 && !collapsed && (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
+                <div className="px-3 py-2 text-xs text-sidebar-foreground/70">
                   {isAdmin ? "No classrooms yet" : "None assigned yet"}
                 </div>
               )}
@@ -182,7 +249,7 @@ export function AppSidebar() {
                       >
                         <span
                           className={
-                            active ? "text-primary" : "text-muted-foreground"
+                            active ? "text-sidebar-primary" : "text-sidebar-foreground/60"
                           }
                         >
                           {active ? "●" : "○"}
@@ -190,7 +257,7 @@ export function AppSidebar() {
                         {!collapsed && (
                           <>
                             <span className="truncate">{c.name}</span>
-                            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                            <span className="ml-auto font-mono text-[10px] text-sidebar-foreground/70">
                               {c.student_count}
                             </span>
                           </>
@@ -208,7 +275,7 @@ export function AppSidebar() {
       <SidebarFooter>
         {!collapsed && (
           <div className="space-y-2 px-3 py-2">
-            <div className="font-mono text-[10px] text-muted-foreground">
+            <div className="font-mono text-[10px] text-sidebar-foreground/70">
               {roleLoading ? (
                 <Skeleton className="h-3 w-20" />
               ) : (
@@ -217,13 +284,13 @@ export function AppSidebar() {
             </div>
             <button
               onClick={() => setIsChangingPassword(true)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             >
               <Key className="size-3" /> Change Password
             </button>
             <button
               onClick={() => logoutM.mutate()}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             >
               <LogOut className="size-3" /> Sign out
             </button>

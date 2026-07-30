@@ -46,9 +46,28 @@ export function useTheme(): [Theme, (t: Theme) => void] {
   return [theme, setTheme];
 }
 
-export function ThemeToggle() {
+/**
+ * `variant="menu"` renders a full-width labelled row instead of an icon button,
+ * for use inside the small-screen overflow menu where a bare icon has no context.
+ */
+export function ThemeToggle({ variant = "icon" }: { variant?: "icon" | "menu" }) {
   const [theme, setTheme] = useTheme();
   const next: Theme = theme === "dark" ? "light" : "dark";
+  const Icon = theme === "dark" ? Sun : Moon;
+
+  if (variant === "menu") {
+    return (
+      <button
+        type="button"
+        onClick={() => setTheme(next)}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-sm"
+      >
+        <Icon className="size-4" aria-hidden="true" />
+        {next === "light" ? "Light theme" : "Dark theme"}
+      </button>
+    );
+  }
+
   return (
     <Button
       variant="ghost"
@@ -58,11 +77,7 @@ export function ThemeToggle() {
       onClick={() => setTheme(next)}
       className="h-8 w-8"
     >
-      {theme === "dark" ? (
-        <Sun className="h-4 w-4" aria-hidden="true" />
-      ) : (
-        <Moon className="h-4 w-4" aria-hidden="true" />
-      )}
+      <Icon className="h-4 w-4" aria-hidden="true" />
     </Button>
   );
 }

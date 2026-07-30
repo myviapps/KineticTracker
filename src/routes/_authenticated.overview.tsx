@@ -1,21 +1,24 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import {
-  BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
+  ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from "recharts";
 import { useState } from "react";
-import { Trophy, Users, Flame, Target } from "lucide-react";
+import { Trophy, Users, Flame, Target, Filter, X } from "lucide-react";
 
 import { getOverview } from "@/lib/overview.functions";
 import { StatCard, SectionTitle } from "@/components/stat-card";
-import { toStudentRow, bucketCounts, BUCKETS } from "@/lib/buckets";
+import { toStudentRow, bucketCounts, filterBucket, BUCKETS, type BucketId } from "@/lib/buckets";
+import { LeaderboardBars } from "@/components/leaderboard-bars";
+import { TopNControl } from "@/components/top-n-control";
+import { StudentListDialog } from "@/components/student-list-dialog";
+import { cn } from "@/lib/utils";
 import { useCssVars } from "@/hooks/use-css-vars";
 import { CHART_MOTION, CHART_MOTION_STATIC } from "@/lib/chart-motion";
 import { RefreshButton } from "@/components/refresh-button";
 import { useRole } from "@/hooks/use-role";
 import { useRefreshJobStatus } from "@/hooks/use-refresh-job";
-import { SkeletonGrid, SkeletonPageHeader } from "@/components/skeletons";
-import { Skeleton } from "@/components/ui/skeleton";
+import { AnimatedLoader } from "@/components/animated-loader";
 
 const qo = queryOptions({ queryKey: ["overview"], queryFn: () => getOverview() });
 
@@ -31,13 +34,7 @@ export const Route = createFileRoute("/_authenticated/overview")({
 });
 
 function PendingOverview() {
-  return (
-    <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <SkeletonPageHeader />
-      <SkeletonGrid count={6} className="mb-8 grid-cols-2 md:grid-cols-4 lg:grid-cols-6" />
-      <Skeleton className="h-[400px] rounded-lg" />
-    </div>
-  );
+  return <AnimatedLoader text="Loading overview…" />;
 }
 
 function OverviewPage() {
@@ -53,9 +50,22 @@ function OverviewPage() {
 
   const statsById = new Map(data.stats.map((s: any) => [s.student_id, s]));
 
-  const rows = data.students.map((st) =>
+  const allRows = data.students.map((st) =>
     toStudentRow({ ...st, stats: statsById.get(st.id) ?? null }),
   );
+
+  // Bucket counts stay cohort-wide so the cards keep their meaning while a
+  // filter is applied — otherwise every card but the active one reads 0.
+  const buckets = bucketCounts(allRows);
+
+  const [bucket, setBucket] = useState<BucketId>("all");
+  const rows = filterBucket(allRows, bucket);
+  const activeBucket = BUCKETS.find((b) => b.id === bucket);
+
+  /** Which bucket's roster is open in the dialog, if any. */
+  const [roster, setRoster] = useState<BucketId | null>(null);
+
+  const [topN, setTopN] = useState(10);
 
   const totals = rows.reduce(
     (a, r) => {
@@ -66,7 +76,6 @@ function OverviewPage() {
     { total: 0, easy: 0, medium: 0, hard: 0, today: 0, week: 0, month: 0 },
   );
 
-  const buckets = bucketCounts(rows);
   const activeStudents = rows.filter((r) => r.last30 > 0).length;
 
   const perClassroom = data.classrooms
@@ -86,7 +95,18 @@ function OverviewPage() {
     })
     .sort((a, b) => b.total - a.total);
 
-  const top10 = [...rows].sort((a, b) => b.total - a.total).slice(0, 10);
+  // The overview spans cohorts, so a name alone doesn't say who you're looking at.
+  const classroomOf = new Map(
+    data.students.map((s) => [
+      s.id,
+      data.classrooms.find((c) => c.id === s.classroom_id)?.name ?? null,
+    ]),
+  );
+
+  const ranked = [...rows]
+    .sort((a, b) => b.total - a.total)
+    .slice(0, topN)
+    .map((r) => ({ ...r, classroom: classroomOf.get(r.id) ?? null }));
 
   const [cEasy, cMedium, cHard, cSurface, cBorder, cMutedFg, cPrimary] = useCssVars(
     "--easy", "--medium", "--hard", "--surface", "--border", "--muted-foreground", "--primary",
@@ -144,22 +164,73 @@ function OverviewPage() {
         <StatCard label="Classrooms" value={data.classrooms.length} />
         <StatCard label="Students" value={data.students.length} />
         <StatCard label="Active (30d)" value={activeStudents} hint={`${Math.round(activeStudents / Math.max(1, data.students.length) * 100)}% of cohort`} />
-        <StatCard label="Total Solved" value={totals.total.toLocaleString()} />
-        <StatCard label="Today" value={totals.today} hint="submissions" />
-        <StatCard label="This Week" value={totals.week} hint="submissions" />
+        {/* Same naming fix as the classroom header: these count submissions on a
+            UTC day, not unique problems solved. */}
+        <StatCard label="Solved (total)" value={totals.total.toLocaleString()} hint="unique problems" />
+        <StatCard label="Submissions today" value={totals.today} hint="UTC day · at last sync" />
+        <StatCard label="Submissions this week" value={totals.week} hint="UTC Mon–today" />
       </div>
 
       <SectionTitle>Behavioral Buckets</SectionTitle>
-      <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-        {BUCKETS.filter((b) => b.id !== "all").map((b) => (
-          <div key={b.id} className="rounded-lg border border-border bg-surface p-4">
-            <div className="mb-1 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
-              {b.label}
-            </div>
-            <div className="font-mono text-2xl font-bold">{buckets[b.id]}</div>
-          </div>
-        ))}
+      {/*
+        These were read-only counters: you could see that 14 students were At Risk
+        but had no way to act on it. Selecting one now scopes every stat, chart,
+        and leaderboard below to that group.
+      */}
+      <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+        {BUCKETS.filter((b) => b.id !== "all").map((b) => {
+          const active = bucket === b.id;
+          return (
+            <button
+              key={b.id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => {
+                // Filter the page and show the roster behind the number. Closing
+                // the dialog leaves the filter in place — the banner below is the
+                // way out of it.
+                setBucket(b.id);
+                setRoster(b.id);
+              }}
+              className={cn(
+                "rounded-lg border p-4 text-left transition-colors",
+                active
+                  ? "border-primary bg-primary/10"
+                  : "border-border bg-surface hover:border-primary/50",
+              )}
+            >
+              <div
+                className={cn(
+                  "mb-1 font-mono text-[9px] uppercase tracking-widest",
+                  active ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                {b.label}
+              </div>
+              <div className="font-mono text-2xl font-bold">{buckets[b.id]}</div>
+            </button>
+          );
+        })}
       </div>
+
+      {bucket !== "all" && (
+        <div className="mb-8 flex flex-wrap items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5 text-sm">
+          <Filter className="size-4 shrink-0 text-primary" />
+          <span>
+            Filtered to <b className="text-primary">{activeBucket?.label}</b> —{" "}
+            <span className="font-mono">{rows.length}</span> of{" "}
+            <span className="font-mono">{allRows.length}</span> students. Everything below
+            reflects this group.
+          </span>
+          <button
+            onClick={() => setBucket("all")}
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+          >
+            <X className="size-3" /> Clear
+          </button>
+        </div>
+      )}
+      {bucket === "all" && <div className="mb-8" />}
 
       <div className="mb-8 grid gap-6 lg:grid-cols-3">
         <div className="rounded-lg border border-border bg-surface p-6 lg:col-span-2">
@@ -231,19 +302,16 @@ function OverviewPage() {
 
       <div className="mb-8 grid gap-6 lg:grid-cols-2">
         <div className="rounded-lg border border-border bg-surface p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-sm font-bold uppercase tracking-wider">Top 10 Students</h3>
-            <Trophy className="size-4 text-primary" />
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-bold uppercase tracking-wider">Leaderboard</h3>
+            <Trophy className="size-4 shrink-0 text-primary" />
           </div>
-          <div className="h-72">
-            <ResponsiveContainer>
-              <BarChart data={top10} layout="vertical" margin={{ left: 20 }}>
-                <XAxis type="number" fontSize={10} stroke={cMutedFg} />
-                <YAxis type="category" dataKey="name" fontSize={10} width={110} stroke={cMutedFg} />
-                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-                <Bar dataKey="total" fill={cPrimary} radius={[0, 4, 4, 0]} {...chartMotion} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <p className="text-[11px] text-muted-foreground">Hover a row to see the count.</p>
+            <TopNControl value={topN} max={rows.length} onChange={setTopN} />
+          </div>
+          <div className="max-h-[420px] overflow-y-auto pr-1">
+            <LeaderboardBars entries={ranked} />
           </div>
         </div>
 
@@ -283,6 +351,16 @@ function OverviewPage() {
           </div>
         </div>
       </div>
+
+      <StudentListDialog
+        open={roster !== null}
+        onOpenChange={(o) => !o && setRoster(null)}
+        title={BUCKETS.find((b) => b.id === roster)?.label ?? "Students"}
+        students={(roster ? filterBucket(allRows, roster) : []).map((r) => ({
+          ...r,
+          classroom: classroomOf.get(r.id) ?? null,
+        }))}
+      />
     </div>
   );
 }

@@ -34,7 +34,7 @@ const BulkInput = z.object({
 
 export const addStudent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: unknown) => StudentInput.parse(d))
+  .validator((d: unknown) => StudentInput.parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId, role } = authContext(context);
@@ -79,7 +79,7 @@ export const addStudent = createServerFn({ method: "POST" })
 
 export const bulkAddStudents = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: unknown) => BulkInput.parse(d))
+  .validator((d: unknown) => BulkInput.parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId, role } = authContext(context);
@@ -118,7 +118,7 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
 
 export const deleteStudent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId, role } = authContext(context);
@@ -133,7 +133,7 @@ export const deleteStudent = createServerFn({ method: "POST" })
 
 export const updateStudent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: unknown) =>
+  .validator((d: unknown) =>
     z.object({
       id: z.string().uuid(),
       name: z.string().trim().min(1).max(100),
@@ -170,7 +170,7 @@ export const updateStudent = createServerFn({ method: "POST" })
  * would otherwise give the handle straight back.
  */
 export const getStudentByRoll = createServerFn({ method: "GET" })
-  .inputValidator((d: { roll: string }) =>
+  .validator((d: { roll: string }) =>
     z.object({ roll: z.string().trim().min(1).max(50) }).parse(d),
   )
   .handler(async ({ data }) => {
@@ -225,7 +225,7 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
 
 export const refreshStudent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
-  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .validator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { userId, role } = authContext(context);
