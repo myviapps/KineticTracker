@@ -520,6 +520,7 @@ export type Database = {
           p_filter?: string
           p_created_by?: string
           p_stale_before?: string
+          p_force?: boolean
         }
         Returns: string
       }

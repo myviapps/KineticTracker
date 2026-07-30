@@ -24,8 +24,13 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useCssVars } from "@/hooks/use-css-vars";
-import { CHART_MOTION } from "@/lib/chart-motion";
+import { CHART_MOTION, CHART_MOTION_STATIC } from "@/lib/chart-motion";
 import { RefreshButton } from "@/components/refresh-button";
+import { useRole } from "@/hooks/use-role";
+import { useRefreshJobStatus } from "@/hooks/use-refresh-job";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SkeletonGrid } from "@/components/skeletons";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 const clsQO = (id: string) =>
   queryOptions({
@@ -37,15 +42,11 @@ function PendingClassroom() {
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mb-8 space-y-4">
-        <div className="h-4 w-32 rounded bg-muted animate-pulse" />
-        <div className="h-8 w-64 rounded bg-muted animate-pulse" />
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-8 w-64" />
       </div>
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-24 rounded-lg bg-surface border border-border animate-pulse" />
-        ))}
-      </div>
-      <div className="h-[600px] rounded-lg border border-border bg-surface animate-pulse" />
+      <SkeletonGrid count={5} className="mb-8 grid-cols-2 md:grid-cols-5" />
+      <Skeleton className="h-[600px] rounded-lg" />
     </div>
   );
 }
@@ -73,6 +74,17 @@ function ClassroomDetail() {
   const { id } = Route.useParams();
   const { data } = useSuspenseQuery(clsQO(id));
   const router = useRouter();
+  // Every mutating control below used to render for all roles, including
+  // placement officers, whom the server treats as read-only.
+  const { canManageStudents, canAdminister, isLoading: roleLoading } = useRole();
+  // While a refresh job is advancing, the pump invalidates these queries every few
+  // seconds. Replaying the draw-in animation on that cadence reads as flicker, so
+  // charts update in place instead.
+  const { job } = useRefreshJobStatus();
+  const chartMotion =
+    job && (job.status === "running" || job.status === "queued")
+      ? CHART_MOTION_STATIC
+      : CHART_MOTION;
   const [search, setSearch] = useState("");
   const [bucket, setBucket] = useState<BucketId>("all");
   const [tab, setTab] = useState<"report" | "matrix">("report");
@@ -262,34 +274,48 @@ function ClassroomDetail() {
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link to="/classrooms/$id/students/new" params={{ id }}>
-              <Plus className="mr-1 size-4" /> Add students
-            </Link>
-          </Button>
-          <RefreshButton scope="classroom" classroomId={id} />
-          <Button variant="outline" onClick={exportCsv} title="Export summary CSV (E)">
-            <Download className="mr-1 size-4" /> Export summary
-          </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive">
-                <Trash2 className="mr-1 size-4" />
+          {roleLoading ? (
+            // Render the row at its final height so the header doesn't reflow once
+            // the role resolves.
+            <Skeleton className="h-9 w-64" />
+          ) : (
+            <>
+              {canManageStudents && (
+                <>
+                  <Button asChild variant="outline">
+                    <Link to="/classrooms/$id/students/new" params={{ id }}>
+                      <Plus className="mr-1 size-4" /> Add students
+                    </Link>
+                  </Button>
+                  <RefreshButton scope="classroom" classroomId={id} />
+                </>
+              )}
+              <Button variant="outline" onClick={exportCsv} title="Export summary CSV (E)">
+                <Download className="mr-1 size-4" /> Export summary
               </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete classroom</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Delete "{data.classroom.name}" and all its students? This action cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => delM.mutate()}>Delete</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+              {canAdminister && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" aria-label="Delete classroom">
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete classroom</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Delete "{data.classroom.name}" and all its students? This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => delM.mutate()}>Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -375,7 +401,7 @@ function ClassroomDetail() {
                   stroke={cPrimary}
                   strokeWidth={2}
                   dot={false}
-                  {...CHART_MOTION}
+                  {...chartMotion}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -387,7 +413,7 @@ function ClassroomDetail() {
             <ResponsiveContainer>
               <PieChart>
                 <Pie
-                  {...CHART_MOTION}
+                  {...chartMotion}
                   data={diff}
                   dataKey="value"
                   nameKey="name"
@@ -429,9 +455,9 @@ function ClassroomDetail() {
               <XAxis dataKey="name" fontSize={9} stroke={cMutedFg} angle={-25} textAnchor="end" height={60} />
               <YAxis fontSize={10} stroke={cMutedFg} />
                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-              <Bar dataKey="easy" stackId="a" fill={cEasy} {...CHART_MOTION} />
-              <Bar dataKey="medium" stackId="a" fill={cMedium} {...CHART_MOTION} />
-              <Bar dataKey="hard" stackId="a" fill={cHard} {...CHART_MOTION} />
+              <Bar dataKey="easy" stackId="a" fill={cEasy} {...chartMotion} />
+              <Bar dataKey="medium" stackId="a" fill={cMedium} {...chartMotion} />
+              <Bar dataKey="hard" stackId="a" fill={cHard} {...chartMotion} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -537,13 +563,16 @@ function ClassroomDetail() {
                   <Th right onClick={() => toggleSort("month")}>30d</Th>
                   <Th right onClick={() => toggleSort("streak")}>Streak</Th>
                   <Th right onClick={() => toggleSort("rank")}>Rank</Th>
-                  <th className="px-3 py-3 text-right">Edit</th>
+                  {canManageStudents && <th className="px-3 py-3 text-right">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border font-mono">
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={14} className="px-4 py-16 text-center text-muted-foreground">
+                    <td
+                      colSpan={canManageStudents ? 14 : 13}
+                      className="px-4 py-16 text-center text-muted-foreground"
+                    >
                       No students match this bucket.
                     </td>
                   </tr>
@@ -609,25 +638,27 @@ function ClassroomDetail() {
                       <td className="px-3 py-3 text-right text-muted-foreground">
                         {s.stats?.ranking ? `#${s.stats.ranking.toLocaleString()}` : "—"}
                       </td>
-                      <td className="px-3 py-3 text-right">
-                        <button
-                          type="button"
-                          title="Edit student"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingStudent({
-                              id: s.id,
-                              name: s.name,
-                              roll: s.roll,
-                              email: s.email ?? "",
-                              leetcode_id: s.leetcode_id,
-                            });
-                          }}
-                          className="inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:border-border hover:bg-accent hover:text-foreground"
-                        >
-                          <Pencil className="size-3" />
-                        </button>
-                      </td>
+                      {canManageStudents && (
+                        <td className="px-3 py-3 text-right">
+                          <button
+                            type="button"
+                            title="Edit student"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingStudent({
+                                id: s.id,
+                                name: s.name,
+                                roll: s.roll,
+                                email: s.email ?? "",
+                                leetcode_id: s.leetcode_id,
+                              });
+                            }}
+                            className="inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-accent hover:text-foreground"
+                          >
+                            <Pencil className="size-3" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -671,6 +702,11 @@ function ClassroomDetail() {
   );
 }
 
+/**
+ * Was a hand-rolled `fixed inset-0` overlay: no enter/exit animation, no focus
+ * trap, no Escape-to-close — sitting next to AlertDialogs that had all three.
+ * Radix Dialog picks up the tuned animate-in/animate-out curves from styles.css.
+ */
 function EditStudentModal({
   student,
   onChange,
@@ -687,42 +723,33 @@ function EditStudentModal({
   const set = (k: keyof typeof student) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...student, [k]: e.target.value });
 
-  return (
-    /* Backdrop */
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      {/* Panel */}
-      <div
-        className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="mb-5 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold">Edit Student</h2>
-            <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-              {student.roll} · id: {student.id.slice(0, 8)}…
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="grid size-7 place-items-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+  const canSave = !!student.name && !!student.roll && !!student.leetcode_id;
 
-        {/* Fields */}
-        <div className="space-y-4">
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Student</DialogTitle>
+          <DialogDescription className="font-mono text-[10px]">
+            {student.roll} · id: {student.id.slice(0, 8)}…
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          id="edit-student-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canSave && !isPending) onSave();
+          }}
+          className="space-y-4"
+        >
           <div>
             <Label htmlFor="edit-name">Name</Label>
-            <Input id="edit-name" value={student.name} onChange={set("name")} className="mt-1" />
+            <Input id="edit-name" value={student.name} onChange={set("name")} className="mt-1" required />
           </div>
           <div>
             <Label htmlFor="edit-roll">Roll Number</Label>
-            <Input id="edit-roll" value={student.roll} onChange={set("roll")} className="mt-1" />
+            <Input id="edit-roll" value={student.roll} onChange={set("roll")} className="mt-1" required />
           </div>
           <div>
             <Label htmlFor="edit-email">Email <span className="text-muted-foreground">(optional)</span></Label>
@@ -730,21 +757,20 @@ function EditStudentModal({
           </div>
           <div>
             <Label htmlFor="edit-lc">LeetCode Username</Label>
-            <Input id="edit-lc" value={student.leetcode_id} onChange={set("leetcode_id")} className="mt-1" placeholder="leetcode_handle" />
+            <Input id="edit-lc" value={student.leetcode_id} onChange={set("leetcode_id")} className="mt-1" placeholder="leetcode_handle" required />
           </div>
-        </div>
+        </form>
 
-        {/* Actions */}
-        <div className="mt-6 flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={isPending}>
             Cancel
           </Button>
-          <Button onClick={onSave} disabled={isPending || !student.name || !student.roll || !student.leetcode_id}>
+          <Button type="submit" form="edit-student-form" disabled={isPending || !canSave}>
             {isPending ? "Saving…" : "Save changes"}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Terminal, BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, X, History } from "lucide-react";
+import { Terminal, BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, History } from "lucide-react";
 import { useState } from "react";
 import {
   Sidebar,
@@ -13,11 +13,19 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  SidebarMenuSkeleton,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { listClassrooms } from "@/lib/classrooms.functions";
-import { getCurrentUserClient } from "@/lib/auth.functions";
 import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/hooks/use-role";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -35,7 +43,7 @@ export function AppSidebar() {
   const changePwM = useMutation({
     mutationFn: async () => {
       if (newPassword !== confirmPassword) throw new Error("Passwords do not match");
-      if (newPassword.length < 6) throw new Error("Password must be at least 6 characters");
+      if (newPassword.length < 8) throw new Error("Password must be at least 8 characters");
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw new Error(error.message);
     },
@@ -48,16 +56,11 @@ export function AppSidebar() {
     onError: (e) => toast.error(String(e)),
   });
 
-  const { data: userData } = useQuery({
-    queryKey: ["currentUser"],
-    queryFn: () => getCurrentUserClient(),
-  });
-  const role = userData?.role;
-  const isAdmin = role === "admin";
-  const isPO = role === "placement_officer";
-  const isFaculty = role === "faculty";
+  const { role, isAdmin, isPlacementOfficer: isPO, isLoading: roleLoading } = useRole();
 
-  const { data: classrooms = [] } = useQuery({
+  // `isPending` rather than the `= []` default: the sidebar showed "No classrooms
+  // yet" during the first fetch on every cold load.
+  const { data: classrooms = [], isPending: classroomsLoading } = useQuery({
     queryKey: ["classrooms"],
     queryFn: () => listClassrooms(),
   });
@@ -103,15 +106,22 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              {(isAdmin || isPO) && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={currentPath === "/overview"}>
-                    <Link to="/overview" className="flex items-center gap-2">
-                      <BarChart3 className="size-4" />
-                      {!collapsed && <span>Overview</span>}
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+              {/* Shown to faculty too. /overview has always been reachable by them
+                  and the server scopes its data to their assignments — hiding the
+                  link only meant they couldn't find a page they were allowed to use. */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={currentPath === "/overview"}>
+                  <Link to="/overview" className="flex items-center gap-2">
+                    <BarChart3 className="size-4" />
+                    {!collapsed && <span>Overview</span>}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              {roleLoading && (
+                <>
+                  <SidebarMenuSkeleton showIcon />
+                  <SidebarMenuSkeleton showIcon />
+                </>
               )}
               {isAdmin && (
                 <>
@@ -157,9 +167,13 @@ export function AppSidebar() {
           <SidebarGroupLabel>Classrooms</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {classrooms.length === 0 && !collapsed && (
+              {classroomsLoading &&
+                Array.from({ length: 3 }).map((_, i) => (
+                  <SidebarMenuSkeleton key={i} showIcon />
+                ))}
+              {!classroomsLoading && classrooms.length === 0 && !collapsed && (
                 <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No classrooms yet
+                  {isAdmin ? "No classrooms yet" : "None assigned yet"}
                 </div>
               )}
               {classrooms.map((c) => {
@@ -201,8 +215,10 @@ export function AppSidebar() {
         {!collapsed && (
           <div className="space-y-2 px-3 py-2">
             <div className="font-mono text-[10px] text-muted-foreground">
-              {role && (
-                <span className="capitalize">{role.replace("_", " ")}</span>
+              {roleLoading ? (
+                <Skeleton className="h-3 w-20" />
+              ) : (
+                role && <span className="capitalize">{role.replace("_", " ")}</span>
               )}
             </div>
             <button
@@ -221,71 +237,80 @@ export function AppSidebar() {
         )}
       </SidebarFooter>
 
-      {/* Change Password Modal */}
-      {isChangingPassword && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
-          onClick={() => setIsChangingPassword(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
+      {/*
+        Change Password — was a hand-rolled `fixed inset-0` overlay with raw
+        <input>s: no enter/exit animation, no focus trap, no Escape-to-close, and
+        its own one-off input styling. Radix Dialog + the shared Input/Button
+        primitives fix all of that and pick up the app's motion curves.
+      */}
+      <Dialog open={isChangingPassword} onOpenChange={setIsChangingPassword}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change Password</DialogTitle>
+            <DialogDescription>
+              You'll stay signed in on this device.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            id="change-password-form"
+            onSubmit={(e) => { e.preventDefault(); changePwM.mutate(); }}
+            className="space-y-4"
           >
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-base font-bold">Change Password</h2>
-              <button
-                onClick={() => setIsChangingPassword(false)}
-                className="grid size-7 place-items-center rounded border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
+            <div>
+              <Label htmlFor="new-password">New password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="mt-1"
+                placeholder="At least 8 characters"
+                minLength={8}
+                required
+              />
             </div>
-            
-            <form onSubmit={(e) => { e.preventDefault(); changePwM.mutate(); }} className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">New Password</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                  placeholder="At least 6 characters"
-                  required
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">Confirm New Password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                  placeholder="Type password again"
-                  required
-                />
-              </div>
-              
-              <div className="mt-6 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsChangingPassword(false)}
-                  disabled={changePwM.isPending}
-                  className="rounded-md border border-border bg-transparent px-4 py-2 text-sm font-medium hover:bg-accent"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={changePwM.isPending}
-                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:brightness-110 disabled:opacity-50"
-                >
-                  {changePwM.isPending ? "Updating…" : "Update Password"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            <div>
+              <Label htmlFor="confirm-password">Confirm new password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="mt-1"
+                placeholder="Type password again"
+                required
+              />
+              {confirmPassword.length > 0 && confirmPassword !== newPassword && (
+                <p className="mt-1 text-xs text-destructive">Passwords do not match</p>
+              )}
+            </div>
+          </form>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsChangingPassword(false)}
+              disabled={changePwM.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="change-password-form"
+              disabled={
+                changePwM.isPending ||
+                newPassword.length < 8 ||
+                newPassword !== confirmPassword
+              }
+            >
+              {changePwM.isPending ? "Updating…" : "Update password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   );
 }

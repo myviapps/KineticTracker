@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Upload, FileText } from "lucide-react";
+import { ArrowLeft, Upload, FileText, ShieldAlert } from "lucide-react";
 
 import { addStudent, bulkAddStudents } from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
@@ -11,8 +11,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useRole } from "@/hooks/use-role";
+import { SkeletonPageHeader } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 
-export const Route = createFileRoute("/_authenticated/classrooms/$id/students/new")({
+/**
+ * NOTE the `$id_` in this file's name. Without the trailing underscore the
+ * generated route tree makes this a CHILD of `_authenticated.classrooms.$id`,
+ * whose component renders no <Outlet /> — so navigating here re-rendered the
+ * classroom detail page and the form below never mounted. The underscore opts
+ * this route out of that parent layout while keeping the same URL.
+ */
+export const Route = createFileRoute("/_authenticated/classrooms/$id_/students/new")({
   head: () => ({ meta: [{ title: "Add students — Kinetic" }] }),
   component: AddStudentsPage,
 });
@@ -44,6 +54,10 @@ function AddStudentsPage() {
   const { id } = Route.useParams();
   const nav = useNavigate();
   const qc = useQueryClient();
+  // Adding students is admin-or-assigned-faculty. This page sat under
+  // `_authenticated` with no role check, so a placement officer could open the
+  // form, fill it in and only then be told "Forbidden".
+  const { canManageStudents, isLoading: roleLoading } = useRole();
 
   const add = useServerFn(addStudent);
   const bulk = useServerFn(bulkAddStudents);
@@ -55,8 +69,11 @@ function AddStudentsPage() {
   const singleM = useMutation({
     mutationFn: () => add({ data: { classroom_id: id, ...single } }),
     onSuccess: () => {
-      toast.success("Student added — scraping in background");
-      qc.invalidateQueries();
+      toast.success("Student added", {
+        description: "Their LeetCode profile is queued and will fill in shortly.",
+      });
+      qc.invalidateQueries({ queryKey: ["classroom", id] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
       setSingle({ name: "", roll: "", email: "", leetcode_id: "" });
     },
     onError: (e) => toast.error(String(e)),
@@ -65,12 +82,46 @@ function AddStudentsPage() {
   const bulkM = useMutation({
     mutationFn: () => bulk({ data: { classroom_id: id, rows: preview } }),
     onSuccess: (r) => {
-      toast.success(`${r.inserted} students queued for scraping`);
-      qc.invalidateQueries();
+      toast.success(`${r.inserted} students added`, {
+        description: "Their profiles are queued for scraping.",
+      });
+      qc.invalidateQueries({ queryKey: ["classroom", id] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
       nav({ to: "/classrooms/$id", params: { id } });
     },
     onError: (e) => toast.error(String(e)),
   });
+
+  if (roleLoading) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SkeletonPageHeader />
+        <Skeleton className="h-64 rounded-lg" />
+      </div>
+    );
+  }
+
+  if (!canManageStudents) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <Link
+          to="/classrooms/$id"
+          params={{ id }}
+          className="mb-4 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary"
+        >
+          <ArrowLeft className="size-3" /> Back to classroom
+        </Link>
+        <div className="rounded-lg border border-dashed border-border p-12 text-center">
+          <ShieldAlert className="mx-auto mb-3 size-8 text-muted-foreground" />
+          <h1 className="text-lg font-bold">You can't add students</h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
+            Your role has read-only access to cohort data. Ask an admin, or the
+            faculty member assigned to this classroom, to add students.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">

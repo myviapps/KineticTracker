@@ -1,34 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { authContext, withRole, accessibleClassroomIds } from "@/lib/authz";
 
 export const getOverview = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, withRole])
   .handler(async ({ context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId, role } = authContext(context);
 
-    // Determine user's scope
-    const { data: userRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-
-    const isAdmin = userRole?.role === "admin";
-    const isPO = userRole?.role === "placement_officer";
-    const isFaculty = userRole?.role === "faculty";
-
-    if (!isAdmin && !isPO && !isFaculty) throw new Error("Forbidden");
-
-    let classroomIds: string[] | null = null; // null = all
-
-    if (isFaculty) {
-      // Get faculty's assigned classrooms
-      const { data: assignments } = await supabaseAdmin
-        .from("faculty_assignments")
-        .select("classroom_id")
-        .eq("faculty_user_id", context.userId);
-      classroomIds = (assignments ?? []).map((a) => a.classroom_id);
-    }
+    // null = every classroom; an array = only these. Faculty get their assignments.
+    const classroomIds = await accessibleClassroomIds(userId, role);
 
     // Build query for classrooms
     let classroomsQuery = supabaseAdmin.from("classrooms").select("id, name, created_at");
@@ -57,6 +38,10 @@ export const getOverview = createServerFn({ method: "GET" })
     }
 
     return {
+      // Surfaced so the page can title itself honestly: faculty see this data
+      // scoped to their own classrooms, not "cross-classroom" analytics.
+      role: role as string,
+      scoped: classroomIds !== null,
       classrooms: classrooms ?? [],
       students: students ?? [],
       stats,

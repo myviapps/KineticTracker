@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireRole } from "@/lib/authz";
 
 const Row = z.object({
   name: z.string().trim().min(1).max(100),
@@ -15,9 +16,9 @@ const Input = z.object({
 });
 
 export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .inputValidator((d: unknown) => Input.parse(d))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: existing } = await supabaseAdmin
@@ -59,27 +60,27 @@ export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
       .select("id, leetcode_id");
     if (error) throw new Error(error.message);
 
-    const { scrapeStudentById } = await import("./scrape.server");
-    const INLINE_SCRAPE_LIMIT = 5;
-    let scraped = 0;
-    let scrapeFailed = 0;
-    for (const r of (rows ?? []).slice(0, INLINE_SCRAPE_LIMIT)) {
-      try {
-        await scrapeStudentById(r.id);
-        scraped += 1;
-        await new Promise((res) => setTimeout(res, 1500));
-      } catch (e) {
-        console.error(`Scrape failed for ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
-        scrapeFailed += 1;
-      }
+    // This used to scrape the first 5 rows inline (with a 1.5s sleep between
+    // each), which both risked the serverless timeout on a large import and left
+    // every remaining student unscraped until somebody noticed and hit Refresh.
+    // Queue the whole batch and let the background pump work through it.
+    const ids = (rows ?? []).map((r) => r.id);
+    let queued = 0;
+    if (ids.length > 0) {
+      const { error: jobError } = await supabaseAdmin.rpc("enqueue_refresh_job", {
+        p_scope: "students",
+        p_student_ids: ids,
+        p_created_by: context.userId,
+      });
+      // A refresh already in flight is not a reason to fail the import — the rows
+      // are saved either way, they just wait for the next run.
+      if (!jobError) queued = ids.length;
     }
 
     return {
       studentsUpserted: rows?.length ?? 0,
       classroomsCreated: createdCount,
       classroomsTotal: uniqueNames.length,
-      scraped,
-      scrapeFailed,
-      pending: Math.max(0, (rows?.length ?? 0) - scraped - scrapeFailed),
+      queued,
     };
   });

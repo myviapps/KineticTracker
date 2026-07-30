@@ -1,13 +1,52 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireRole } from "@/lib/authz";
+
+/**
+ * Every staff account used to be created with — and every password reset used to
+ * restore — the same hardcoded literal ("Cmrtc@leetcode"). Knowing one account's
+ * initial password meant knowing every account's, forever, including the admin's.
+ *
+ * Now: 18 characters from a CSPRNG, one guaranteed character per class so the
+ * result always satisfies a typical password policy, shown to the admin exactly
+ * once at creation.
+ */
+const LOWER = "abcdefghijkmnopqrstuvwxyz"; // no l
+const UPPER = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I, O
+const DIGIT = "23456789"; // no 0, 1
+const SYMBOL = "!@#$%^&*-_=+";
+const ALL = LOWER + UPPER + DIGIT + SYMBOL;
+
+function randomInt(max: number): number {
+  const buf = new Uint32Array(1);
+  const limit = Math.floor(0xffffffff / max) * max;
+  let v: number;
+  do {
+    crypto.getRandomValues(buf);
+    v = buf[0];
+  } while (v >= limit); // reject the biased tail
+  return v % max;
+}
+
+function pick(set: string): string {
+  return set[randomInt(set.length)];
+}
 
 function generateTempPassword(): string {
-  return "Cmrtc@leetcode";
+  const required = [pick(LOWER), pick(UPPER), pick(DIGIT), pick(SYMBOL)];
+  const rest = Array.from({ length: 14 }, () => pick(ALL));
+  const chars = [...required, ...rest];
+  // Fisher-Yates, so the guaranteed classes aren't always in the first 4 slots.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
 }
 
 export const listStaff = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -50,7 +89,7 @@ export const listStaff = createServerFn({ method: "GET" })
   });
 
 export const createStaffUser = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .inputValidator((d: unknown) => z.object({
     email: z.string().email(),
     name: z.string().min(1),
@@ -90,11 +129,37 @@ export const createStaffUser = createServerFn({ method: "POST" })
     return { user_id: newUser.user.id, tempPassword: password };
   });
 
+/**
+ * Permanently deletes the account. Two guards that were missing: an admin could
+ * delete their own account mid-session, and could delete the last remaining admin,
+ * leaving the install with no way to reach /staff, /settings or a platform refresh
+ * ever again.
+ */
 export const deactivateUser = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
-  .inputValidator((d: { user_id: string }) => z.object({ user_id: z.string() }).parse(d))
-  .handler(async ({ data }) => {
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .inputValidator((d: { user_id: string }) => z.object({ user_id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    if (data.user_id === context.userId) {
+      throw new Error("You cannot deactivate your own account");
+    }
+
+    const { data: targetRoles } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.user_id);
+    const targetIsAdmin = (targetRoles ?? []).some((r) => r.role === "admin");
+
+    if (targetIsAdmin) {
+      const { count } = await supabaseAdmin
+        .from("user_roles")
+        .select("user_id", { count: "exact", head: true })
+        .eq("role", "admin");
+      if ((count ?? 0) <= 1) {
+        throw new Error("Cannot deactivate the last remaining admin account");
+      }
+    }
 
     await supabaseAdmin.from("faculty_assignments").delete().eq("faculty_user_id", data.user_id);
     await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id);
@@ -105,7 +170,7 @@ export const deactivateUser = createServerFn({ method: "POST" })
   });
 
 export const resetStaffPassword = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .inputValidator((d: { user_id: string }) =>
     z.object({ user_id: z.string().uuid() }).parse(d),
   )
@@ -118,11 +183,13 @@ export const resetStaffPassword = createServerFn({ method: "POST" })
     });
     if (error) throw new Error(error.message);
 
+    // Returned so the admin can pass it on. The UI used to claim the password had
+    // been set to the user's email address, which was never what happened.
     return { ok: true, tempPassword: password };
   });
 
 export const assignFacultyToClassroom = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .inputValidator((d: unknown) => z.object({
     faculty_user_id: z.string().uuid(),
     classroom_id: z.string().uuid(),
@@ -138,7 +205,7 @@ export const assignFacultyToClassroom = createServerFn({ method: "POST" })
   });
 
 export const unassignFaculty = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .inputValidator((d: unknown) => z.object({
     faculty_user_id: z.string().uuid(),
     classroom_id: z.string().uuid(),
@@ -156,7 +223,7 @@ export const unassignFaculty = createServerFn({ method: "POST" })
   });
 
 export const forceReleaseRefreshLock = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 

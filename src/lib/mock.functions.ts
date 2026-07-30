@@ -20,12 +20,9 @@ export const seedMockClassroom = createServerFn({ method: "POST" })
 
     if (!isCron) {
       // Admins only — this writes to shared classroom/student tables.
-      const { data: role } = await supabaseAdmin
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", context.userId)
-        .maybeSingle();
-      if (role?.role !== "admin") throw new Error("Forbidden");
+      const { resolveRole } = await import("@/lib/authz");
+      const role = await resolveRole(context.userId);
+      if (role !== "admin") throw new Error("Forbidden");
     }
 
     const name = "Demo Cohort — CSE 2026";

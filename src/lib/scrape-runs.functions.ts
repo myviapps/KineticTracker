@@ -1,8 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireRole } from "@/lib/authz";
 
 export const listScrapeRuns = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 

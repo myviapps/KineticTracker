@@ -18,7 +18,17 @@ export function applyTheme(theme: Theme) {
 }
 
 export function useTheme(): [Theme, (t: Theme) => void] {
-  const [theme, setThemeState] = useState<Theme>("dark");
+  // Initialised from what the inline THEME_INIT script already stamped on <html>
+  // rather than a hardcoded "dark". Previously this always started dark and only
+  // corrected in an effect, so a light-mode user's toasts rendered with the dark
+  // theme for a frame after hydration.
+  const [theme, setThemeState] = useState<Theme>(() =>
+    typeof document === "undefined"
+      ? "dark"
+      : document.documentElement.classList.contains("light")
+        ? "light"
+        : "dark",
+  );
   useEffect(() => {
     const t = getStoredTheme();
     setThemeState(t);

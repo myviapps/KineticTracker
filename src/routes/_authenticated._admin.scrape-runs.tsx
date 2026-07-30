@@ -3,15 +3,23 @@ import { useQuery } from "@tanstack/react-query";
 import { Clock, AlertCircle, CheckCircle2, RefreshCw } from "lucide-react";
 
 import { listScrapeRuns } from "@/lib/scrape-runs.functions";
-import { Button } from "@/components/ui/button";
+import { SkeletonPageHeader, SkeletonTable } from "@/components/skeletons";
 
 export const Route = createFileRoute("/_authenticated/_admin/scrape-runs")({
   head: () => ({ meta: [{ title: "Scrape History — Kinetic" }] }),
   component: ScrapeRunsPage,
+  pendingComponent: () => (
+    <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <SkeletonPageHeader />
+      <SkeletonTable rows={8} columns={7} />
+    </div>
+  ),
 });
 
 function ScrapeRunsPage() {
-  const { data: runs = [] } = useQuery({
+  // `isPending`, not the `= []` default: this table showed "No scrape runs recorded
+  // yet" on the first load, which is a different statement than "loading".
+  const { data: runs = [], isPending } = useQuery({
     queryKey: ["scrape-runs"],
     queryFn: () => listScrapeRuns(),
     refetchInterval: 10_000,
@@ -38,6 +46,9 @@ function ScrapeRunsPage() {
         </p>
       </div>
 
+      {isPending ? (
+        <SkeletonTable rows={8} columns={7} />
+      ) : (
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -108,6 +119,7 @@ function ScrapeRunsPage() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

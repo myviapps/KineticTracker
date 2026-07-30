@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireRole } from "@/lib/authz";
 
 export const getSiteSettings = createServerFn({ method: "GET" }).handler(async () => {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -18,7 +19,7 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(async (
 });
 
 export const updateGoogleAuth = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .validator((enabled: boolean) => enabled)
   .handler(async ({ data: enabled }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

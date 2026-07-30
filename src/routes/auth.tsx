@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Terminal, ArrowLeft } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { getSiteSettings } from "@/lib/settings.functions";
 
@@ -15,6 +16,21 @@ export const Route = createFileRoute("/auth")({
     return { googleEnabled: settings?.google_auth_enabled ?? true };
   },
   component: AuthPage,
+  // Without its own pending state this page would inherit the router's default,
+  // which is shaped like a dashboard — wrong for a centred sign-in card.
+  pendingComponent: () => (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <div className="w-full max-w-sm space-y-4">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-4 w-64" />
+        <div className="space-y-3 pt-4">
+          <Skeleton className="h-[70px]" />
+          <Skeleton className="h-[70px]" />
+          <Skeleton className="h-11" />
+        </div>
+      </div>
+    </div>
+  ),
 });
 
 function AuthPage() {

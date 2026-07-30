@@ -3,20 +3,45 @@ import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { Users, ArrowRight } from "lucide-react";
 
 import { listClassrooms } from "@/lib/classrooms.functions";
+import { useRole } from "@/hooks/use-role";
+import { SkeletonGrid, SkeletonPageHeader } from "@/components/skeletons";
 
 const classroomsQO = queryOptions({
   queryKey: ["classrooms"],
   queryFn: () => listClassrooms(),
 });
 
+function PendingClassrooms() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <SkeletonPageHeader />
+      <SkeletonGrid count={6} className="grid-cols-1 md:grid-cols-2 lg:grid-cols-3" itemClassName="h-[152px]" />
+    </div>
+  );
+}
+
 export const Route = createFileRoute("/_authenticated/classrooms/")({
   head: () => ({ meta: [{ title: "Classrooms — Kinetic" }] }),
-  loader: ({ context }) => context.queryClient.ensureQueryData(classroomsQO),
+  // The window guard is not cosmetic. `attachSupabaseAuth` is a CLIENT middleware,
+  // so a loader that runs during SSR calls listClassrooms with no Authorization
+  // header and `requireSupabaseAuth` rejects it — this route threw
+  // "Unauthorized: No authorization header provided" on any hard navigation.
+  // Every other authenticated route already guarded this; this one didn't.
+  loader: ({ context }) => {
+    if (typeof window !== "undefined") {
+      return context.queryClient.ensureQueryData(classroomsQO);
+    }
+  },
   component: ClassroomsListPage,
+  pendingComponent: PendingClassrooms,
+  errorComponent: ({ error }) => (
+    <div className="p-8 text-sm text-destructive">{error.message}</div>
+  ),
 });
 
 function ClassroomsListPage() {
   const { data: classrooms } = useSuspenseQuery(classroomsQO);
+  const { canViewAllClassrooms } = useRole();
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -24,7 +49,11 @@ function ClassroomsListPage() {
         <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
           Kinetic / Classrooms
         </h1>
-        <h2 className="mt-2 text-3xl font-bold tracking-tight">All Classrooms</h2>
+        {/* listClassrooms is scoped by role now, so "All Classrooms" would be a lie
+            for a faculty member seeing only their assignments. */}
+        <h2 className="mt-2 text-3xl font-bold tracking-tight">
+          {canViewAllClassrooms ? "All Classrooms" : "My Classrooms"}
+        </h2>
         <p className="mt-2 text-sm text-muted-foreground">
           {classrooms.length} cohort{classrooms.length === 1 ? "" : "s"}.
         </p>
@@ -34,15 +63,20 @@ function ClassroomsListPage() {
         {classrooms.length === 0 && (
           <div className="col-span-full rounded-lg border border-dashed border-border p-16 text-center">
             <Users className="mx-auto mb-3 size-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No classrooms available.</p>
+            <p className="text-sm text-muted-foreground">
+              {canViewAllClassrooms
+                ? "No classrooms yet."
+                : "No classrooms assigned to you yet. Contact your admin."}
+            </p>
           </div>
         )}
-        {classrooms.map((c) => (
+        {classrooms.map((c, i) => (
           <Link
             key={c.id}
             to="/classrooms/$id"
             params={{ id: c.id }}
-            className="group rounded-lg border border-border bg-surface p-6 transition-colors hover:border-primary/50"
+            style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
+            className="group animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards rounded-lg border border-border bg-surface p-6 transition-colors hover:border-primary/50"
           >
             <h3 className="text-lg font-bold">{c.name}</h3>
             <p className="mt-1 text-sm text-muted-foreground">

@@ -5,6 +5,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 
 import { getSiteSettings, updateGoogleAuth } from "@/lib/settings.functions";
+import { SkeletonPageHeader } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/_authenticated/_admin/settings")({
   head: () => ({ meta: [{ title: "Settings — Kinetic" }] }),
@@ -12,6 +14,13 @@ export const Route = createFileRoute("/_authenticated/_admin/settings")({
     queryClient.ensureQueryData({ queryKey: ["settings"], queryFn: () => getSiteSettings() });
   },
   component: SettingsPage,
+  pendingComponent: () => (
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <SkeletonPageHeader />
+      <Skeleton className="mb-3 h-[92px] rounded-lg" />
+      <Skeleton className="h-10 rounded-lg" />
+    </div>
+  ),
 });
 
 function SettingsPage() {

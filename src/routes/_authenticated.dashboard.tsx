@@ -6,7 +6,6 @@ import { Plus, Users, Trash2, ArrowRight, Sparkles, BarChart3, Shield, UserCog }
 
 import { listClassrooms, deleteClassroom } from "@/lib/classrooms.functions";
 import { seedMockClassroom } from "@/lib/mock.functions";
-import { getCurrentUserClient } from "@/lib/auth.functions";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -15,11 +14,27 @@ import {
 } from "@/components/ui/alert-dialog";
 import { SectionTitle } from "@/components/stat-card";
 import { BulkUploader } from "@/components/bulk-uploader";
+import { useRole } from "@/hooks/use-role";
+import { SkeletonGrid, SkeletonPageHeader } from "@/components/skeletons";
 
 const classroomsQO = queryOptions({
   queryKey: ["classrooms"],
   queryFn: () => listClassrooms(),
 });
+
+/**
+ * This is where you land after signing in, and it was the one data-backed page
+ * with no pendingComponent — it paired a loader with useSuspenseQuery and rendered
+ * nothing at all while classrooms loaded.
+ */
+function PendingDashboard() {
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <SkeletonPageHeader />
+      <SkeletonGrid count={3} className="grid-cols-1 md:grid-cols-2 lg:grid-cols-3" itemClassName="h-[248px]" />
+    </div>
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -34,19 +49,14 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
     }
   },
   component: DashboardPage,
+  pendingComponent: PendingDashboard,
   errorComponent: ({ error }) => (
     <div className="p-8 text-sm text-destructive">{error.message}</div>
   ),
 });
 
 function DashboardPage() {
-  const { data: userData } = useQuery({
-    queryKey: ["currentUser"],
-    queryFn: () => getCurrentUserClient(),
-  });
-  const role = userData?.role;
-  const isAdmin = role === "admin";
-  const isPO = role === "placement_officer";
+  const { role, isAdmin, isPlacementOfficer: isPO } = useRole();
   const { data: classrooms } = useSuspenseQuery(classroomsQO);
   const router = useRouter();
   const qc = useQueryClient();
@@ -155,7 +165,11 @@ function DashboardPage() {
               key={c.id}
               to="/classrooms/$id"
               params={{ id: c.id }}
-              className="group relative block rounded-lg border border-border bg-surface p-6 transition-colors hover:border-primary/50"
+              // Cohort cards used to hard-appear the instant the skeleton cleared.
+              // A short, capped stagger gives the grid a direction without making
+              // the page feel slower.
+              style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
+              className="group relative block animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards rounded-lg border border-border bg-surface p-6 transition-colors hover:border-primary/50"
             >
               <div className="mb-6 flex items-start justify-between">
                 <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-primary">

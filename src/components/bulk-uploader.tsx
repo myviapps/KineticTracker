@@ -35,8 +35,17 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
     onSuccess: (r) => {
       toast.success(
         `Imported ${r.studentsUpserted} students · ${r.classroomsCreated} new classrooms`,
+        {
+          // The import no longer scrapes the first 5 rows inline and abandon the
+          // rest — the whole batch is queued, so say so.
+          description: r.queued
+            ? `${r.queued} profiles queued for scraping. Progress shows in the bar at the top.`
+            : "A refresh is already running — these students will be picked up on the next run.",
+        },
       );
-      qc.invalidateQueries();
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      qc.invalidateQueries({ queryKey: ["classroom"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
       setFile(null);
       setCsvText("");
       setRows([]);

@@ -17,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SectionTitle } from "@/components/stat-card";
+import { SkeletonRows } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/_authenticated/_admin/staff")({
   head: () => ({ meta: [{ title: "Staff Management — Kinetic" }] }),
@@ -27,12 +29,15 @@ function StaffPage() {
   const router = useRouter();
   const qc = useQueryClient();
 
-  const { data: staffList = [] } = useQuery({
+  // `isPending` is used below instead of relying on the `= []` default: this page
+  // rendered "No staff accounts yet" during the very first fetch, which reads as
+  // "you have no staff" rather than "still loading".
+  const { data: staffList = [], isPending: staffLoading } = useQuery({
     queryKey: ["staff"],
     queryFn: () => listStaff(),
   });
 
-  const { data: classrooms = [] } = useQuery({
+  const { data: classrooms = [], isPending: classroomsLoading } = useQuery({
     queryKey: ["classrooms"],
     queryFn: () => listClassrooms(),
   });
@@ -72,9 +77,14 @@ function StaffPage() {
   const resetPw = useServerFn(resetStaffPassword);
   const resetPwM = useMutation({
     mutationFn: (args: { userId: string }) => resetPw({ data: { user_id: args.userId } }),
-    onSuccess: () => {
-      toast.success(`Password reset to email address`, {
-        description: "The user can now log in using their email as their password.",
+    // The old copy claimed the password had been set to the user's email address.
+    // It never was — it was a hardcoded shared literal. It is now random per reset,
+    // so it has to be shown, once, and copied.
+    onSuccess: (res) => {
+      toast.success("Password reset", {
+        description: `New temporary password: ${res.tempPassword} — copy it now, it is shown only once. Have them change it after signing in.`,
+        duration: Infinity,
+        closeButton: true,
       });
     },
     onError: (e) => toast.error(String(e)),
@@ -155,7 +165,11 @@ function StaffPage() {
             <div>
               <Label>Assign Classrooms</Label>
               <div className="mt-1 max-h-40 overflow-y-auto rounded border border-border bg-background p-2">
-                {classrooms.length === 0 && (
+                {classroomsLoading &&
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="mx-2 my-1.5 h-4 w-40" />
+                  ))}
+                {!classroomsLoading && classrooms.length === 0 && (
                   <p className="p-2 text-xs text-muted-foreground">No classrooms yet.</p>
                 )}
                 {classrooms.map((c) => (
@@ -189,6 +203,9 @@ function StaffPage() {
 
       {/* Existing staff */}
       <SectionTitle>Staff Accounts</SectionTitle>
+      {staffLoading ? (
+        <SkeletonRows rows={3} />
+      ) : (
       <div className="space-y-3">
         {staffList.length === 0 && (
           <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -250,7 +267,7 @@ function StaffPage() {
                 })}
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" title="Reset password to email address">
+                    <Button variant="outline" size="sm" title="Generate a new temporary password">
                       <Key className="size-3" />
                     </Button>
                   </AlertDialogTrigger>
@@ -258,7 +275,9 @@ function StaffPage() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Reset password?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Reset {s.email}'s password to their email address?
+                        This generates a new random temporary password for {s.email} and
+                        invalidates their current one. It will be shown to you once —
+                        copy it and share it securely.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -277,15 +296,17 @@ function StaffPage() {
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Deactivate account?</AlertDialogTitle>
+                      <AlertDialogTitle>Delete account?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Deactivate {s.email}? This permanently removes their account.
+                        This permanently deletes {s.email}, their role and their classroom
+                        assignments. It cannot be undone. You cannot delete your own
+                        account or the last remaining admin.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction onClick={() => deactivateM.mutate(s.user_id)}>
-                        Deactivate
+                        Delete account
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -295,6 +316,7 @@ function StaffPage() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Force-release refresh lock */}
       <div className="mt-10 rounded-lg border border-hard/30 bg-hard/5 p-4">

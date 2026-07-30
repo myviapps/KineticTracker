@@ -1,58 +1,67 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { requireSupabaseAuth, requireAdmin } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  authContext,
+  withRole,
+  requireRole,
+  accessibleClassroomIds,
+  assertClassroomAccess,
+} from "@/lib/authz";
 
 const CreateClassroomInput = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(500).optional().nullable(),
 });
 
+/**
+ * Classrooms the caller may see. This used to return every classroom in the
+ * database to every role, so faculty and placement officers got the full cohort
+ * list — names, descriptions and headcounts — in the sidebar, on /classrooms and
+ * on /dashboard. `getOverview` already scoped by assignment; this now matches it.
+ */
 export const listClassrooms = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: classrooms, error } = await supabaseAdmin
-    .from("classrooms")
-    .select("id, name, description, created_at")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error("Failed to list classrooms");
+  .middleware([requireSupabaseAuth, withRole])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId, role } = authContext(context);
 
-  const countMap = new Map<string, number>();
-  try {
-    const { data: counts } = await supabaseAdmin
-      .from("students")
-      .select("classroom_id");
-    for (const r of counts ?? []) {
-      countMap.set(r.classroom_id, (countMap.get(r.classroom_id) ?? 0) + 1);
-    }
-  } catch { /* student counts are decorative — non-fatal */ }
+    const allowed = await accessibleClassroomIds(userId, role);
+    if (allowed !== null && allowed.length === 0) return [];
 
-  return (classrooms ?? []).map((c) => ({
-    ...c,
-    student_count: countMap.get(c.id) ?? 0,
-  }));
-});
+    let query = supabaseAdmin
+      .from("classrooms")
+      .select("id, name, description, created_at")
+      .order("created_at", { ascending: false });
+    if (allowed !== null) query = query.in("id", allowed);
+
+    const { data: classrooms, error } = await query;
+    if (error) throw new Error("Failed to list classrooms");
+
+    const countMap = new Map<string, number>();
+    try {
+      let countQuery = supabaseAdmin.from("students").select("classroom_id");
+      if (allowed !== null) countQuery = countQuery.in("classroom_id", allowed);
+      const { data: counts } = await countQuery;
+      for (const r of counts ?? []) {
+        countMap.set(r.classroom_id, (countMap.get(r.classroom_id) ?? 0) + 1);
+      }
+    } catch { /* student counts are decorative — non-fatal */ }
+
+    return (classrooms ?? []).map((c) => ({
+      ...c,
+      student_count: countMap.get(c.id) ?? 0,
+    }));
+  });
 
 export const getClassroom = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireSupabaseAuth, withRole])
   .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId, role } = authContext(context);
 
-    const { data: role } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (role?.role === "faculty") {
-      const { data: assignment } = await supabaseAdmin
-        .from("faculty_assignments")
-        .select("classroom_id")
-        .eq("faculty_user_id", context.userId)
-        .eq("classroom_id", data.id)
-        .maybeSingle();
-      if (!assignment) throw new Error("Forbidden");
-    }
+    await assertClassroomAccess(userId, role, data.id);
 
     const { data: classroom, error } = await supabaseAdmin
       .from("classrooms")
@@ -87,7 +96,7 @@ export const getClassroom = createServerFn({ method: "GET" })
   });
 
 export const createClassroom = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .inputValidator((d: unknown) => CreateClassroomInput.parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -102,7 +111,7 @@ export const createClassroom = createServerFn({ method: "POST" })
   });
 
 export const deleteClassroom = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth, requireAdmin])
+  .middleware([requireSupabaseAuth, requireRole("admin")])
   .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -113,8 +122,8 @@ export const deleteClassroom = createServerFn({ method: "POST" })
   });
 
 export const getMatrixBreakdown = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { classroomId: string; startDate: string; endDate: string }) => 
+  .middleware([requireSupabaseAuth, withRole])
+  .inputValidator((d: { classroomId: string; startDate: string; endDate: string }) =>
     z.object({
       classroomId: z.string().uuid(),
       startDate: z.string(),
@@ -123,22 +132,10 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId, role } = authContext(context);
 
-    const { data: role } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (role?.role === "faculty") {
-      const { data: assignment } = await supabaseAdmin
-        .from("faculty_assignments")
-        .select("classroom_id")
-        .eq("faculty_user_id", context.userId)
-        .eq("classroom_id", data.classroomId)
-        .maybeSingle();
-      if (!assignment) throw new Error("Forbidden");
-    }
-    
+    await assertClassroomAccess(userId, role, data.classroomId);
+
     const { data: students } = await supabaseAdmin
       .from("students")
       .select("id")

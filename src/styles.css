@@ -217,12 +217,27 @@
    Switching classrooms is the most frequent action in this app and it used to
    hard-cut. A short lift-and-fade gives the swap a direction without making
    navigation feel slow. Browsers without the View Transitions API just cut,
-   exactly as before. */
+   exactly as before.
+
+   Targeted at `main-content` (see the <main> in routes/_authenticated.tsx), not
+   at `root`. Animating root cross-faded the whole page — sidebar and header
+   included — even though only the main panel changes, so the static chrome
+   visibly flickered on every navigation.
+
+   `root` is left with a plain opacity fade for the routes that sit outside the
+   authenticated shell (landing, auth, public student profile), where the whole
+   page really is what changes. */
+::view-transition-old(main-content) {
+  animation: route-out 130ms var(--ease-swap) both;
+}
+::view-transition-new(main-content) {
+  animation: route-in 260ms var(--ease-glide) both;
+}
 ::view-transition-old(root) {
   animation: route-out 130ms var(--ease-swap) both;
 }
 ::view-transition-new(root) {
-  animation: route-in 260ms var(--ease-glide) both;
+  animation: route-in 220ms var(--ease-glide) both;
 }
 @keyframes route-out {
   to {
@@ -234,6 +249,30 @@
     opacity: 0;
     transform: translateY(6px);
   }
+}
+
+/* ─── Progress strip ──────────────────────────────────────────────────────
+   The refresh strip mounts and unmounts in the sticky header stack. Rendered
+   from nothing to full height it shoved the entire page down in one frame; a
+   grid-rows collapse animates the height without needing a measured pixel
+   value. */
+@keyframes strip-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+.strip-enter {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: strip-in var(--duration-panel) var(--ease-glide) both;
+}
+.strip-enter > * {
+  overflow: hidden;
 }
 
 /* ─── Reduced motion ──────────────────────────────────────────────────────
@@ -251,8 +290,16 @@
     scroll-behavior: auto !important;
   }
   ::view-transition-old(root),
-  ::view-transition-new(root) {
+  ::view-transition-new(root),
+  ::view-transition-old(main-content),
+  ::view-transition-new(main-content) {
     animation: none !important;
+  }
+  /* The strip must still take its space — collapsing the duration to 1ms would
+     leave it at 0fr and the progress bar would never appear. */
+  .strip-enter {
+    animation: none !important;
+    grid-template-rows: 1fr;
   }
   .animate-spin {
     animation: spin 1.6s linear infinite !important;

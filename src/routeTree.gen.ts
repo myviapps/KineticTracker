@@ -27,7 +27,7 @@ import { Route as AuthenticatedAdminClassroomsNewRouteImport } from './routes/_a
 import { Route as ApiPublicCronRefreshRouteImport } from './routes/api/public/cron/refresh'
 import { Route as ApiPublicJobsPumpRouteImport } from './routes/api/public/jobs/pump'
 import { Route as ApiPublicJobsRunRouteImport } from './routes/api/public/jobs/run'
-import { Route as AuthenticatedClassroomsIdStudentsNewRouteImport } from './routes/_authenticated.classrooms.$id.students.new'
+import { Route as AuthenticatedClassroomsIdStudentsNewRouteImport } from './routes/_authenticated.classrooms.$id_.students.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -125,9 +125,9 @@ const ApiPublicJobsRunRoute = ApiPublicJobsRunRouteImport.update({
 } as any)
 const AuthenticatedClassroomsIdStudentsNewRoute =
   AuthenticatedClassroomsIdStudentsNewRouteImport.update({
-    id: '/students/new',
-    path: '/students/new',
-    getParentRoute: () => AuthenticatedClassroomsIdRoute,
+    id: '/$id_/students/new',
+    path: '/$id/students/new',
+    getParentRoute: () => AuthenticatedClassroomsRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -141,7 +141,7 @@ export interface FileRoutesByFullPath {
   '/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/settings': typeof AuthenticatedAdminSettingsRoute
   '/staff': typeof AuthenticatedAdminStaffRoute
-  '/classrooms/$id': typeof AuthenticatedClassroomsIdRouteWithChildren
+  '/classrooms/$id': typeof AuthenticatedClassroomsIdRoute
   '/classrooms/': typeof AuthenticatedClassroomsIndexRoute
   '/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
@@ -159,7 +159,7 @@ export interface FileRoutesByTo {
   '/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/settings': typeof AuthenticatedAdminSettingsRoute
   '/staff': typeof AuthenticatedAdminStaffRoute
-  '/classrooms/$id': typeof AuthenticatedClassroomsIdRouteWithChildren
+  '/classrooms/$id': typeof AuthenticatedClassroomsIdRoute
   '/classrooms': typeof AuthenticatedClassroomsIndexRoute
   '/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
@@ -181,13 +181,13 @@ export interface FileRoutesById {
   '/_authenticated/_admin/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/_authenticated/_admin/settings': typeof AuthenticatedAdminSettingsRoute
   '/_authenticated/_admin/staff': typeof AuthenticatedAdminStaffRoute
-  '/_authenticated/classrooms/$id': typeof AuthenticatedClassroomsIdRouteWithChildren
+  '/_authenticated/classrooms/$id': typeof AuthenticatedClassroomsIdRoute
   '/_authenticated/classrooms/': typeof AuthenticatedClassroomsIndexRoute
   '/_authenticated/_admin/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
   '/api/public/jobs/pump': typeof ApiPublicJobsPumpRoute
   '/api/public/jobs/run': typeof ApiPublicJobsRunRoute
-  '/_authenticated/classrooms/$id/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
+  '/_authenticated/classrooms/$id_/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -247,7 +247,7 @@ export interface FileRouteTypes {
     | '/api/public/cron/refresh'
     | '/api/public/jobs/pump'
     | '/api/public/jobs/run'
-    | '/_authenticated/classrooms/$id/students/new'
+    | '/_authenticated/classrooms/$id_/students/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -388,12 +388,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicJobsRunRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/classrooms/$id/students/new': {
-      id: '/_authenticated/classrooms/$id/students/new'
-      path: '/students/new'
+    '/_authenticated/classrooms/$id_/students/new': {
+      id: '/_authenticated/classrooms/$id_/students/new'
+      path: '/$id/students/new'
       fullPath: '/classrooms/$id/students/new'
       preLoaderRoute: typeof AuthenticatedClassroomsIdStudentsNewRouteImport
-      parentRoute: typeof AuthenticatedClassroomsIdRoute
+      parentRoute: typeof AuthenticatedClassroomsRoute
     }
   }
 }
@@ -417,30 +417,18 @@ const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
 const AuthenticatedAdminRouteWithChildren =
   AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
 
-interface AuthenticatedClassroomsIdRouteChildren {
-  AuthenticatedClassroomsIdStudentsNewRoute: typeof AuthenticatedClassroomsIdStudentsNewRoute
-}
-
-const AuthenticatedClassroomsIdRouteChildren: AuthenticatedClassroomsIdRouteChildren =
-  {
-    AuthenticatedClassroomsIdStudentsNewRoute:
-      AuthenticatedClassroomsIdStudentsNewRoute,
-  }
-
-const AuthenticatedClassroomsIdRouteWithChildren =
-  AuthenticatedClassroomsIdRoute._addFileChildren(
-    AuthenticatedClassroomsIdRouteChildren,
-  )
-
 interface AuthenticatedClassroomsRouteChildren {
-  AuthenticatedClassroomsIdRoute: typeof AuthenticatedClassroomsIdRouteWithChildren
+  AuthenticatedClassroomsIdRoute: typeof AuthenticatedClassroomsIdRoute
   AuthenticatedClassroomsIndexRoute: typeof AuthenticatedClassroomsIndexRoute
+  AuthenticatedClassroomsIdStudentsNewRoute: typeof AuthenticatedClassroomsIdStudentsNewRoute
 }
 
 const AuthenticatedClassroomsRouteChildren: AuthenticatedClassroomsRouteChildren =
   {
-    AuthenticatedClassroomsIdRoute: AuthenticatedClassroomsIdRouteWithChildren,
+    AuthenticatedClassroomsIdRoute: AuthenticatedClassroomsIdRoute,
     AuthenticatedClassroomsIndexRoute: AuthenticatedClassroomsIndexRoute,
+    AuthenticatedClassroomsIdStudentsNewRoute:
+      AuthenticatedClassroomsIdStudentsNewRoute,
   }
 
 const AuthenticatedClassroomsRouteWithChildren =

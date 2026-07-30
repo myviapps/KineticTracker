@@ -63,6 +63,13 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
               </span>
             ))}
           </div>
+          {/*
+            No `transition-colors` on the cells. There are 365 of them, and a theme
+            switch changes every --primary-derived fill at once — animating all of
+            them together was the most expensive thing the toggle did, for an
+            effect nobody can see on a 12px square. The ring on hover is instant
+            by design.
+          */}
           <div className="flex gap-[2px]">
             {weeks.map((col, i) => (
               <div key={i} className="flex flex-col gap-[2px]">
@@ -71,7 +78,7 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
                     key={j}
                     title={`${cell.date.toISOString().slice(0, 10)} · ${cell.count}`}
                     className={cn(
-                      "size-3 rounded-[2px] transition-colors hover:ring-1 hover:ring-primary",
+                      "size-3 rounded-[2px] hover:ring-1 hover:ring-primary",
                       cellClass(bucket(cell.count)),
                     )}
                   />

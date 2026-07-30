@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { cn } from "@/lib/utils";
 import { getMatrixBreakdown } from "@/lib/classrooms.functions";
+import { SkeletonTable } from "@/components/skeletons";
 
 type Row = {
   id: string;
@@ -36,7 +36,10 @@ export function DailyMatrix({
     new Date().toISOString().slice(0, 10)
   );
 
-  const { data: breakdown } = useQuery({
+  // `isPending` matters here: with only `breakdown` to go on, the table rendered a
+  // full grid of "—" placeholders during every fetch, which looks exactly like a
+  // classroom with no snapshot data at all.
+  const { data: breakdown, isPending } = useQuery({
     queryKey: ["matrix-breakdown", classroomId, customStart, customEnd],
     queryFn: () => getMatrixBreakdown({ data: { classroomId, startDate: customStart, endDate: customEnd } }),
   });
@@ -117,6 +120,9 @@ export function DailyMatrix({
         </button>
       </div>
 
+      {isPending ? (
+        <SkeletonTable rows={Math.min(Math.max(rows.length, 4), 10)} columns={8} />
+      ) : (
       <div
         ref={scrollRef}
         className="overflow-x-auto rounded-lg border border-border bg-surface"
@@ -238,6 +244,7 @@ export function DailyMatrix({
         )}
       </table>
       </div>
+      )}
     </div>
   );
 }

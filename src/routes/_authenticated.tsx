@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { supabase } from "@/integrations/supabase/client";
 import { useRefreshJobPump } from "@/hooks/use-refresh-job";
 import { RefreshProgressStrip } from "@/components/refresh-progress-strip";
+import { AppShellSkeleton } from "@/components/skeletons";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -56,7 +57,9 @@ function AuthenticatedLayout() {
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  if (checking) return null;
+  // Was `return null`, so every full page load flashed a bare background before
+  // any chrome appeared.
+  if (checking) return <AppShellSkeleton />;
 
   return (
     <SidebarProvider open={pinned} onOpenChange={setPinned}>
@@ -72,7 +75,14 @@ function AuthenticatedLayout() {
           </div>
         </header>
         <RefreshProgressStrip />
-        <main className="min-w-0 flex-1">
+        {/*
+          view-transition-name scopes the cross-fade to the content that actually
+          changes. The keyframes in styles.css used to target ::view-transition-*(root),
+          which faded the sidebar and header on every navigation too — visible
+          flicker on static chrome, on the app's most frequent action (switching
+          classrooms).
+        */}
+        <main className="min-w-0 flex-1 [view-transition-name:main-content]">
           <Outlet />
         </main>
       </div>

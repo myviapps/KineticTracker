@@ -108,43 +108,26 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
   },
 );
 
-async function getAdminClient() {
-  const mod = await import("@/integrations/supabase/client.server");
-  return mod.supabaseAdmin as ReturnType<typeof createClient<Database>>;
-}
+// ─── Authorization ──────────────────────────────────────────────────────────
+// Role logic used to live here as hand-written additions below the generated
+// `requireSupabaseAuth`. It resolved roles with `.maybeSingle()`, which breaks
+// for any user holding two roles, and it was duplicated across nine server
+// functions. It now lives in `@/lib/authz` and is re-exported here so existing
+// import sites keep working. Prefer importing from `@/lib/authz` directly.
+export { requireRole, withRole, resolveRole } from "@/lib/authz";
 
-async function getUserRole(userId: string): Promise<AppRole | null> {
-  const supabaseAdmin = await getAdminClient();
-  const { data } = await supabaseAdmin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .maybeSingle();
-  return data?.role ?? null;
-}
-
+/**
+ * @deprecated use `requireRole("admin")` from `@/lib/authz`. Kept only so any
+ * out-of-tree import keeps compiling; every call site in this repo has moved.
+ */
 export const requireAdmin = createMiddleware({ type: 'function' }).server(
-  async ({ next, context }: any) => {
-    const ctx = context as { userId: string };
-    const role = await getUserRole(ctx.userId);
+  (async ({ next, context }: {
+    next: (opts: { context: Record<string, unknown> }) => Promise<unknown>;
+    context: Record<string, unknown>;
+  }) => {
+    const { resolveRole } = await import("@/lib/authz");
+    const role = await resolveRole(context.userId as string);
     if (role !== "admin") throw new Error("Forbidden");
-    return next({ context: { ...ctx, role } });
-  },
+    return next({ context: { ...context, role } });
+  }) as never,
 );
-
-export const requireFacultyAccess = (classroomId: string) =>
-  createMiddleware({ type: 'function' }).server(async ({ next, context }: any) => {
-    const ctx = context as { userId: string; role?: AppRole };
-    const role = ctx.role ?? await getUserRole(ctx.userId);
-    if (role === "admin" || role === "placement_officer") return next({ context: { ...ctx, role } });
-    if (role !== "faculty") throw new Error("Forbidden");
-    const supabaseAdmin = await getAdminClient();
-    const { data: assignment } = await supabaseAdmin
-      .from("faculty_assignments")
-      .select("classroom_id")
-      .eq("faculty_user_id", ctx.userId)
-      .eq("classroom_id", classroomId)
-      .maybeSingle();
-    if (!assignment) throw new Error("Forbidden");
-    return next({ context: { ...ctx, role } });
-  });

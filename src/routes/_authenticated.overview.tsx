@@ -10,8 +10,12 @@ import { getOverview } from "@/lib/overview.functions";
 import { StatCard, SectionTitle } from "@/components/stat-card";
 import { toStudentRow, bucketCounts, BUCKETS } from "@/lib/buckets";
 import { useCssVars } from "@/hooks/use-css-vars";
-import { CHART_MOTION } from "@/lib/chart-motion";
+import { CHART_MOTION, CHART_MOTION_STATIC } from "@/lib/chart-motion";
 import { RefreshButton } from "@/components/refresh-button";
+import { useRole } from "@/hooks/use-role";
+import { useRefreshJobStatus } from "@/hooks/use-refresh-job";
+import { SkeletonGrid, SkeletonPageHeader } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const qo = queryOptions({ queryKey: ["overview"], queryFn: () => getOverview() });
 
@@ -29,23 +33,23 @@ export const Route = createFileRoute("/_authenticated/overview")({
 function PendingOverview() {
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-8 space-y-4">
-        <div className="h-4 w-32 rounded bg-muted animate-pulse" />
-        <div className="h-8 w-64 rounded bg-muted animate-pulse" />
-        <div className="h-4 w-96 rounded bg-muted animate-pulse" />
-      </div>
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-24 rounded-lg bg-surface border border-border animate-pulse" />
-        ))}
-      </div>
-      <div className="h-[400px] rounded-lg border border-border bg-surface animate-pulse" />
+      <SkeletonPageHeader />
+      <SkeletonGrid count={6} className="mb-8 grid-cols-2 md:grid-cols-4 lg:grid-cols-6" />
+      <Skeleton className="h-[400px] rounded-lg" />
     </div>
   );
 }
 
 function OverviewPage() {
   const { data } = useSuspenseQuery(qo);
+  const { canAdminister } = useRole();
+  const { job } = useRefreshJobStatus();
+  // See the note in chart-motion.ts: a live refresh job invalidates this query
+  // every few seconds, and replaying the draw-in each time reads as flicker.
+  const chartMotion =
+    job && (job.status === "running" || job.status === "queued")
+      ? CHART_MOTION_STATIC
+      : CHART_MOTION;
 
   const statsById = new Map(data.stats.map((s: any) => [s.student_id, s]));
 
@@ -114,15 +118,26 @@ function OverviewPage() {
           <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
             Kinetic / Overview
           </h1>
-          <h2 className="mt-2 text-3xl font-bold tracking-tight">Command Center</h2>
+          {/* This page is reachable by faculty, whose data the server scopes to their
+              own assignments — so it can't call itself a cross-classroom Command
+              Center for everyone. `data.scoped` comes from the server's own view of
+              the caller, not a client guess. */}
+          <h2 className="mt-2 text-3xl font-bold tracking-tight">
+            {data.scoped ? "My Cohorts" : "Command Center"}
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Cross-classroom stats across {data.classrooms.length} cohorts and{" "}
-            {data.students.length} students.
+            {data.scoped
+              ? `Your ${data.classrooms.length} assigned cohort${data.classrooms.length === 1 ? "" : "s"} · ${data.students.length} students.`
+              : `Cross-classroom stats across ${data.classrooms.length} cohorts and ${data.students.length} students.`}
           </p>
         </div>
-        <div className="flex gap-2">
-          <RefreshButton scope="platform" />
-        </div>
+        {/* Platform refresh is admin-only server-side; this button used to render for
+            placement officers, where it could only ever return Forbidden. */}
+        {canAdminister && (
+          <div className="flex gap-2">
+            <RefreshButton scope="platform" />
+          </div>
+        )}
       </div>
 
       <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
@@ -165,7 +180,7 @@ function OverviewPage() {
                   stroke={cPrimary}
                   strokeWidth={2}
                   dot={false}
-                  {...CHART_MOTION}
+                  {...chartMotion}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -181,7 +196,7 @@ function OverviewPage() {
             <ResponsiveContainer>
               <PieChart>
                 <Pie
-                  {...CHART_MOTION}
+                  {...chartMotion}
                   data={diff}
                   dataKey="value"
                   nameKey="name"
@@ -226,7 +241,7 @@ function OverviewPage() {
                 <XAxis type="number" fontSize={10} stroke={cMutedFg} />
                 <YAxis type="category" dataKey="name" fontSize={10} width={110} stroke={cMutedFg} />
                 <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-                <Bar dataKey="total" fill={cPrimary} radius={[0, 4, 4, 0]} {...CHART_MOTION} />
+                <Bar dataKey="total" fill={cPrimary} radius={[0, 4, 4, 0]} {...chartMotion} />
               </BarChart>
             </ResponsiveContainer>
           </div>

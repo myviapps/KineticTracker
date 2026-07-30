@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Flame, Trophy, Calendar, Star, Code, Brain } from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Flame, Trophy, Calendar, Star, Code, Brain, EyeOff } from "lucide-react";
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-import { getStudentByRoll, refreshStudent, deleteStudent } from "@/lib/students.functions";
+import { getStudentByRoll, refreshStudent } from "@/lib/students.functions";
 import { useCssVars } from "@/hooks/use-css-vars";
 import { CHART_MOTION } from "@/lib/chart-motion";
 import { Button } from "@/components/ui/button";
 import { Heatmap } from "@/components/heatmap";
 import { StatCard, SectionTitle } from "@/components/stat-card";
+import { SkeletonGrid } from "@/components/skeletons";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   todayCount, thisWeekCount, thisMonthCount, thisYearCount,
 } from "@/lib/date-buckets";
@@ -26,13 +28,9 @@ const studentQO = (roll: string) =>
 function PendingStudent() {
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-6 h-32 animate-pulse rounded-lg border border-border bg-surface p-6" />
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-5">
-         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-24 animate-pulse rounded-lg border border-border bg-surface" />
-        ))}
-      </div>
-      <div className="h-[400px] animate-pulse rounded-lg border border-border bg-surface" />
+      <Skeleton className="mb-6 h-32 rounded-lg" />
+      <SkeletonGrid count={4} className="mb-6 grid-cols-2 lg:grid-cols-4" />
+      <SkeletonGrid count={2} className="grid-cols-1 lg:grid-cols-3" itemClassName="h-[400px] lg:first:col-span-2" />
     </div>
   );
 }
@@ -63,7 +61,7 @@ function EmptyState({ icon, title, description }: { icon?: React.ReactNode; titl
 function StudentPage() {
   const { roll } = Route.useParams();
   const { data } = useSuspenseQuery(studentQO(roll));
-  const { student, stats, recent, history, classroom } = data;
+  const { student, stats, recent, history, classroom, masked } = data;
   const router = useRouter();
 
   const refresh = useServerFn(refreshStudent);
@@ -173,13 +171,20 @@ function StudentPage() {
               )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-              <a
-                href={`https://leetcode.com/u/${student.leetcode_id}/`}
-                target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
-              >
-                @{student.leetcode_id} <ExternalLink className="size-3" />
-              </a>
+              {masked ? (
+                // No outbound link here: its href would hand back the very handle
+                // the masking is withholding.
+                <span className="font-mono">@{student.leetcode_id}</span>
+              ) : (
+                <a
+                  href={`https://leetcode.com/u/${student.leetcode_id}/`}
+                  target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  @{student.leetcode_id} <ExternalLink className="size-3" />
+                </a>
+              )}
+              {student.email && <span className="font-mono">· {student.email}</span>}
               {stats?.real_name && <span>· {stats.real_name}</span>}
               {stats?.country && (
                 <span className="inline-flex items-center gap-1"><MapPin className="size-3" />{stats.country}</span>
@@ -191,12 +196,27 @@ function StudentPage() {
               </p>
             )}
           </div>
-          <Button variant="outline" onClick={() => refreshM.mutate()} disabled={refreshM.isPending}>
-            <RefreshCw className={cn("mr-1 size-4", refreshM.isPending && "animate-spin")} />
-            Refresh
-          </Button>
+          {/* The Refresh button used to render for anonymous visitors too, where it
+              could only ever return Unauthorized. */}
+          {!masked && (
+            <Button variant="outline" onClick={() => refreshM.mutate()} disabled={refreshM.isPending}>
+              <RefreshCw className={cn("mr-1 size-4", refreshM.isPending && "animate-spin")} />
+              Refresh
+            </Button>
+          )}
         </div>
       </div>
+
+      {masked && (
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-border bg-surface p-4 text-sm">
+          <EyeOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <p className="text-muted-foreground">
+            Personal details are partially hidden on the public view. All LeetCode
+            progress below is complete.{" "}
+            <span className="text-foreground">Staff can sign in to see full details.</span>
+          </p>
+        </div>
+      )}
 
       {err && (
         <div className="mb-6 rounded-lg border border-hard/40 bg-hard/10 p-4 text-sm">
@@ -225,11 +245,11 @@ function StudentPage() {
 
       {/* Row 3: Heatmap + Difficulty */}
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* <Heatmap> renders its own card and "Submission Activity" heading — this
+            used to wrap it in a second card with the same heading, giving nested
+            borders and a duplicated title. */}
         <div className="lg:col-span-2">
-          <div className="rounded-lg border border-border bg-surface p-6">
-            <SectionTitle>Submission Activity</SectionTitle>
-            <Heatmap calendar={cal} />
-          </div>
+          <Heatmap calendar={cal} />
         </div>
         <div className="rounded-lg border border-border bg-surface p-6">
           <SectionTitle>Difficulty Breakdown</SectionTitle>
