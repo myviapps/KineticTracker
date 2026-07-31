@@ -31,10 +31,14 @@ as $$
   college as (
     -- dense_rank, not rank: two students tied on 412 solved are both 5th and the
     -- next is 6th rather than 7th. Gaps read as a bug when you compare two cohorts.
-    select id, dense_rank() over (order by total desc)::int as r from solved
-  ),
-  college_max as (
-    select count(distinct total)::int as n from solved
+    select
+      id,
+      dense_rank() over (order by total desc)::int as r,
+      -- The denominator is a HEADCOUNT, not a count of distinct scores: "#3 of 45"
+      -- means 45 students. (It also has to be a plain window count — Postgres has
+      -- no count(distinct ...) over (...).)
+      count(*) over ()::int as n
+    from solved
   ),
   per_class as (
     select
@@ -42,7 +46,7 @@ as $$
       cs.classroom_id,
       c.name as classroom_name,
       dense_rank() over (partition by cs.classroom_id order by sv.total desc)::int as r,
-      count(distinct sv.total) over (partition by cs.classroom_id)::int as n
+      count(*) over (partition by cs.classroom_id)::int as n
     from public.classroom_students cs
     join public.classrooms c on c.id = cs.classroom_id
     join solved sv on sv.id = cs.student_id
@@ -50,7 +54,7 @@ as $$
   select
     col.id,
     col.r,
-    (select n from college_max),
+    col.n,
     coalesce(
       (select jsonb_agg(jsonb_build_object(
          'classroom_id', pc.classroom_id,
