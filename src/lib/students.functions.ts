@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
   authContext,
   withRole,
+  requireRole,
   canAdminister,
   canManageStudents,
   canViewAllClassrooms,
@@ -366,6 +367,45 @@ export const removeStudentFromClassroom = createServerFn({ method: "POST" })
       studentDeleted: result?.student_deleted ?? false,
       remainingClassrooms: result?.remaining_classrooms ?? 0,
     };
+  });
+
+/**
+ * Delete a student outright — every membership, and all their history.
+ *
+ * Distinct from `removeStudentFromClassroom`, which drops ONE membership and only
+ * deletes the student when it was their last. This is for a record that should
+ * never have existed: a typo'd duplicate with nothing worth keeping. When the
+ * duplicate DOES have history worth keeping, merge instead — that unions it into
+ * the survivor rather than throwing it away.
+ *
+ * Admin-only. Faculty get `removeStudentFromClassroom`, which cannot reach outside
+ * their own cohorts.
+ */
+export const deleteStudentCompletely = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .validator((d: unknown) => z.object({ studentId: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Read before deleting so the toast can state what actually went.
+    const { data: student } = await supabaseAdmin
+      .from("students")
+      .select("roll, name")
+      .eq("id", data.studentId)
+      .maybeSingle();
+    if (!student) throw new Error("Student not found");
+
+    const { count: snapshots } = await supabaseAdmin
+      .from("daily_snapshots")
+      .select("*", { count: "exact", head: true })
+      .eq("student_id", data.studentId);
+
+    // student_stats, daily_snapshots, recent_submissions and classroom_students
+    // all cascade off students.id.
+    const { error } = await supabaseAdmin.from("students").delete().eq("id", data.studentId);
+    if (error) throw new Error(error.message);
+
+    return { roll: student.roll, name: student.name, snapshotsDeleted: snapshots ?? 0 };
   });
 
 export const updateStudent = createServerFn({ method: "POST" })

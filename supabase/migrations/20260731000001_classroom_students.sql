@@ -1,5 +1,8 @@
 -- Migration: a student may belong to MANY classrooms.
 --
+-- Re-runnable: every statement is `if not exists` / `or replace` / preceded by a
+-- `drop ... if exists`, so applying this twice is a no-op rather than an error.
+--
 -- PHASE 1 of 2. Everything here is ADDITIVE: students.classroom_id, its FK, its
 -- UNIQUE(classroom_id, roll), the students_public view and the four RLS policies
 -- that read the column are all left untouched, and a trigger keeps the column in
@@ -78,7 +81,7 @@ end $$;
 --     where classroom_id = $1 and student_id > $2 order by student_id limit n
 -- which this PK serves as a single index range scan. Reversing the columns would
 -- degrade it to a full index scan plus a sort on every batch.
-create table public.classroom_students (
+create table if not exists public.classroom_students (
   classroom_id uuid not null references public.classrooms(id) on delete cascade,
   student_id   uuid not null references public.students(id)   on delete cascade,
   added_at     timestamptz not null default now(),
@@ -87,7 +90,7 @@ create table public.classroom_students (
 
 -- The reverse direction: "which classrooms is this student in?" — used by
 -- has_student_access, the profile page and the overview rollup.
-create index classroom_students_student_idx on public.classroom_students(student_id);
+create index if not exists classroom_students_student_idx on public.classroom_students(student_id);
 
 grant select, insert, delete on public.classroom_students to service_role;
 grant select on public.classroom_students to authenticated;
@@ -95,6 +98,7 @@ alter table public.classroom_students enable row level security;
 
 -- has_classroom_access is SECURITY DEFINER, so this does not recurse into this
 -- table's own RLS.
+drop policy if exists "classroom_students authenticated select" on public.classroom_students;
 create policy "classroom_students authenticated select"
   on public.classroom_students for select
   using (has_classroom_access(auth.uid(), classroom_id));
@@ -119,7 +123,11 @@ begin
      select 1 from public.classroom_students cs where cs.student_id = s.id
    );
 
-  if v_orphans > 0 or v_members <> v_students then
+  -- What must hold is "every student has at least one classroom". Exact equality
+  -- only holds on the very first run: as soon as anyone is enrolled in a second
+  -- cohort, memberships legitimately exceed students, and demanding equality would
+  -- make this migration abort on perfectly healthy data when re-run.
+  if v_orphans > 0 or v_members < v_students then
     raise exception
       'ABORT: backfill incomplete - students=%, memberships=%, students with no membership=%',
       v_students, v_members, v_orphans;
@@ -150,7 +158,7 @@ alter table public.students alter column classroom_id drop not null;
 -- index makes the duplicate scan and the import's existence check cheap. Deferring
 -- the constraint means duplicate handles nobody has seen yet can never block this
 -- migration, and the cleanup UI this migration enables ships first.
-create index students_leetcode_id_idx on public.students(lower(leetcode_id));
+create index if not exists students_leetcode_id_idx on public.students(lower(leetcode_id));
 
 do $$
 declare v_n int; v_report text;
@@ -236,6 +244,7 @@ begin
   return null;
 end $$;
 
+drop trigger if exists classroom_students_sync_legacy on public.classroom_students;
 create trigger classroom_students_sync_legacy
   after insert or delete on public.classroom_students
   for each row execute function public.sync_legacy_classroom_id();
@@ -445,6 +454,7 @@ as $$
       'id', k.id,
       'roll', k.roll,
       'name', k.name,
+      'email', k.email,
       'leetcode_id', k.leetcode_id,
       'total_solved', coalesce(st.total_solved, 0),
       'snapshot_count', (

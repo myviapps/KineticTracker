@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, GitMerge, Pencil, TriangleAlert } from "lucide-react";
+import { CheckCircle2, GitMerge, Pencil, Trash2, TriangleAlert } from "lucide-react";
 
 import {
   listDuplicateStudents,
@@ -11,6 +11,12 @@ import {
   type DuplicateGroup,
   type DuplicateStudent,
 } from "@/lib/scrape-runs.functions";
+import { updateStudent, deleteStudentCompletely } from "@/lib/students.functions";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { AnimatedLoader } from "@/components/animated-loader";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +26,17 @@ import {
 import { cn } from "@/lib/utils";
 
 export const DUPLICATES_KEY = ["duplicate-students"] as const;
+
+/** Every roster-shaped cache is stale after a merge, edit or delete here. */
+async function refreshAll(qc: ReturnType<typeof useQueryClient>) {
+  await Promise.all([
+    qc.invalidateQueries({ queryKey: DUPLICATES_KEY }),
+    qc.invalidateQueries({ queryKey: ["classrooms"] }),
+    qc.invalidateQueries({ queryKey: ["classroom"] }),
+    qc.invalidateQueries({ queryKey: ["overview"] }),
+    qc.invalidateQueries({ queryKey: ["failed-students"] }),
+  ]);
+}
 
 /**
  * `enabled` exists because this is an admin-only server function: calling it as
@@ -133,19 +150,32 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
     () => [...dupe.students].sort((a, b) => b.snapshot_count - a.snapshot_count)[0]?.id ?? "",
   );
   const [confirming, setConfirming] = useState<DuplicateStudent | null>(null);
+  const [deleting, setDeleting] = useState<DuplicateStudent | null>(null);
+  const [editing, setEditing] = useState<DuplicateStudent | null>(null);
 
   const mergeM = useMutation({
     mutationFn: (loserId: string) => merge({ data: { survivorId, loserId } }),
     onSuccess: async (r) => {
       setConfirming(null);
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: DUPLICATES_KEY }),
-        qc.invalidateQueries({ queryKey: ["classrooms"] }),
-        qc.invalidateQueries({ queryKey: ["classroom"] }),
-        qc.invalidateQueries({ queryKey: ["overview"] }),
-      ]);
+      await refreshAll(qc);
       toast.success("Students merged", {
         description: `${r.membershipsMoved} cohort${r.membershipsMoved === 1 ? "" : "s"} and ${r.snapshotsMoved} snapshot${r.snapshotsMoved === 1 ? "" : "s"} moved to the surviving record.`,
+      });
+    },
+    onError: (e: unknown) => toast.error(String(e)),
+  });
+
+  const del = useServerFn(deleteStudentCompletely);
+  const deleteM = useMutation({
+    mutationFn: (studentId: string) => del({ data: { studentId } }),
+    onSuccess: async (r) => {
+      setDeleting(null);
+      await refreshAll(qc);
+      toast.success(`${r.roll} deleted`, {
+        description:
+          r.snapshotsDeleted > 0
+            ? `${r.snapshotsDeleted} day${r.snapshotsDeleted === 1 ? "" : "s"} of history went with it.`
+            : "That record had no scraped history.",
       });
     },
     onError: (e: unknown) => toast.error(String(e)),
@@ -225,11 +255,12 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
               </div>
 
               <div className="ml-auto flex gap-1">
-                <Button asChild size="sm" variant="ghost">
-                  <Link to="/students/$roll" params={{ roll: s.roll }}>
-                    <Pencil className="mr-1 size-3.5" />
-                    {isRoll ? "Fix roll" : "Fix handle"}
-                  </Link>
+                {/* Edits in place. This used to link to the student profile, which
+                    is a read-only page — you had to go there, find the edit control
+                    on the classroom page instead, fix it, and come back. */}
+                <Button size="sm" variant="ghost" onClick={() => setEditing(s)}>
+                  <Pencil className="mr-1 size-3.5" />
+                  {isRoll ? "Fix roll" : "Fix handle"}
                 </Button>
                 {!isSurvivor && (
                   <Button
@@ -243,11 +274,84 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
                     Merge into {survivor?.roll ?? "…"}
                   </Button>
                 )}
+                {!isSurvivor && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-hard hover:bg-hard/10 hover:text-hard"
+                    onClick={() => setDeleting(s)}
+                    disabled={deleteM.isPending}
+                    title="Delete this record and everything attached to it"
+                  >
+                    <Trash2 className="size-3.5" />
+                    <span className="sr-only">Delete {s.roll}</span>
+                  </Button>
+                )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Fix the colliding value without leaving the screen. */}
+      {editing && (
+        <EditDuplicateDialog
+          student={editing}
+          kind={dupe.kind}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await refreshAll(qc);
+          }}
+        />
+      )}
+
+      {/*
+        Delete throws the record's history away; merge keeps it. The dialog leads
+        with whichever of those is the bigger deal for THIS row — a duplicate with
+        180 days of snapshots is almost certainly a merge, not a delete.
+      */}
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {deleting?.roll} — {deleting?.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  This removes the record from{" "}
+                  {deleting?.classrooms.length
+                    ? `${deleting.classrooms.join(", ")}`
+                    : "every cohort"}{" "}
+                  and permanently deletes{" "}
+                  <b className="text-hard">
+                    {deleting?.snapshot_count ?? 0} day
+                    {(deleting?.snapshot_count ?? 0) === 1 ? "" : "s"} of scraped history
+                  </b>
+                  . It cannot be undone.
+                </p>
+                {(deleting?.snapshot_count ?? 0) > 0 && (
+                  <p className="rounded-md bg-medium/10 px-2 py-1.5 text-[12px] text-muted-foreground">
+                    This record has history. If it is the same person as{" "}
+                    {survivor?.roll ?? "the one you kept"}, <b>merge instead</b> — that folds
+                    the history in rather than discarding it.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleting && deleteM.mutate(deleting.id)}
+              className="bg-hard text-white hover:bg-hard/90"
+            >
+              {deleteM.isPending ? "Deleting…" : "Delete permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/*
         Merging deletes the loser permanently, so the dialog names both records and
@@ -287,5 +391,136 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/**
+ * Minimal editor for resolving a collision in place.
+ *
+ * Deliberately focused: the field that collides is autofocused and explained, and
+ * the others are here only because fixing a typo'd roll usually means the name is
+ * wrong too. `updateStudent` re-checks everything server-side — this cannot bypass
+ * the handle-uniqueness check.
+ */
+function EditDuplicateDialog({
+  student,
+  kind,
+  onClose,
+  onSaved,
+}: {
+  student: DuplicateStudent;
+  kind: DuplicateGroup["kind"];
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    name: student.name,
+    roll: student.roll,
+    email: student.email ?? "",
+    leetcode_id: student.leetcode_id,
+  });
+
+  const update = useServerFn(updateStudent);
+  const saveM = useMutation({
+    mutationFn: () =>
+      update({
+        data: {
+          id: student.id,
+          name: form.name,
+          roll: form.roll,
+          // Carried through, not defaulted. updateStudent writes every field it is
+          // given, so omitting this would silently blank the student's email.
+          email: form.email || null,
+          leetcode_id: form.leetcode_id,
+        },
+      }),
+    onSuccess: async () => {
+      toast.success(`${form.roll} updated`);
+      await onSaved();
+    },
+    onError: (e: unknown) => toast.error(String(e)),
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [k]: e.target.value });
+
+  const changed =
+    form.name !== student.name ||
+    form.roll !== student.roll ||
+    form.email !== (student.email ?? "") ||
+    form.leetcode_id !== student.leetcode_id;
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Fix {kind === "roll" ? "roll number" : "LeetCode ID"}</DialogTitle>
+          <DialogDescription>
+            {kind === "roll"
+              ? "Give this student their own roll number, or close this and merge if it is the same person."
+              : "Point this student at their own LeetCode profile, or close this and merge if it is the same person."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          id="fix-duplicate-form"
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (changed && !saveM.isPending) saveM.mutate();
+          }}
+        >
+          <div>
+            <Label htmlFor="dup-roll">Roll number</Label>
+            <Input
+              id="dup-roll"
+              value={form.roll}
+              onChange={set("roll")}
+              className="mt-1 font-mono"
+              autoFocus={kind === "roll"}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="dup-handle">LeetCode ID</Label>
+            <Input
+              id="dup-handle"
+              value={form.leetcode_id}
+              onChange={set("leetcode_id")}
+              className="mt-1 font-mono"
+              autoFocus={kind === "leetcode_id"}
+              required
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Stored lowercase — one student, one profile.
+            </p>
+          </div>
+          <div>
+            <Label htmlFor="dup-name">Name</Label>
+            <Input id="dup-name" value={form.name} onChange={set("name")} className="mt-1" required />
+          </div>
+          <div>
+            <Label htmlFor="dup-email">Email</Label>
+            <Input
+              id="dup-email"
+              type="email"
+              value={form.email}
+              onChange={set("email")}
+              className="mt-1"
+              placeholder="optional"
+            />
+          </div>
+        </form>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saveM.isPending}>
+            Cancel
+          </Button>
+          <Button type="submit" form="fix-duplicate-form" disabled={!changed || saveM.isPending}>
+            {saveM.isPending ? "Saving…" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

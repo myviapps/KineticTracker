@@ -90,6 +90,7 @@ export type DuplicateStudent = {
   id: string;
   roll: string;
   name: string;
+  email: string | null;
   leetcode_id: string;
   total_solved: number;
   snapshot_count: number;
