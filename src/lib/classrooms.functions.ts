@@ -224,6 +224,49 @@ export const createClassroom = createServerFn({ method: "POST" })
     return { id: row.id };
   });
 
+/**
+ * Rename a classroom, or edit its description.
+ *
+ * Name collisions are rejected case-insensitively even though the table has no
+ * unique constraint on `name`. The bulk importer resolves classrooms BY LOWERCASED
+ * NAME (`bulk-import.functions.ts`), so two cohorts called "CSE-A" and "cse-a"
+ * would make every future import pick one of them arbitrarily and silently enrol
+ * students in the wrong cohort.
+ */
+export const updateClassroom = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .validator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        name: z.string().trim().min(1).max(100),
+        description: z.string().trim().max(500).optional().nullable(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: clash } = await supabaseAdmin
+      .from("classrooms")
+      .select("id, name")
+      .ilike("name", data.name)
+      .neq("id", data.id)
+      .limit(1)
+      .maybeSingle();
+    if (clash) {
+      throw new Error(`Another classroom is already called "${clash.name}".`);
+    }
+
+    const { error } = await supabaseAdmin
+      .from("classrooms")
+      .update({ name: data.name, description: data.description ?? null })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+
+    return { ok: true, name: data.name };
+  });
+
 export const deleteClassroom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
   .validator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))

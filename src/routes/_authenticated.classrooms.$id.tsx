@@ -13,7 +13,7 @@ import {
   AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 
-import { getClassroom, deleteClassroom } from "@/lib/classrooms.functions";
+import { getClassroom, deleteClassroom, updateClassroom } from "@/lib/classrooms.functions";
 import { updateStudent, removeStudentFromClassroom } from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,6 +119,26 @@ function ClassroomDetail() {
         description: `${r.studentsDeleted} student${r.studentsDeleted === 1 ? "" : "s"} removed, ${r.membershipsRemoved - r.studentsDeleted} kept in other cohorts.`,
       });
       router.navigate({ to: "/dashboard" });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const [editingClassroom, setEditingClassroom] = useState<{
+    name: string; description: string;
+  } | null>(null);
+  const updateCls = useServerFn(updateClassroom);
+  const renameM = useMutation({
+    mutationFn: (v: { name: string; description: string }) =>
+      updateCls({ data: { id, name: v.name, description: v.description || null } }),
+    onSuccess: (r) => {
+      setEditingClassroom(null);
+      // Every surface that prints a classroom name: the sidebar, the dashboard
+      // cards, the overview rollup and the search results.
+      qc.invalidateQueries({ queryKey: ["classroom", id] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      qc.invalidateQueries({ queryKey: ["search"] });
+      toast.success(`Renamed to ${r.name}`);
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -402,6 +422,19 @@ function ClassroomDetail() {
               <Button variant="outline" onClick={exportCsv} title="Export summary CSV (E)">
                 <Download className="mr-1 size-4" /> Export summary
               </Button>
+              {canAdminister && (
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    setEditingClassroom({
+                      name: data.classroom.name,
+                      description: data.classroom.description ?? "",
+                    })
+                  }
+                >
+                  <Pencil className="mr-1 size-4" /> Rename
+                </Button>
+              )}
               {canAdminister && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -890,6 +923,88 @@ function ClassroomDetail() {
           username not found. Verify the handle on the student's profile.
         </div>
       )}
+
+      {/* Rename. Admin-only, and the server rejects a name another cohort already
+          holds — the bulk importer resolves classrooms by lowercased name, so two
+          cohorts sharing one would send future imports to whichever it found. */}
+      <Dialog
+        open={!!editingClassroom}
+        onOpenChange={(o) => !o && setEditingClassroom(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename classroom</DialogTitle>
+            <DialogDescription>
+              Students, history and assignments are untouched — only the label changes.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            id="rename-classroom-form"
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (editingClassroom?.name.trim() && !renameM.isPending) {
+                renameM.mutate(editingClassroom);
+              }
+            }}
+          >
+            <div>
+              <Label htmlFor="cls-name">Name</Label>
+              <Input
+                id="cls-name"
+                value={editingClassroom?.name ?? ""}
+                onChange={(e) =>
+                  setEditingClassroom((c) => (c ? { ...c, name: e.target.value } : c))
+                }
+                className="mt-1"
+                maxLength={100}
+                autoFocus
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="cls-desc">Description</Label>
+              <Input
+                id="cls-desc"
+                value={editingClassroom?.description ?? ""}
+                onChange={(e) =>
+                  setEditingClassroom((c) => (c ? { ...c, description: e.target.value } : c))
+                }
+                className="mt-1"
+                maxLength={500}
+                placeholder="optional"
+              />
+            </div>
+            <p className="rounded-md bg-medium/10 px-2 py-1.5 text-[11px] text-muted-foreground">
+              A CSV that still lists the old name will create a new, empty classroom
+              rather than matching this one. Update your import sheets too.
+            </p>
+          </form>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingClassroom(null)}
+              disabled={renameM.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="rename-classroom-form"
+              disabled={
+                renameM.isPending ||
+                !editingClassroom?.name.trim() ||
+                (editingClassroom.name === data.classroom.name &&
+                  editingClassroom.description === (data.classroom.description ?? ""))
+              }
+            >
+              {renameM.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/*
         Removing a student now means removing ONE membership. The copy has to
