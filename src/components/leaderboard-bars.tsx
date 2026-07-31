@@ -7,7 +7,7 @@ export type LeaderboardEntry = {
   roll: string;
   total: number;
   /** Omit on a single-classroom board, where it would repeat on every row. */
-  classroom?: string | null;
+  classrooms?: string[];
 };
 
 /**
@@ -60,9 +60,15 @@ export function LeaderboardBars({
 
               <span className="flex w-[38%] shrink-0 flex-col leading-tight">
                 <span className="truncate text-xs font-medium">{e.name}</span>
-                {e.classroom && (
-                  <span className="truncate font-mono text-[9px] text-muted-foreground">
-                    {e.classroom}
+                {e.classrooms && e.classrooms.length > 0 && (
+                  // Capped at two: a student in four cohorts would otherwise wrap
+                  // and break the row rhythm the ranking depends on.
+                  <span
+                    className="truncate font-mono text-[9px] text-muted-foreground"
+                    title={e.classrooms.join(" · ")}
+                  >
+                    {e.classrooms.slice(0, 2).join(" · ")}
+                    {e.classrooms.length > 2 && ` +${e.classrooms.length - 2}`}
                   </span>
                 )}
               </span>

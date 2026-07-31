@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from "recharts";
-import { Plus, Trash2, ExternalLink, Search, ArrowUpDown, Download, Pencil, X } from "lucide-react";
+import { Plus, Trash2, ExternalLink, Search, ArrowUpDown, Download, Pencil, X, UserMinus, Users2, TriangleAlert } from "lucide-react";
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { getClassroom, deleteClassroom } from "@/lib/classrooms.functions";
-import { updateStudent } from "@/lib/students.functions";
+import { updateStudent, removeStudentFromClassroom } from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatCard, SectionTitle } from "@/components/stat-card";
@@ -33,6 +33,7 @@ import { useRefreshJobStatus } from "@/hooks/use-refresh-job";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AnimatedLoader } from "@/components/animated-loader";
+import { useDuplicates } from "@/components/duplicates";
 
 const clsQO = (id: string) =>
   queryOptions({
@@ -108,10 +109,34 @@ function ClassroomDetail() {
   const del = useServerFn(deleteClassroom);
   const delM = useMutation({
     mutationFn: () => del({ data: { id } }),
-    onSuccess: () => {
+    onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["classrooms"] });
-      toast.success("Deleted");
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      // Reporting both numbers is the cheapest safety net against a mis-scoped
+      // delete — you find out immediately if it took more than you expected.
+      toast.success(`${data.classroom.name} deleted`, {
+        description: `${r.studentsDeleted} student${r.studentsDeleted === 1 ? "" : "s"} removed, ${r.membershipsRemoved - r.studentsDeleted} kept in other cohorts.`,
+      });
       router.navigate({ to: "/dashboard" });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const removeFromCohort = useServerFn(removeStudentFromClassroom);
+  const [removing, setRemoving] = useState<{ id: string; name: string; shared: boolean } | null>(null);
+  const removeM = useMutation({
+    mutationFn: (studentId: string) =>
+      removeFromCohort({ data: { studentId, classroomId: id } }),
+    onSuccess: (r) => {
+      setRemoving(null);
+      qc.invalidateQueries({ queryKey: ["classroom", id] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      toast.success(
+        r.studentDeleted
+          ? "Student deleted — that was their last cohort"
+          : `Removed from this cohort · still in ${r.remainingClassrooms} other${r.remainingClassrooms === 1 ? "" : "s"}`,
+      );
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -122,6 +147,25 @@ function ClassroomDetail() {
   );
 
   const counts = useMemo(() => bucketCounts(rows), [rows]);
+
+  const sharedIds = useMemo(
+    () => new Set(data.students.filter((s) => s.shared).map((s) => s.id)),
+    [data.students],
+  );
+
+  // Admin-only query; faculty get an empty set and no badges, which is correct —
+  // resolving a duplicate is an admin action.
+  const { data: dupes = [] } = useDuplicates(canAdminister);
+  const duplicateHandles = useMemo(
+    () => new Set(dupes.filter((d) => d.kind === "leetcode_id").map((d) => d.value)),
+    [dupes],
+  );
+  // A duplicated roll is the old multi-classroom workaround sitting in the data.
+  // Invisible from the roster otherwise, since both rows look perfectly normal.
+  const duplicateRolls = useMemo(
+    () => new Set(dupes.filter((d) => d.kind === "roll").map((d) => d.value)),
+    [dupes],
+  );
 
   const filtered = useMemo(() => {
     const bFiltered = filterBucket(rows, bucket);
@@ -332,8 +376,31 @@ function ClassroomDetail() {
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete classroom</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Delete "{data.classroom.name}" and all its students? This action cannot be undone.
+                      {/*
+                        "and all its students" stopped being true once students
+                        could belong to several cohorts — shared students survive.
+                        The numbers come from classroom_delete_preview so the
+                        dialog states what will actually happen.
+                      */}
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-2 text-sm">
+                          <p>
+                            <b className="text-hard">
+                              {data.deletePreview.orphan_count} student
+                              {data.deletePreview.orphan_count === 1 ? "" : "s"} belong
+                              {data.deletePreview.orphan_count === 1 ? "s" : ""} only to this cohort
+                            </b>{" "}
+                            — they and all their scraped history will be deleted permanently.
+                          </p>
+                          {data.deletePreview.shared_count > 0 && (
+                            <p>
+                              <b className="text-foreground">
+                                {data.deletePreview.shared_count} also belong to other cohorts
+                              </b>{" "}
+                              — they will only be removed from this one and keep their history.
+                            </p>
+                          )}
+                        </div>
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -608,7 +675,7 @@ function ClassroomDetail() {
                   <Th right onClick={() => toggleSort("month")}>30d</Th>
                   <Th right onClick={() => toggleSort("streak")}>Streak</Th>
                   <Th right onClick={() => toggleSort("rank")}>Rank</Th>
-                  {canManageStudents && <th className="px-3 py-3 text-right">Edit</th>}
+                  {canManageStudents && <th className="px-3 py-3 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border font-mono">
@@ -650,7 +717,19 @@ function ClassroomDetail() {
                           <span className="font-sans font-semibold">{r.name}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-muted-foreground">{r.roll}</td>
+                      <td className="px-3 py-3 text-muted-foreground">
+                        {r.roll}
+                        {duplicateRolls.has(r.roll.trim().toLowerCase()) && (
+                          <Link
+                            to="/scrape-runs"
+                            onClick={(e) => e.stopPropagation()}
+                            title="This roll number belongs to more than one student record — probably the same person in two cohorts. Resolve under Scrape History → Duplicates"
+                            className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
+                          >
+                            <TriangleAlert className="size-3.5" />
+                          </Link>
+                        )}
+                      </td>
                       <td className="px-3 py-3">
                         {s.scrape_error ? (
                           <span className="inline-flex items-center gap-1 text-hard font-bold" title={s.scrape_error}>
@@ -667,6 +746,20 @@ function ClassroomDetail() {
                             {r.leetcode_id}
                             <ExternalLink className="size-3" />
                           </a>
+                        )}
+                        {/* One student, one profile. A shared handle means this
+                            profile is being scraped once per student and building
+                            two divergent histories — otherwise only discoverable
+                            on an admin page nobody opens. */}
+                        {duplicateHandles.has(r.leetcode_id.toLowerCase()) && (
+                          <Link
+                            to="/scrape-runs"
+                            onClick={(e) => e.stopPropagation()}
+                            title="This LeetCode ID is shared with another student — resolve it under Scrape History → Duplicates"
+                            className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
+                          >
+                            <TriangleAlert className="size-3.5" />
+                          </Link>
                         )}
                       </td>
                       <td className="px-3 py-3 text-right font-bold">{r.total || "—"}</td>
@@ -702,6 +795,24 @@ function ClassroomDetail() {
                           >
                             <Pencil className="size-3" />
                           </button>
+                          {/* Net-new. The old deleteStudent had no caller and a
+                              student id alone can no longer identify what to
+                              remove — this removes ONE membership. */}
+                          <button
+                            type="button"
+                            title={
+                              sharedIds.has(s.id)
+                                ? "Remove from this cohort (stays in others)"
+                                : "Remove from this cohort (deletes the student)"
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRemoving({ id: s.id, name: s.name, shared: sharedIds.has(s.id) });
+                            }}
+                            className="ml-1 inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-hard/10 hover:text-hard"
+                          >
+                            <UserMinus className="size-3" />
+                          </button>
                         </td>
                       )}
                     </tr>
@@ -733,10 +844,44 @@ function ClassroomDetail() {
         </div>
       )}
 
+      {/*
+        Removing a student now means removing ONE membership. The copy has to
+        branch: for a shared student this is reversible in effect (they keep
+        everything), for their last cohort it destroys their whole history.
+      */}
+      <AlertDialog open={!!removing} onOpenChange={(o) => !o && setRemoving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {removing?.name} from {data.classroom.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {removing?.shared
+                ? "They stay in their other cohorts and keep all their scraped history."
+                : "This is their only cohort, so their profile and all scraped history will be deleted permanently. This cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => removing && removeM.mutate(removing.id)}
+              className={removing?.shared ? undefined : "bg-hard text-white hover:bg-hard/90"}
+            >
+              {removeM.isPending
+                ? "Removing…"
+                : removing?.shared
+                  ? "Remove from cohort"
+                  : "Delete student"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Edit student modal */}
       {editingStudent && (
         <EditStudentModal
           student={editingStudent}
+          shared={sharedIds.has(editingStudent.id)}
           onChange={setEditingStudent}
           onSave={() => editM.mutate(editingStudent)}
           onClose={() => setEditingStudent(null)}
@@ -754,12 +899,15 @@ function ClassroomDetail() {
  */
 function EditStudentModal({
   student,
+  shared,
   onChange,
   onSave,
   onClose,
   isPending,
 }: {
   student: { id: string; name: string; roll: string; email: string; leetcode_id: string };
+  /** True when this student belongs to more than one cohort. */
+  shared: boolean;
   onChange: (s: typeof student) => void;
   onSave: () => void;
   onClose: () => void;
@@ -778,6 +926,15 @@ function EditStudentModal({
           <DialogDescription className="font-mono text-[10px]">
             {student.roll} · id: {student.id.slice(0, 8)}…
           </DialogDescription>
+          {shared && (
+            <p className="flex items-start gap-1.5 rounded-md bg-medium/10 px-2 py-1.5 text-left text-[11px] text-muted-foreground">
+              <Users2 className="mt-px size-3.5 shrink-0 text-medium" />
+              <span>
+                Also in other cohorts — changes apply everywhere. Roll number and LeetCode ID
+                are admin-only for shared students.
+              </span>
+            </p>
+          )}
         </DialogHeader>
 
         <form

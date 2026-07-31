@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { REFRESH_JOB_KEY } from "@/hooks/use-refresh-job";
 import { cn } from "@/lib/utils";
+import { Duplicates, useDuplicates } from "@/components/duplicates";
 
 export const Route = createFileRoute("/_authenticated/_admin/scrape-runs")({
   head: () => ({ meta: [{ title: "Scrape History — Almanac" }] }),
@@ -67,6 +68,7 @@ function ScrapeRunsPage() {
   });
 
   const abandoned = failed.filter((s) => s.abandoned).length;
+  const { data: duplicates = [] } = useDuplicates();
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -111,6 +113,14 @@ function ScrapeRunsPage() {
             {failed.length > 0 && (
               <span className="ml-1.5 rounded bg-hard/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-hard">
                 {failed.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="duplicates">
+            Duplicates
+            {duplicates.length > 0 && (
+              <span className="ml-1.5 rounded bg-medium/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-medium">
+                {duplicates.length}
               </span>
             )}
           </TabsTrigger>
@@ -274,6 +284,9 @@ function ScrapeRunsPage() {
             </div>
           )}
         </TabsContent>
+        <TabsContent value="duplicates">
+          <Duplicates />
+        </TabsContent>
       </Tabs>
     </div>
   );
@@ -313,7 +326,7 @@ function FailedRow({
         </Link>
         <div className="font-mono text-[11px] text-muted-foreground">{s.roll}</div>
       </td>
-      <td className="px-4 py-3 text-xs text-muted-foreground">{s.classroom_name ?? "—"}</td>
+      <td className="px-4 py-3 text-xs text-muted-foreground">{s.classroom_names.length > 0 ? s.classroom_names.join(" · ") : "—"}</td>
       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.leetcode_id}</td>
       <td className="px-4 py-3 text-right">
         <span

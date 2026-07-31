@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { StudentRow } from "@/lib/buckets";
 
-export type ListedStudent = StudentRow & { classroom?: string | null };
+export type ListedStudent = StudentRow & { classrooms?: string[] };
 
 /**
  * The roster behind a headline number.
@@ -40,7 +40,7 @@ export function StudentListDialog({
     ];
     const lines = students.map((s) =>
       [
-        s.name, s.roll, ...(showClassroom ? [s.classroom ?? ""] : []),
+        s.name, s.roll, ...(showClassroom ? [(s.classrooms ?? []).join(" | ")] : []),
         s.leetcode_id, s.total, s.easy, s.medium, s.hard, s.today, s.week, s.last30, s.streak,
       ].map(escape).join(","),
     );
@@ -102,7 +102,7 @@ export function StudentListDialog({
                   </td>
                   {showClassroom && (
                     <td className="px-3 py-2 text-xs text-muted-foreground">
-                      {s.classroom ?? "—"}
+                      {s.classrooms && s.classrooms.length > 0 ? s.classrooms.join(" · ") : "—"}
                     </td>
                   )}
                   <td className="px-3 py-2 text-right text-xs font-bold">{s.total}</td>

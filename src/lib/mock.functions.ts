@@ -49,7 +49,6 @@ export const seedMockClassroom = createServerFn({ method: "POST" })
       .from("students")
       .insert(
         students.map((s) => ({
-          classroom_id: cls.id,
           name: s.name,
           roll: s.roll,
           email: s.email,
@@ -59,6 +58,13 @@ export const seedMockClassroom = createServerFn({ method: "POST" })
       )
       .select("id");
     if (sErr) throw new Error(sErr.message);
+
+    // Membership is a separate row now. Without it these students belong to no
+    // classroom, so nothing would list them and the worker would never scrape them.
+    const { error: memErr } = await supabaseAdmin
+      .from("classroom_students")
+      .insert((rows ?? []).map((r) => ({ student_id: r.id, classroom_id: cls.id })));
+    if (memErr) throw new Error(memErr.message);
 
     // Insert fake stats
     const statsRows = (rows ?? []).map((r, i) => {

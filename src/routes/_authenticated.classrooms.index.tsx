@@ -35,7 +35,8 @@ export const Route = createFileRoute("/_authenticated/classrooms/")({
 });
 
 function ClassroomsListPage() {
-  const { data: classrooms } = useSuspenseQuery(classroomsQO);
+  const { data } = useSuspenseQuery(classroomsQO);
+  const classrooms = data.classrooms;
   const { canViewAllClassrooms } = useRole();
 
   return (

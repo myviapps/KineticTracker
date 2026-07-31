@@ -5,13 +5,17 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, Upload, FileText, ShieldAlert } from "lucide-react";
 
-import { addStudent, bulkAddStudents } from "@/lib/students.functions";
+import { addStudent, bulkAddStudents, addStudentToClassroom } from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useRole } from "@/hooks/use-role";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { SkeletonPageHeader } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -66,14 +70,46 @@ function AddStudentsPage() {
   const [csvText, setCsvText] = useState("");
   const preview = parseCsv(csvText);
 
+  /*
+    A roll that already exists is no longer an error — it usually means the student
+    is enrolled in another cohort and should be ADDED to this one. The server says
+    which case it is; this asks before enrolling rather than doing it silently.
+  */
+  const [existing, setExisting] = useState<{
+    id: string; name: string; leetcode_id: string; classrooms: string[]; alreadyHere: boolean;
+  } | null>(null);
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["classroom", id] });
+    qc.invalidateQueries({ queryKey: ["classrooms"] });
+    qc.invalidateQueries({ queryKey: ["overview"] });
+  };
+
   const singleM = useMutation({
     mutationFn: () => add({ data: { classroom_id: id, ...single } }),
-    onSuccess: () => {
+    onSuccess: (r) => {
+      if (r.status === "exists") {
+        setExisting({ ...r.student, classrooms: r.classrooms, alreadyHere: r.alreadyHere });
+        return;
+      }
       toast.success("Student added", {
         description: "Their LeetCode profile is queued and will fill in shortly.",
       });
-      qc.invalidateQueries({ queryKey: ["classroom", id] });
-      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      invalidate();
+      setSingle({ name: "", roll: "", email: "", leetcode_id: "" });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  const enroll = useServerFn(addStudentToClassroom);
+  const enrollM = useMutation({
+    mutationFn: (studentId: string) => enroll({ data: { studentId, classroomId: id } }),
+    onSuccess: () => {
+      toast.success("Added to this cohort", {
+        description: "Their existing history comes with them.",
+      });
+      setExisting(null);
+      invalidate();
       setSingle({ name: "", roll: "", email: "", leetcode_id: "" });
     },
     onError: (e) => toast.error(String(e)),
@@ -82,11 +118,15 @@ function AddStudentsPage() {
   const bulkM = useMutation({
     mutationFn: () => bulk({ data: { classroom_id: id, rows: preview } }),
     onSuccess: (r) => {
-      toast.success(`${r.inserted} students added`, {
-        description: "Their profiles are queued for scraping.",
-      });
-      qc.invalidateQueries({ queryKey: ["classroom", id] });
-      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      toast.success(
+        `${r.inserted} new · ${r.enrolled} added from another cohort`,
+        {
+          description: r.skipped
+            ? `${r.skipped} row${r.skipped === 1 ? "" : "s"} skipped: ${r.errors.map((e) => `${e.roll} (${e.reason})`).join("; ")}`
+            : "Their profiles are queued for scraping.",
+        },
+      );
+      invalidate();
       nav({ to: "/classrooms/$id", params: { id } });
     },
     onError: (e) => toast.error(String(e)),
@@ -251,6 +291,44 @@ function AddStudentsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* The discoverable path into "a student in two cohorts". */}
+      <AlertDialog open={!!existing} onOpenChange={(o) => !o && setExisting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {existing?.alreadyHere ? "Already in this cohort" : "This student already exists"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>
+                  Roll <span className="font-mono">{single.roll}</span> is{" "}
+                  <b className="text-foreground">{existing?.name}</b>
+                  {existing?.classrooms.length ? ` (${existing.classrooms.join(", ")})` : ""}.
+                </p>
+                <p>
+                  {existing?.alreadyHere
+                    ? "They are already on this roster — nothing to do."
+                    : "Add them to this cohort as well? Their existing profile and scraped history come with them; nothing about their record is changed."}
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{existing?.alreadyHere ? "Close" : "Cancel"}</AlertDialogCancel>
+            {!existing?.alreadyHere && (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (existing) enrollM.mutate(existing.id);
+                }}
+              >
+                {enrollM.isPending ? "Adding…" : "Add to this cohort"}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

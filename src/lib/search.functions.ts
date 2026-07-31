@@ -36,13 +36,23 @@ export const searchStudents = createServerFn({ method: "GET" })
 
     let studentQuery = supabaseAdmin
       .from("students")
-      .select("id, name, roll, leetcode_id, classroom_id");
+      .select("id, name, roll, leetcode_id");
 
+    // Scoping goes through memberships. Resolved to a student-id list first rather
+    // than an embed filter, so a student in two of the caller's cohorts still comes
+    // back as ONE search result.
+    let allowedClassrooms: string[] | null = null;
     if (isStaff) {
-      const allowed = await accessibleClassroomIds(viewer!.userId, viewer!.role);
-      if (allowed !== null) {
-        if (allowed.length === 0) return [];
-        studentQuery = studentQuery.in("classroom_id", allowed);
+      allowedClassrooms = await accessibleClassroomIds(viewer!.userId, viewer!.role);
+      if (allowedClassrooms !== null) {
+        if (allowedClassrooms.length === 0) return [];
+        const { data: mem } = await supabaseAdmin
+          .from("classroom_students")
+          .select("student_id")
+          .in("classroom_id", allowedClassrooms);
+        const ids = [...new Set((mem ?? []).map((m) => m.student_id))];
+        if (ids.length === 0) return [];
+        studentQuery = studentQuery.in("id", ids);
       }
       const like = q.toLowerCase();
       studentQuery = studentQuery
@@ -57,12 +67,22 @@ export const searchStudents = createServerFn({ method: "GET" })
     if (error) throw new Error("Search failed");
     if (!students || students.length === 0) return [];
 
-    const classroomIds = [...new Set(students.map((s) => s.classroom_id))];
-    const { data: classrooms } = await supabaseAdmin
-      .from("classrooms")
-      .select("id, name")
-      .in("id", classroomIds);
-    const classroomMap = new Map((classrooms ?? []).map((c) => [c.id, c.name]));
+    // Cohort names per student, scoped to what this viewer may see.
+    let memQuery = supabaseAdmin
+      .from("classroom_students")
+      .select("student_id, classrooms(name)")
+      .in("student_id", students.map((s) => s.id));
+    if (allowedClassrooms !== null) memQuery = memQuery.in("classroom_id", allowedClassrooms);
+    const { data: memberships } = await memQuery;
+
+    const classroomsByStudent = new Map<string, string[]>();
+    for (const m of memberships ?? []) {
+      const name = (m.classrooms as { name: string } | null)?.name;
+      if (!name) continue;
+      const list = classroomsByStudent.get(m.student_id);
+      if (list) list.push(name);
+      else classroomsByStudent.set(m.student_id, [name]);
+    }
 
     const studentIds = students.map((s) => s.id);
     const { data: stats } = await supabaseAdmin
@@ -76,7 +96,7 @@ export const searchStudents = createServerFn({ method: "GET" })
       roll: s.roll,
       name: masked ? maskName(s.name) : s.name,
       leetcode_id: masked ? maskHandle(s.leetcode_id) : s.leetcode_id,
-      classroom_name: classroomMap.get(s.classroom_id) ?? null,
+      classroom_names: (classroomsByStudent.get(s.id) ?? []).sort(),
       avatar: statsMap.get(s.id)?.avatar ?? null,
       total_solved: statsMap.get(s.id)?.total_solved ?? 0,
       masked,

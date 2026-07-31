@@ -27,7 +27,9 @@ export const listClassrooms = createServerFn({ method: "GET" })
     const { userId, role } = authContext(context);
 
     const allowed = await accessibleClassroomIds(userId, role);
-    if (allowed !== null && allowed.length === 0) return [];
+    if (allowed !== null && allowed.length === 0) {
+      return { classrooms: [], totalStudents: 0 };
+    }
 
     let query = supabaseAdmin
       .from("classrooms")
@@ -38,20 +40,32 @@ export const listClassrooms = createServerFn({ method: "GET" })
     const { data: classrooms, error } = await query;
     if (error) throw new Error("Failed to list classrooms");
 
-    const countMap = new Map<string, number>();
-    try {
-      let countQuery = supabaseAdmin.from("students").select("classroom_id");
-      if (allowed !== null) countQuery = countQuery.in("classroom_id", allowed);
-      const { data: counts } = await countQuery;
-      for (const r of counts ?? []) {
-        countMap.set(r.classroom_id, (countMap.get(r.classroom_id) ?? 0) + 1);
-      }
-    } catch { /* student counts are decorative — non-fatal */ }
+    /*
+      Counted in Postgres rather than by pulling every student row and tallying in
+      JS — that pattern was also silently truncated at PostgREST's 1000-row
+      default, so headcounts were quietly wrong on any sizeable install.
 
-    return (classrooms ?? []).map((c) => ({
-      ...c,
-      student_count: countMap.get(c.id) ?? 0,
-    }));
+      `totalStudents` is DISTINCT and is not the sum of `student_count`: a student
+      in two cohorts is counted in each cohort's own number but only once overall.
+    */
+    const countMap = new Map<string, number>();
+    let totalStudents = 0;
+    try {
+      const [countsRes, distinctRes] = await Promise.all([
+        supabaseAdmin.rpc("classroom_student_counts", { p_classroom_ids: allowed }),
+        supabaseAdmin.rpc("distinct_student_count", { p_classroom_ids: allowed }),
+      ]);
+      for (const r of countsRes.data ?? []) countMap.set(r.classroom_id, Number(r.student_count));
+      totalStudents = Number(distinctRes.data ?? 0);
+    } catch { /* headcounts are decorative — non-fatal */ }
+
+    return {
+      classrooms: (classrooms ?? []).map((c) => ({
+        ...c,
+        student_count: countMap.get(c.id) ?? 0,
+      })),
+      totalStudents,
+    };
   });
 
 export const getClassroom = createServerFn({ method: "GET" })
@@ -71,13 +85,53 @@ export const getClassroom = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     if (!classroom) throw new Error("Classroom not found");
 
-    const { data: students } = await supabaseAdmin
-      .from("students")
-      .select("id, name, roll, email, leetcode_id, last_scraped_at, scrape_error")
-      .eq("classroom_id", data.id)
-      .order("roll", { ascending: true });
+    // Roster comes through the membership table now. Two steps rather than an
+    // embed: PostgREST cannot order the outer rows by a column on the embedded
+    // resource, and this list is sorted by roll.
+    const { data: memberships } = await supabaseAdmin
+      .from("classroom_students")
+      .select("student_id")
+      .eq("classroom_id", data.id);
+    const memberIds = (memberships ?? []).map((m) => m.student_id);
+
+    const { data: students } = memberIds.length
+      ? await supabaseAdmin
+          .from("students")
+          .select("id, name, roll, email, leetcode_id, last_scraped_at, scrape_error")
+          .in("id", memberIds)
+          .order("roll", { ascending: true })
+      : { data: [] as {
+          id: string; name: string; roll: string; email: string | null;
+          leetcode_id: string; last_scraped_at: string | null; scrape_error: string | null;
+        }[] };
 
     const ids = (students ?? []).map((s) => s.id);
+
+    // How many of these students are in more than one cohort. Drives the "also in
+    // N cohorts" note in the edit dialog and the branching remove-confirm copy.
+    const sharedIds = new Set<string>();
+    if (ids.length) {
+      const { data: allMem } = await supabaseAdmin
+        .from("classroom_students")
+        .select("student_id, classroom_id")
+        .in("student_id", ids);
+      const counts = new Map<string, number>();
+      for (const m of allMem ?? []) {
+        counts.set(m.student_id, (counts.get(m.student_id) ?? 0) + 1);
+      }
+      for (const [sid, n] of counts) if (n > 1) sharedIds.add(sid);
+    }
+
+    // What a delete would actually do, so the confirm dialog can say it rather
+    // than repeating the now-false "and all its students".
+    let deletePreview = { orphan_count: 0, shared_count: 0 };
+    try {
+      const { data: preview } = await supabaseAdmin.rpc("classroom_delete_preview", {
+        p_classroom: data.id,
+      });
+      const row = Array.isArray(preview) ? preview[0] : preview;
+      if (row) deletePreview = { orphan_count: row.orphan_count, shared_count: row.shared_count };
+    } catch { /* the dialog falls back to generic copy */ }
     const statsPromise = ids.length
       ? supabaseAdmin.from("student_stats").select("*").in("student_id", ids)
       : Promise.resolve({ data: [] as any[], error: null });
@@ -139,10 +193,12 @@ export const getClassroom = createServerFn({ method: "GET" })
 
     return {
       classroom,
+      deletePreview,
       students: (students ?? []).map((s) => ({
         ...s,
         stats: statsById.get(s.id) ?? null,
         progress: progressById.get(s.id) ?? null,
+        shared: sharedIds.has(s.id),
       })),
     };
   });
@@ -168,9 +224,24 @@ export const deleteClassroom = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const { error } = await supabaseAdmin.from("classrooms").delete().eq("id", data.id);
+    /*
+      Used to be a bare delete that relied on students.classroom_id's ON DELETE
+      CASCADE to take the roster with it. With memberships that cascade would only
+      remove the membership rows, orphaning students who were in no other cohort —
+      invisible everywhere and never scraped again. The RPC drops the memberships
+      and deletes ONLY the students left with nothing, in one transaction.
+    */
+    const { data: rows, error } = await supabaseAdmin.rpc("delete_classroom_cascade", {
+      p_classroom: data.id,
+    });
     if (error) throw new Error(error.message);
-    return { ok: true };
+
+    const result = Array.isArray(rows) ? rows[0] : rows;
+    return {
+      ok: true,
+      studentsDeleted: result?.students_deleted ?? 0,
+      membershipsRemoved: result?.memberships_removed ?? 0,
+    };
   });
 
 export const getMatrixBreakdown = createServerFn({ method: "GET" })
@@ -189,11 +260,11 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
     await assertClassroomAccess(userId, role, data.classroomId);
 
     const { data: students } = await supabaseAdmin
-      .from("students")
-      .select("id")
+      .from("classroom_students")
+      .select("student_id")
       .eq("classroom_id", data.classroomId);
-      
-    const studentIds = (students || []).map(s => s.id);
+
+    const studentIds = (students || []).map((s) => s.student_id);
     if (studentIds.length === 0) return {};
     
     const { data: snapshots } = await supabaseAdmin

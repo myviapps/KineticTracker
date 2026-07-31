@@ -42,23 +42,106 @@ export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
       createdCount = created?.length ?? 0;
     }
 
-    const keyed = new Map<string, (typeof data.rows)[number]>();
+    /*
+      Two dedup keys, because they mean different things now.
+
+      A student is identified by `roll` alone, so the STUDENT payload dedups on
+      roll (last row wins). But the whole point of the feature is that one roll may
+      appear under two classroom names in the same file — so MEMBERSHIPS are the
+      union of every (roll, classroom) pair, not a deduped-away duplicate.
+    */
+    const byRoll = new Map<string, (typeof data.rows)[number]>();
+    // roll -> the classrooms that roll appears under in this file. A Map of Sets
+    // rather than a delimited string key: rolls are free text and any separator
+    // chosen here would eventually appear inside one.
+    const wantedMemberships = new Map<string, Set<string>>();
     for (const r of data.rows) {
-      const key = `${byName.get(r.classroom.toLowerCase())!}:${r.roll}`;
-      keyed.set(key, r);
+      const roll = r.roll.trim();
+      byRoll.set(roll, r);
+      const cid = byName.get(r.classroom.toLowerCase())!;
+      const set = wantedMemberships.get(roll);
+      if (set) set.add(cid);
+      else wantedMemberships.set(roll, new Set([cid]));
     }
-    const payload = Array.from(keyed.values()).map((r) => ({
-      classroom_id: byName.get(r.classroom.toLowerCase())!,
-      name: r.name,
-      roll: r.roll,
-      email: r.email && r.email.length > 0 ? r.email : null,
-      leetcode_id: r.leetcode_id,
-    }));
-    const { data: rows, error } = await supabaseAdmin
+    const rolls = [...byRoll.keys()];
+
+    // Never blind-update an existing student: an upsert keyed on the now-global
+    // `roll` would silently overwrite the name and LeetCode handle of anyone whose
+    // roll appears in the file, repointing the scraper. Existing rolls are only
+    // ever enrolled into the named classroom.
+    const { data: existingStudents, error: lookupErr } = await supabaseAdmin
       .from("students")
-      .upsert(payload, { onConflict: "classroom_id,roll" })
-      .select("id, leetcode_id");
-    if (error) throw new Error(error.message);
+      .select("id, roll")
+      .in("roll", rolls)
+      .order("created_at", { ascending: true });
+    if (lookupErr) throw new Error(lookupErr.message);
+    // Keep the FIRST (oldest) row per roll: a roll can still map to several
+    // students until Phase 2 adds UNIQUE(roll), and this must agree with the
+    // record getStudentByRoll resolves to.
+    const idByRoll = new Map<string, string>();
+    for (const s of existingStudents ?? []) {
+      if (!idByRoll.has(s.roll)) idByRoll.set(s.roll, s.id);
+    }
+
+    const newRolls = rolls.filter((r) => !idByRoll.has(r));
+    const handles = newRolls.map((r) => byRoll.get(r)!.leetcode_id.trim().toLowerCase());
+    const { data: handleRows } = handles.length
+      ? await supabaseAdmin.from("students").select("roll, leetcode_id").in("leetcode_id", handles)
+      : { data: [] as { roll: string; leetcode_id: string }[] };
+    const takenHandle = new Map((handleRows ?? []).map((s) => [s.leetcode_id, s.roll]));
+
+    const skipped: { roll: string; reason: string }[] = [];
+    const toInsert: { name: string; roll: string; email: string | null; leetcode_id: string }[] = [];
+    const seenHandle = new Set<string>();
+
+    for (const roll of newRolls) {
+      const r = byRoll.get(roll)!;
+      const handle = r.leetcode_id.trim().toLowerCase();
+      const owner = takenHandle.get(handle);
+      if (owner) {
+        skipped.push({ roll, reason: `LeetCode ID "${handle}" already belongs to ${owner}` });
+        continue;
+      }
+      if (seenHandle.has(handle)) {
+        skipped.push({ roll, reason: `LeetCode ID "${handle}" is used twice in this file` });
+        continue;
+      }
+      seenHandle.add(handle);
+      toInsert.push({
+        name: r.name,
+        roll,
+        email: r.email && r.email.length > 0 ? r.email : null,
+        leetcode_id: handle,
+      });
+    }
+
+    if (toInsert.length) {
+      const { data: created, error } = await supabaseAdmin
+        .from("students")
+        .insert(toInsert)
+        .select("id, roll");
+      if (error) throw new Error(error.message);
+      for (const s of created ?? []) idByRoll.set(s.roll, s.id);
+    }
+
+    // Every surviving (roll, classroom) pair becomes a membership. This is the step
+    // that puts a student into a second cohort.
+    const memberships: { student_id: string; classroom_id: string }[] = [];
+    for (const [roll, classroomIds] of wantedMemberships) {
+      const studentId = idByRoll.get(roll);
+      if (!studentId) continue;
+      for (const classroomId of classroomIds) {
+        memberships.push({ student_id: studentId, classroom_id: classroomId });
+      }
+    }
+    if (memberships.length) {
+      const { error: memErr } = await supabaseAdmin
+        .from("classroom_students")
+        .upsert(memberships, { onConflict: "classroom_id,student_id", ignoreDuplicates: true });
+      if (memErr) throw new Error(memErr.message);
+    }
+
+    const rows = [...new Set(memberships.map((m) => m.student_id))].map((id) => ({ id }));
 
     // This used to scrape the first 5 rows inline (with a 1.5s sleep between
     // each), which both risked the serverless timeout on a large import and left
@@ -78,9 +161,12 @@ export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
     }
 
     return {
-      studentsUpserted: rows?.length ?? 0,
+      studentsCreated: toInsert.length,
+      studentsEnrolled: rows.length - toInsert.length,
+      membershipsWritten: memberships.length,
       classroomsCreated: createdCount,
       classroomsTotal: uniqueNames.length,
+      skipped,
       queued,
     };
   });

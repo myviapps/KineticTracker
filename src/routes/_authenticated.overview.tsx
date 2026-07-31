@@ -78,11 +78,24 @@ function OverviewPage() {
 
   const activeStudents = rows.filter((r) => r.last30 > 0).length;
 
+  /*
+    Built once. The previous version nested `data.students.find()` inside
+    `rows.filter()` inside a `.map()` over classrooms — 20 cohorts x 1000 students
+    is 20M comparisons per render, on a page that re-renders every few seconds
+    while a refresh job is advancing.
+  */
+  const classroomIdsOf = new Map(data.students.map((s) => [s.id, s.classroom_ids]));
+  const classroomNameById = new Map(data.classrooms.map((c) => [c.id, c.name]));
+
+  const namesFor = (studentId: string) =>
+    (classroomIdsOf.get(studentId) ?? [])
+      .map((id) => classroomNameById.get(id))
+      .filter((n): n is string => !!n)
+      .sort();
+
   const perClassroom = data.classrooms
     .map((c) => {
-      const cRows = rows.filter((r) =>
-        data.students.find((s) => s.id === r.id)?.classroom_id === c.id,
-      );
+      const cRows = rows.filter((r) => classroomIdsOf.get(r.id)?.includes(c.id));
       return {
         id: c.id,
         name: c.name,
@@ -95,18 +108,14 @@ function OverviewPage() {
     })
     .sort((a, b) => b.total - a.total);
 
-  // The overview spans cohorts, so a name alone doesn't say who you're looking at.
-  const classroomOf = new Map(
-    data.students.map((s) => [
-      s.id,
-      data.classrooms.find((c) => c.id === s.classroom_id)?.name ?? null,
-    ]),
-  );
+  // A student in two cohorts is counted in each, so these no longer sum to the
+  // headcount. That is correct — but it needs saying on screen.
+  const sharedStudents = perClassroom.reduce((s, c) => s + c.students, 0) > rows.length;
 
   const ranked = [...rows]
     .sort((a, b) => b.total - a.total)
     .slice(0, topN)
-    .map((r) => ({ ...r, classroom: classroomOf.get(r.id) ?? null }));
+    .map((r) => ({ ...r, classrooms: namesFor(r.id) }));
 
   const [cEasy, cMedium, cHard, cSurface, cBorder, cMutedFg, cPrimary] = useCssVars(
     "--easy", "--medium", "--hard", "--surface", "--border", "--muted-foreground", "--primary",
@@ -320,6 +329,12 @@ function OverviewPage() {
             <h3 className="text-sm font-bold uppercase tracking-wider">Classroom Leaderboard</h3>
             <Users className="size-4 text-primary" />
           </div>
+          {sharedStudents && (
+            <p className="mb-3 text-[11px] text-muted-foreground">
+              Students in more than one cohort are counted in each, so these add up to
+              more than the headcount.
+            </p>
+          )}
           <div className="space-y-2">
             {perClassroom.map((c, i) => (
               <Link
@@ -358,7 +373,7 @@ function OverviewPage() {
         title={BUCKETS.find((b) => b.id === roster)?.label ?? "Students"}
         students={(roster ? filterBucket(allRows, roster) : []).map((r) => ({
           ...r,
-          classroom: classroomOf.get(r.id) ?? null,
+          classrooms: namesFor(r.id),
         }))}
       />
     </div>

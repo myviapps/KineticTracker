@@ -69,10 +69,11 @@ export function AppSidebar() {
 
   // `isPending` rather than the `= []` default: the sidebar showed "No classrooms
   // yet" during the first fetch on every cold load.
-  const { data: classrooms = [], isPending: classroomsLoading } = useQuery({
+  const { data: classroomData, isPending: classroomsLoading } = useQuery({
     queryKey: ["classrooms"],
     queryFn: () => listClassrooms(),
   });
+  const classrooms = classroomData?.classrooms ?? [];
 
   const facultyHomeIsOverview = isFaculty && classrooms.length > 1;
 

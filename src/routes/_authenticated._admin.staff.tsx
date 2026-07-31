@@ -37,10 +37,11 @@ function StaffPage() {
     queryFn: () => listStaff(),
   });
 
-  const { data: classrooms = [], isPending: classroomsLoading } = useQuery({
+  const { data: classroomData, isPending: classroomsLoading } = useQuery({
     queryKey: ["classrooms"],
     queryFn: () => listClassrooms(),
   });
+  const classrooms = classroomData?.classrooms ?? [];
 
   // Create staff form
   const [email, setEmail] = useState("");

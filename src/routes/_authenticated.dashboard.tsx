@@ -53,7 +53,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 function DashboardPage() {
   const { role, isAdmin, isPlacementOfficer: isPO, isFaculty } = useRole();
-  const { data: classrooms } = useSuspenseQuery(classroomsQO);
+  const { data: classroomData } = useSuspenseQuery(classroomsQO);
+  const classrooms = classroomData.classrooms;
   const router = useRouter();
 
   /*
@@ -109,7 +110,7 @@ function DashboardPage() {
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             {classrooms.length} cohort{classrooms.length === 1 ? "" : "s"} ·{" "}
-            {classrooms.reduce((s, c) => s + c.student_count, 0)} students.
+            {classroomData.totalStudents} students.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

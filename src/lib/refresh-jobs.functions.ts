@@ -7,6 +7,7 @@ import {
   requireRole,
   canAdminister,
   canManageStudents,
+  accessibleClassroomIds,
   assertClassroomAccess,
 } from "@/lib/authz";
 
@@ -47,13 +48,25 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
     if (data.scope === "students") {
       const ids = data.studentIds ?? [];
       if (ids.length === 0) throw new Error("studentIds is required for a student refresh");
-      // Confirm access to every classroom the batch touches, not just the first.
-      const { data: rows } = await supabaseAdmin
-        .from("students")
-        .select("classroom_id")
-        .in("id", ids);
-      for (const cid of new Set((rows ?? []).map((r) => r.classroom_id))) {
-        await assertClassroomAccess(userId, role, cid);
+
+      /*
+        Every student in the batch must be reachable. This used to resolve each
+        student's single classroom and require access to ALL of them; with
+        memberships the rule is ANY-intersection per student, resolved in one
+        query against the caller's assignments rather than N round trips.
+      */
+      const allowed = await accessibleClassroomIds(userId, role);
+      if (allowed !== null) {
+        if (allowed.length === 0) throw new Error("Forbidden");
+        const { data: rows } = await supabaseAdmin
+          .from("classroom_students")
+          .select("student_id")
+          .in("student_id", ids)
+          .in("classroom_id", allowed);
+        const reachable = new Set((rows ?? []).map((r) => r.student_id));
+        if (ids.some((id) => !reachable.has(id))) {
+          throw new Error("Forbidden: the batch includes students outside your classrooms");
+        }
       }
     }
 

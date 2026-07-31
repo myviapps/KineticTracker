@@ -34,7 +34,7 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
     mutationFn: () => importFn({ data: { rows } }),
     onSuccess: (r) => {
       toast.success(
-        `Imported ${r.studentsUpserted} students · ${r.classroomsCreated} new classrooms`,
+        `${r.studentsCreated} new students · ${r.studentsEnrolled} enrolled in another cohort · ${r.classroomsCreated} new classrooms`,
         {
           // The import no longer scrapes the first 5 rows inline and abandon the
           // rest — the whole batch is queued, so say so.
@@ -49,7 +49,7 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
       setFile(null);
       setCsvText("");
       setRows([]);
-      onDone?.(r.studentsUpserted);
+      onDone?.(r.studentsCreated + r.studentsEnrolled);
     },
     onError: (e) => toast.error(String(e)),
   });

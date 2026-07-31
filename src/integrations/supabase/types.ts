@@ -208,9 +208,15 @@ export type Database = {
           },
         ]
       }
+      /**
+       * `classroom_id` is deliberately absent even though the column still exists
+       * in the database until migration 20260807000001 retires it. Nothing in the
+       * app may read or write it after 20260731000001 — a student's classrooms
+       * live in `classroom_students`. Omitting it here makes `tsc` the enforcement
+       * mechanism instead of code review.
+       */
       students: {
         Row: {
-          classroom_id: string
           consecutive_failures: number
           created_at: string
           email: string | null
@@ -222,7 +228,6 @@ export type Database = {
           scrape_error: string | null
         }
         Insert: {
-          classroom_id: string
           consecutive_failures?: number
           created_at?: string
           email?: string | null
@@ -234,7 +239,6 @@ export type Database = {
           scrape_error?: string | null
         }
         Update: {
-          classroom_id?: string
           consecutive_failures?: number
           created_at?: string
           email?: string | null
@@ -245,12 +249,37 @@ export type Database = {
           roll?: string
           scrape_error?: string | null
         }
+        Relationships: []
+      }
+      classroom_students: {
+        Row: {
+          classroom_id: string
+          student_id: string
+          added_at: string
+        }
+        Insert: {
+          classroom_id: string
+          student_id: string
+          added_at?: string
+        }
+        Update: {
+          classroom_id?: string
+          student_id?: string
+          added_at?: string
+        }
         Relationships: [
           {
-            foreignKeyName: "students_classroom_id_fkey"
+            foreignKeyName: "classroom_students_classroom_id_fkey"
             columns: ["classroom_id"]
             isOneToOne: false
             referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "classroom_students_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
             referencedColumns: ["id"]
           },
         ]
@@ -546,6 +575,53 @@ export type Database = {
           p_done?: boolean
         }
         Returns: boolean
+      }
+      /** ANY-intersection of the student's classrooms and the caller's. */
+      has_student_access: {
+        Args: { _user: string; _student: string }
+        Returns: boolean
+      }
+      classroom_student_page: {
+        Args: {
+          p_classroom_id: string
+          p_cursor?: string | null
+          p_limit?: number
+          p_max_failures?: number
+        }
+        Returns: { id: string; consecutive_failures: number }[]
+      }
+      classroom_student_counts: {
+        Args: { p_classroom_ids?: string[] | null }
+        Returns: { classroom_id: string; student_count: number }[]
+      }
+      distinct_student_count: {
+        Args: { p_classroom_ids?: string[] | null }
+        Returns: number
+      }
+      remove_student_from_classroom: {
+        Args: { p_student: string; p_classroom: string }
+        Returns: { student_deleted: boolean; remaining_classrooms: number }[]
+      }
+      classroom_delete_preview: {
+        Args: { p_classroom: string }
+        Returns: { orphan_count: number; shared_count: number }[]
+      }
+      delete_classroom_cascade: {
+        Args: { p_classroom: string }
+        Returns: { students_deleted: number; memberships_removed: number }[]
+      }
+      duplicate_students: {
+        Args: Record<string, never>
+        Returns: {
+          kind: "roll" | "leetcode_id"
+          value: string
+          student_count: number
+          students: Json
+        }[]
+      }
+      merge_students: {
+        Args: { p_survivor: string; p_loser: string }
+        Returns: { memberships_moved: number; snapshots_moved: number }[]
       }
     }
     Enums: {

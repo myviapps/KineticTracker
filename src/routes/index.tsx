@@ -191,7 +191,9 @@ function LandingPage() {
                               @{s.leetcode_id}
                               {!s.masked && <ExternalLink className="size-3" />}
                             </span>
-                            {s.classroom_name && <span>· {s.classroom_name}</span>}
+                            {s.classroom_names.length > 0 && (
+                              <span>· {s.classroom_names.join(" · ")}</span>
+                            )}
                             <span>· {s.total_solved} solved</span>
                           </div>
                         </div>

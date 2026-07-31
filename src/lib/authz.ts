@@ -112,22 +112,74 @@ export async function assertClassroomAccess(
   if (!assignment) throw new Error("Forbidden: not assigned to this classroom");
 }
 
-/** Same as assertClassroomAccess, resolving the classroom from a student id. */
+/**
+ * Throws "Forbidden" unless the caller may act on this student.
+ *
+ * A student belongs to a SET of classrooms, so the rule is intersection: ANY
+ * overlap between the student's classrooms and the caller's assignments grants
+ * access.
+ *
+ * This calls the same `has_student_access` predicate the RLS policies use rather
+ * than reimplementing the intersection here. Two copies of an authorization rule
+ * drift, and when they do, the service-role path and the anon-key path start
+ * disagreeing about who can see what — while only one of them is ever tested.
+ *
+ * The old "Student not found" branch is gone on purpose: it was an existence
+ * oracle over the entire student directory, keyed by uuid. Faculty now get one
+ * indistinguishable Forbidden either way.
+ */
 export async function assertStudentAccess(
   userId: string,
   role: AppRole | null,
   studentId: string,
 ): Promise<void> {
+  // Fast path. The predicate agrees — it returns true for both these roles — but
+  // this saves a round trip on the majority case.
   if (canViewAllClassrooms(role)) return;
+  if (role !== "faculty") throw new Error("Forbidden");
 
   const supabaseAdmin = await admin();
-  const { data: student } = await supabaseAdmin
-    .from("students")
-    .select("classroom_id")
-    .eq("id", studentId)
-    .maybeSingle();
-  if (!student) throw new Error("Student not found");
-  await assertClassroomAccess(userId, role, student.classroom_id);
+  const { data: allowed, error } = await supabaseAdmin.rpc("has_student_access", {
+    _user: userId,
+    _student: studentId,
+  });
+
+  // Fail closed. A transport error is not permission.
+  if (error) throw new Error("Forbidden");
+  if (!allowed) throw new Error("Forbidden: not assigned to this student's classroom");
+}
+
+/**
+ * Classroom ids this student belongs to, filtered to what the caller may see.
+ *
+ * The filtering is the point: a faculty member must not learn that one of their
+ * students is also enrolled in a cohort they aren't assigned to.
+ */
+export async function visibleClassroomsForStudent(
+  userId: string,
+  role: AppRole | null,
+  studentId: string,
+): Promise<{ id: string; name: string }[]> {
+  const supabaseAdmin = await admin();
+  const allowed = await accessibleClassroomIds(userId, role);
+  if (allowed !== null && allowed.length === 0) return [];
+
+  let query = supabaseAdmin
+    .from("classroom_students")
+    .select("classroom_id, classrooms(name)")
+    .eq("student_id", studentId);
+  if (allowed !== null) query = query.in("classroom_id", allowed);
+
+  const { data, error } = await query;
+  if (error) return [];
+
+  return (data ?? [])
+    .map((row) => ({
+      id: row.classroom_id,
+      name: (row.classrooms as { name: string } | null)?.name ?? "",
+    }))
+    .filter((c) => c.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ─── Optional authentication ────────────────────────────────────────────────
@@ -171,14 +223,20 @@ export async function resolveOptionalViewer(): Promise<Viewer | null> {
   }
 }
 
-/** True when this viewer may see unmasked identity fields for the classroom. */
-export async function viewerHasClassroomAccess(
+/**
+ * True when this viewer may see unmasked identity fields for this student.
+ *
+ * Student-based rather than classroom-based since the migration: a student has
+ * several classrooms, and being able to see them in any one roster makes masking
+ * them on their own profile theatre.
+ */
+export async function viewerHasStudentAccess(
   viewer: Viewer | null,
-  classroomId: string,
+  studentId: string,
 ): Promise<boolean> {
   if (!viewer?.role) return false;
   try {
-    await assertClassroomAccess(viewer.userId, viewer.role, classroomId);
+    await assertStudentAccess(viewer.userId, viewer.role, studentId);
     return true;
   } catch {
     return false;

@@ -1,5 +1,8 @@
 import type { Database } from "@/integrations/supabase/types";
 import { log } from "./log.server";
+// Single source of truth for the give-up threshold — it used to be a bare `5`
+// here and another in scrape-runs.functions.ts, which the retry flow depends on.
+import { FAILURE_CUTOFF } from "./scrape-runs.functions";
 
 const TAIL_MS = 6_000;
 
@@ -104,26 +107,52 @@ export async function runChunk({
   while (Date.now() - t0 + estimateBatchMs(batchSize, cooldownMs) < budgetMs - TAIL_MS) {
     batchNo += 1;
     const bStart = Date.now();
-    let query = supabaseAdmin
-      .from("students")
-      .select("id, consecutive_failures")
-      .gt("id", cursor ?? "00000000-0000-0000-0000-000000000000")
-      .order("id", { ascending: true })
-      .limit(batchSize);
+    let students: { id: string; consecutive_failures: number }[] | null;
 
     if (job.scope === "classroom" && job.classroom_id) {
-      query = query.eq("classroom_id", job.classroom_id);
-    } else if (job.scope === "students" && job.student_ids?.length) {
-      query = query.in("id", job.student_ids);
-    }
-    query = query.filter("consecutive_failures", "lt", 5);
+      /*
+        Pages the MEMBERSHIP table, not students. cs.student_id IS students.id, so
+        a cursor written by a pre-migration chunk stays valid and an in-flight job
+        survives the deploy. classroom_students' PK is (classroom_id, student_id),
+        which makes this one index range scan.
 
-    // This error was previously discarded, so a failing query looked identical
-    // to "queue drained" and silently completed the job.
-    const { data: students, error: studentsError } = await query;
-    if (studentsError) {
-      log.error("chunk", `batch ${batchNo}: student query failed`, studentsError);
-      throw studentsError;
+        Deliberately an RPC and not a PostgREST embed: a filter on an embedded
+        resource combined with a limit has surprising semantics, and this loop
+        treats "0 rows" as *queue drained* below. That is exactly the bug class the
+        discarded-error note further down already records.
+      */
+      const { data, error } = await supabaseAdmin.rpc("classroom_student_page", {
+        p_classroom_id: job.classroom_id,
+        p_cursor: cursor ?? undefined,
+        p_limit: batchSize,
+        p_max_failures: FAILURE_CUTOFF,
+      });
+      if (error) {
+        log.error("chunk", `batch ${batchNo}: classroom_student_page failed`, error);
+        throw error;
+      }
+      students = data;
+    } else {
+      let query = supabaseAdmin
+        .from("students")
+        .select("id, consecutive_failures")
+        .gt("id", cursor ?? "00000000-0000-0000-0000-000000000000")
+        .order("id", { ascending: true })
+        .limit(batchSize)
+        .filter("consecutive_failures", "lt", FAILURE_CUTOFF);
+
+      if (job.scope === "students" && job.student_ids?.length) {
+        query = query.in("id", job.student_ids);
+      }
+
+      // This error was previously discarded, so a failing query looked identical
+      // to "queue drained" and silently completed the job.
+      const { data, error: studentsError } = await query;
+      if (studentsError) {
+        log.error("chunk", `batch ${batchNo}: student query failed`, studentsError);
+        throw studentsError;
+      }
+      students = data;
     }
     if (!students || students.length === 0) {
       log.ok("chunk", `queue drained after ${batchNo - 1} batches`);

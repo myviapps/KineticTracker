@@ -54,7 +54,7 @@ function EmptyState({ icon, title, description }: { icon?: React.ReactNode; titl
 function StudentPage() {
   const { roll } = Route.useParams();
   const { data } = useSuspenseQuery(studentQO(roll));
-  const { student, stats, recent, history, classroom, masked } = data;
+  const { student, stats, recent, history, classrooms, masked } = data;
   const router = useRouter();
 
   const refresh = useServerFn(refreshStudent);
@@ -152,9 +152,22 @@ function StudentPage() {
               <span className="rounded bg-primary/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-primary">
                 {student.roll}
               </span>
-              {classroom && (
-                <span className="rounded bg-accent px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-accent-foreground">
-                  {classroom.name}
+              {/* A student can be in several cohorts. Empty when masked — the
+                  membership list is itself identifying. */}
+              {classrooms.slice(0, 3).map((c) => (
+                <span
+                  key={c.id}
+                  className="rounded bg-accent px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-accent-foreground"
+                >
+                  {c.name}
+                </span>
+              ))}
+              {classrooms.length > 3 && (
+                <span
+                  className="rounded bg-accent px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-muted-foreground"
+                  title={classrooms.map((c) => c.name).join(" · ")}
+                >
+                  +{classrooms.length - 3}
                 </span>
               )}
               {stats?.contest_top_percentage != null && stats.contest_top_percentage < 5 && (

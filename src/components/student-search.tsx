@@ -151,7 +151,7 @@ export function StudentSearch({ className }: { className?: string }) {
                         <div className="truncate text-sm font-medium">{s.name}</div>
                         <div className="truncate font-mono text-[10px] text-muted-foreground">
                           {s.roll}
-                          {s.classroom_name && ` · ${s.classroom_name}`}
+                          {s.classroom_names.length > 0 && ` · ${s.classroom_names.join(" · ")}`}
                         </div>
                       </div>
                       <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
