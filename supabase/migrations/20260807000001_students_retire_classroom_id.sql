@@ -7,6 +7,8 @@
 --
 -- ORDERING IS LOAD-BEARING. Step 4 (the rename) fails while a policy or a view
 -- still depends on the column, so steps 2 and 3 must run first.
+--
+-- Re-runnable: applying this twice is a no-op rather than an error.
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 1. Pre-flight, then the second identity constraint
@@ -47,9 +49,24 @@ end $$;
 -- against an index on the bare column, so `unique (lower(leetcode_id))` is not an
 -- option. The app normalizes handles to lower(trim(...)) on every write path, and
 -- the pre-flight above is case-insensitive so nothing mixed-case survives to here.
-alter table public.students add constraint students_roll_key unique (roll);
-drop index if exists public.students_roll_idx;   -- superseded by the constraint
-alter table public.students add constraint students_leetcode_id_key unique (leetcode_id);
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'students_roll_key'
+      and conrelid = 'public.students'::regclass
+  ) then
+    alter table public.students add constraint students_roll_key unique (roll);
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'students_leetcode_id_key'
+      and conrelid = 'public.students'::regclass
+  ) then
+    alter table public.students add constraint students_leetcode_id_key unique (leetcode_id);
+  end if;
+end $$;
+
+drop index if exists public.students_roll_idx;   -- superseded by students_roll_key
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 2. Drop the overlap-week sync trigger
@@ -90,8 +107,23 @@ alter table public.students drop constraint if exists students_classroom_id_roll
 -- identically to a drop — `.eq("classroom_id", ...)` 400s either way — but the
 -- pre-migration assignment stays on disk, which turns rollback from a database
 -- restore into a single UPDATE. A follow-up migration drops it once this soaks.
-alter table public.students rename column classroom_id to classroom_id_legacy;
-alter table public.students alter column classroom_id_legacy drop not null;
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'students' and column_name = 'classroom_id'
+  ) then
+    alter table public.students rename column classroom_id to classroom_id_legacy;
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'students'
+      and column_name = 'classroom_id_legacy'
+  ) then
+    alter table public.students alter column classroom_id_legacy drop not null;
+  end if;
+end $$;
 
 comment on column public.students.classroom_id_legacy is
   'Pre-migration single-classroom assignment. Kept ONLY as a rollback source and NOT maintained - read classroom_students instead. Safe to drop once 20260807000001 has soaked.';

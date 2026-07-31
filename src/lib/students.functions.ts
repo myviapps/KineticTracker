@@ -524,6 +524,29 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
       ? []
       : await visibleClassroomsForStudent(viewer.userId, viewer.role, student.id);
 
+    /*
+      Ranks are shown to everyone, including anonymous visitors — they are derived
+      entirely from problems solved, which this page already publishes in full
+      because it is public on leetcode.com anyway.
+
+      Per-cohort ranks are the exception: each one carries a classroom NAME, and
+      cohort membership is exactly what masking withholds. A masked viewer gets the
+      college rank and nothing that says which class the student is in.
+    */
+    const { fetchStudentRanks } = await import("@/lib/ranks.server");
+    const rankRow = (await fetchStudentRanks([student.id])).get(student.id) ?? null;
+    const ranks = rankRow
+      ? {
+          college_rank: rankRow.college_rank,
+          college_total: rankRow.college_total,
+          classroom_ranks: masked
+            ? []
+            : rankRow.classroom_ranks.filter((r) =>
+                classrooms.some((c) => c.id === r.classroom_id),
+              ),
+        }
+      : null;
+
     return {
       masked,
       student: masked
@@ -545,6 +568,7 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
       recent: recentRes.status === "fulfilled" ? recentRes.value.data ?? [] : [],
       history: historyRes.status === "fulfilled" ? historyRes.value.data ?? [] : [],
       classrooms,
+      ranks,
     };
   });
 

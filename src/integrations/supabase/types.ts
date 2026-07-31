@@ -619,6 +619,15 @@ export type Database = {
           students: Json
         }[]
       }
+      student_ranks: {
+        Args: { p_student_ids: string[] }
+        Returns: {
+          student_id: string
+          college_rank: number
+          college_total: number
+          classroom_ranks: Json
+        }[]
+      }
       merge_students: {
         Args: { p_survivor: string; p_loser: string }
         Returns: { memberships_moved: number; snapshots_moved: number }[]

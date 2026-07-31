@@ -54,7 +54,7 @@ function EmptyState({ icon, title, description }: { icon?: React.ReactNode; titl
 function StudentPage() {
   const { roll } = Route.useParams();
   const { data } = useSuspenseQuery(studentQO(roll));
-  const { student, stats, recent, history, classrooms, masked } = data;
+  const { student, stats, recent, history, classrooms, ranks, masked } = data;
   const router = useRouter();
 
   const refresh = useServerFn(refreshStudent);
@@ -230,12 +230,55 @@ function StudentPage() {
         </div>
       )}
 
-      {/* Row 2: KPI tiles - 2x2 mobile, 4x1 lg */}
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/*
+        Three ranks, ordered nearest-first: their cohort, then the college, then
+        LeetCode's worldwide number. Shown to anonymous visitors too — every one is
+        derived from problems solved, which this page already publishes in full
+        because it is public on leetcode.com anyway.
+
+        Per-cohort ranks are the exception and the server withholds them from a
+        masked viewer: each carries a classroom NAME, and cohort membership is
+        precisely what masking exists to hide.
+      */}
+      {ranks && ranks.classroom_ranks.length > 0 && (
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {ranks.classroom_ranks.map((cr) => (
+            <StatCard
+              key={cr.classroom_id}
+              label={`Rank in ${cr.classroom_name}`}
+              value={
+                <span className="inline-flex items-center gap-1">
+                  <Trophy className="size-5 text-primary" />#{cr.rank}
+                </span>
+              }
+              hint={`of ${cr.total} in this cohort`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Row 2: KPI tiles. Five since College Rank and LeetCode World Rank split
+          apart, so the lg track count moved with it — at 4 the fifth tile dropped
+          to a row of its own. */}
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard label="Total Solved" value={stats?.total_solved ?? 0} hint={`of ${stats?.total_questions ?? 0}`} />
         <StatCard
-          label="Global Rank"
-          value={stats?.ranking ? <span className="inline-flex items-center gap-1"><Trophy className="size-5 text-primary" />#{stats.ranking.toLocaleString()}</span> : "—"}
+          label="College Rank"
+          value={
+            ranks?.college_rank ? (
+              <span className="inline-flex items-center gap-1">
+                <Trophy className="size-5 text-primary" />#{ranks.college_rank}
+              </span>
+            ) : (
+              "—"
+            )
+          }
+          hint={ranks?.college_total ? `of ${ranks.college_total} students` : undefined}
+        />
+        <StatCard
+          label="LeetCode World Rank"
+          value={stats?.ranking ? `#${stats.ranking.toLocaleString()}` : "—"}
+          hint="worldwide, from their profile"
         />
         <StatCard
           label="Streak"

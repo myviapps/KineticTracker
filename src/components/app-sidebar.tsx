@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, History, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -48,6 +48,7 @@ export function AppSidebar() {
 
   const currentPath = useRouterState({ select: (r) => r.location.pathname });
   const router = useRouter();
+  const qc = useQueryClient();
 
   const changePwM = useMutation({
     mutationFn: async () => {
@@ -103,6 +104,10 @@ export function AppSidebar() {
     },
     onSuccess: () => {
       toast.success("Signed out");
+      // Belt and braces: useAuthCacheSync also clears on the auth event, but doing
+      // it here too means the cache is gone before we navigate, so nothing renders
+      // the departing user's data on the way out.
+      qc.clear();
       router.invalidate();
       router.navigate({ to: "/" });
     },

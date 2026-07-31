@@ -13,6 +13,7 @@ import { AlmanacLogo } from "@/components/almanac-logo";
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeToggle, useTheme } from "@/components/theme-toggle";
+import { useAuthCacheSync } from "@/hooks/use-auth-cache-sync";
 
 const THEME_INIT = `
 (function(){try{var t=localStorage.getItem('kinetic-theme');var d=document.documentElement;
@@ -122,10 +123,20 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AuthCacheSync />
       <div className="min-h-screen w-full bg-background text-foreground">
         <Outlet />
       </div>
       <Toaster position="top-right" theme={theme} />
     </QueryClientProvider>
   );
+}
+
+/**
+ * Must live INSIDE QueryClientProvider (it needs the client), and renders nothing.
+ * See use-auth-cache-sync.ts for why account switching needed this at all.
+ */
+function AuthCacheSync() {
+  useAuthCacheSync();
+  return null;
 }

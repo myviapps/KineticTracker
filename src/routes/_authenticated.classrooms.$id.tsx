@@ -62,7 +62,8 @@ export const Route = createFileRoute("/_authenticated/classrooms/$id")({
 
 type SortKey =
   | "name" | "roll" | "total" | "easy" | "medium" | "hard"
-  | "today" | "yesterday" | "week" | "month" | "streak" | "rank";
+  | "today" | "yesterday" | "week" | "month" | "streak"
+  | "classRank" | "collegeRank" | "lcRank";
 
 function ClassroomDetail() {
   const { id } = Route.useParams();
@@ -148,6 +149,37 @@ function ClassroomDetail() {
 
   const counts = useMemo(() => bucketCounts(rows), [rows]);
 
+  /*
+    Class rank is derived here rather than fetched: the roster is already in hand,
+    and it must reflect THIS cohort even when the server also knows about others.
+    Dense ranking (ties share a place, no gap after) to match the SQL — otherwise
+    two students tied 5th would show 5th here and 5th/7th on their profiles.
+  */
+  const ranksById = useMemo(() => {
+    const byTotal = [...rows].sort((a, b) => b.total - a.total);
+    const classRank = new Map<string, number>();
+    let place = 0;
+    let previousTotal: number | null = null;
+    for (const r of byTotal) {
+      if (previousTotal === null || r.total !== previousTotal) place += 1;
+      previousTotal = r.total;
+      classRank.set(r.id, place);
+    }
+    return new Map(
+      data.students.map((s) => [
+        s.id,
+        {
+          classRank: classRank.get(s.id) ?? null,
+          collegeRank: s.ranks?.college_rank ?? null,
+          collegeTotal: s.ranks?.college_total ?? null,
+        },
+      ]),
+    );
+  }, [rows, data.students]);
+
+  const rankOf = (studentId: string) =>
+    ranksById.get(studentId) ?? { classRank: null, collegeRank: null, collegeTotal: null };
+
   const sharedIds = useMemo(
     () => new Set(data.students.filter((s) => s.shared).map((s) => s.id)),
     [data.students],
@@ -193,7 +225,11 @@ function ClassroomDetail() {
           case "week": return r.week;
           case "month": return r.month;
           case "streak": return r.streak;
-          case "rank": return r.rank;
+          // Ranks sort ascending-is-better; MAX_SAFE_INTEGER parks the unranked at
+          // the bottom either way rather than pretending they are joint first.
+          case "classRank": return rankOf(r.id).classRank ?? Number.MAX_SAFE_INTEGER;
+          case "collegeRank": return rankOf(r.id).collegeRank ?? Number.MAX_SAFE_INTEGER;
+          case "lcRank": return r.rank;
         }
       };
       const av = get(a); const bv = get(b);
@@ -674,7 +710,9 @@ function ClassroomDetail() {
                   <Th right onClick={() => toggleSort("week")}>Week</Th>
                   <Th right onClick={() => toggleSort("month")}>30d</Th>
                   <Th right onClick={() => toggleSort("streak")}>Streak</Th>
-                  <Th right onClick={() => toggleSort("rank")}>Rank</Th>
+                  <Th right onClick={() => toggleSort("classRank")} title="Rank within this cohort by problems solved">Class</Th>
+                  <Th right onClick={() => toggleSort("collegeRank")} title="Rank across every student on the platform">College</Th>
+                  <Th right onClick={() => toggleSort("lcRank")} title="LeetCode's worldwide ranking, from their profile">LC World</Th>
                   {canManageStudents && <th className="px-3 py-3 text-right">Actions</th>}
                 </tr>
               </thead>
@@ -773,6 +811,15 @@ function ClassroomDetail() {
                       <td className="px-3 py-3 text-right">{r.week || "—"}</td>
                       <td className="px-3 py-3 text-right">{r.last30 || "—"}</td>
                       <td className="px-3 py-3 text-right">{r.streak}d</td>
+                      {/* Three ranks, three questions. Class is where they sit in
+                          this room, College across the platform, LC World is
+                          LeetCode's own global number off their profile. */}
+                      <td className="px-3 py-3 text-right font-bold text-primary">
+                        {rankOf(r.id).classRank ? `#${rankOf(r.id).classRank}` : "—"}
+                      </td>
+                      <td className="px-3 py-3 text-right font-bold">
+                        {rankOf(r.id).collegeRank ? `#${rankOf(r.id).collegeRank}` : "—"}
+                      </td>
                       <td className="px-3 py-3 text-right text-muted-foreground">
                         {s.stats?.ranking ? `#${s.stats.ranking.toLocaleString()}` : "—"}
                       </td>
@@ -981,15 +1028,19 @@ function Th({
   onClick,
   right,
   className,
+  title,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   right?: boolean;
   className?: string;
+  /** Three columns now end in "rank"; the tooltip says which is which. */
+  title?: string;
 }) {
   return (
     <th
       onClick={onClick}
+      title={title}
       className={cn(
         "cursor-pointer select-none px-3 py-3 font-semibold hover:text-foreground",
         right && "text-right",

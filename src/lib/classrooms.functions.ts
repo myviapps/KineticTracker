@@ -122,6 +122,11 @@ export const getClassroom = createServerFn({ method: "GET" })
       for (const [sid, n] of counts) if (n > 1) sharedIds.add(sid);
     }
 
+    // Class and college standing. Computed in Postgres because college rank spans
+    // every student on the platform, not just this roster.
+    const { fetchStudentRanks } = await import("@/lib/ranks.server");
+    const ranksById = await fetchStudentRanks(ids);
+
     // What a delete would actually do, so the confirm dialog can say it rather
     // than repeating the now-false "and all its students".
     let deletePreview = { orphan_count: 0, shared_count: 0 };
@@ -199,6 +204,7 @@ export const getClassroom = createServerFn({ method: "GET" })
         stats: statsById.get(s.id) ?? null,
         progress: progressById.get(s.id) ?? null,
         shared: sharedIds.has(s.id),
+        ranks: ranksById.get(s.id) ?? null,
       })),
     };
   });
