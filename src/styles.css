@@ -38,17 +38,14 @@
     var(--tw-animation-fill-mode, none);
 
   /* Height animations need a curve that does not stall at the end. */
-  --animate-accordion-down: accordion-down
-    var(--tw-animation-duration, var(--tw-duration, 260ms))
+  --animate-accordion-down: accordion-down var(--tw-animation-duration, var(--tw-duration, 260ms))
     var(--tw-ease, cubic-bezier(0.22, 1, 0.36, 1)) var(--tw-animation-fill-mode, none);
-  --animate-accordion-up: accordion-up
-    var(--tw-animation-duration, var(--tw-duration, 200ms))
+  --animate-accordion-up: accordion-up var(--tw-animation-duration, var(--tw-duration, 200ms))
     var(--tw-ease, cubic-bezier(0.65, 0, 0.35, 1)) var(--tw-animation-fill-mode, none);
   --animate-collapsible-down: collapsible-down
     var(--tw-animation-duration, var(--tw-duration, 260ms))
     var(--tw-ease, cubic-bezier(0.22, 1, 0.36, 1)) var(--tw-animation-fill-mode, none);
-  --animate-collapsible-up: collapsible-up
-    var(--tw-animation-duration, var(--tw-duration, 200ms))
+  --animate-collapsible-up: collapsible-up var(--tw-animation-duration, var(--tw-duration, 200ms))
     var(--tw-ease, cubic-bezier(0.65, 0, 0.35, 1)) var(--tw-animation-fill-mode, none);
 
   /* Stock pulse drops to 50% opacity and is timed to feel like a heartbeat.
@@ -56,6 +53,11 @@
      calmer behind a wall of skeleton cards. */
   --animate-pulse: skeleton-breathe 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 
+  /* Landing page — CSS-only motion, exposed as utilities (animate-marquee,
+     animate-grid-drift, animate-glow-pulse) via Tailwind v4's --animate-* namespace. */
+  --animate-marquee: marquee-x 40s linear infinite;
+  --animate-grid-drift: grid-drift 22s linear infinite;
+  --animate-glow-pulse: glow-pulse 7s var(--ease-swap) infinite;
 }
 
 @keyframes skeleton-breathe {
@@ -75,9 +77,19 @@
   intensity intact through the wave.
 */
 @keyframes almanac-day-fill {
-  0%        { opacity: 0.05; transform: scale(0.6); }
-  16%, 66%  { opacity: 1;    transform: scale(1); }
-  100%      { opacity: 0.05; transform: scale(0.6); }
+  0% {
+    opacity: 0.05;
+    transform: scale(0.6);
+  }
+  16%,
+  66% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.05;
+    transform: scale(0.6);
+  }
 }
 
 .almanac-day {
@@ -87,13 +99,15 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .almanac-day { animation: none; }
+  .almanac-day {
+    animation: none;
+  }
 }
 
 @theme inline {
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --font-display: 'Inter', system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Inter", system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -140,6 +154,11 @@
 :root {
   --radius: 0.5rem;
 
+  /* Landing amber wash strength. A 22%-alpha wash reads as atmosphere on the
+     dark background; on the light one it needs dropping well below that or it
+     reads as mud. One token, two values — no `dark:` variant anywhere. */
+  --landing-glow: 0.22;
+
   --background: oklch(0.14 0.005 260);
   --foreground: oklch(0.97 0.005 260);
   --surface: oklch(0.18 0.006 260);
@@ -150,7 +169,7 @@
   --popover: oklch(0.18 0.006 260);
   --popover-foreground: oklch(0.97 0.005 260);
 
-  --primary: oklch(0.78 0.16 65);           /* amber */
+  --primary: oklch(0.78 0.16 65); /* amber */
   --primary-foreground: oklch(0.15 0.01 260);
 
   --secondary: oklch(0.24 0.008 260);
@@ -167,9 +186,9 @@
   --input: oklch(0.28 0.008 260);
   --ring: oklch(0.78 0.16 65);
 
-  --easy: oklch(0.75 0.17 150);      /* green */
-  --medium: oklch(0.82 0.15 85);     /* yellow */
-  --hard: oklch(0.68 0.22 20);       /* red */
+  --easy: oklch(0.75 0.17 150); /* green */
+  --medium: oklch(0.82 0.15 85); /* yellow */
+  --hard: oklch(0.68 0.22 20); /* red */
 
   --sidebar: oklch(0.14 0.005 260);
   --sidebar-foreground: oklch(0.85 0.005 260);
@@ -185,6 +204,7 @@
 .light {
   --background: oklch(0.99 0.003 260);
   --foreground: oklch(0.18 0.01 260);
+  --landing-glow: 0.1;
   --surface: oklch(0.97 0.004 260);
   --surface-2: oklch(0.94 0.005 260);
 
@@ -225,16 +245,31 @@
   color-scheme: light;
 }
 
-.dark { color-scheme: dark; }
-
-@layer base {
-  * { border-color: var(--color-border); }
-  html, body { background-color: var(--color-background); color: var(--color-foreground); }
-  body { font-family: var(--font-sans); font-feature-settings: "ss01","cv11"; }
-  ::selection { background: color-mix(in oklab, var(--primary) 35%, transparent); }
+.dark {
+  color-scheme: dark;
 }
 
-.font-mono { font-family: var(--font-mono); }
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 35%, transparent);
+  }
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
 
 /* ─── Route transitions ───────────────────────────────────────────────────
    Switching classrooms is the most frequent action in this app and it used to
@@ -298,6 +333,69 @@
   overflow: hidden;
 }
 
+/* ─── Landing page backdrop ───────────────────────────────────────────────
+   Named classes, not utilities: anything using color-mix(), multi-stop
+   gradients or mask-image must live here because Tailwind v4 arbitrary values
+   need every space and paren escaped, and lightningcss will mangle a bad one.
+
+   The grid hairline color comes from var(--border), so it inverts with the
+   theme for free — no dark: variant anywhere. The mask fades it out by the
+   fold so it reads as atmosphere at the top and nothing below.
+
+   Motion note: the CSS reduced-motion block below does NOT stop `motion`
+   (which drives WAAPI/JS, not CSS animations) and `MotionConfig` does NOT
+   stop these CSS animations — both are required, and they are independent.
+   Do not "simplify" one away. */
+.landing-grid {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 65% at 50% 0%, #000 30%, transparent);
+  -webkit-mask-image: radial-gradient(ellipse 80% 65% at 50% 0%, #000 30%, transparent);
+}
+@keyframes grid-drift {
+  to {
+    /* Drifting exactly one tile makes the loop seamless. */
+    background-position: 56px 56px, 56px 56px;
+  }
+}
+
+.landing-glow {
+  background: radial-gradient(
+    ellipse 55% 45% at 50% 0%,
+    color-mix(in oklab, var(--primary) calc(var(--landing-glow) * 100%), transparent),
+    transparent 72%
+  );
+}
+@keyframes glow-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* CSS-only marquee: the track holds its children twice and translates -50%,
+   so the seam is always exact (w-max, not a hardcoded width). */
+@keyframes marquee-x {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.marquee-track {
+  animation: marquee-x 40s linear infinite;
+}
+.marquee-mask {
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.marquee-mask:hover .marquee-track {
+  animation-play-state: paused;
+}
+
 /* ─── Reduced motion ──────────────────────────────────────────────────────
    Collapse transitions rather than deleting them, so state changes still read
    as changes. Spinners and pulses report live work, so they keep running —
@@ -332,5 +430,75 @@
   }
   .animate-caret-blink {
     animation: caret-blink 1.25s ease-out infinite !important;
+  }
+  /* The global 1ms rule would park an infinite marquee at its end state while
+     still burning a composited layer. Stop these outright. */
+  .marquee-track {
+    animation: none !important;
+    transform: none !important;
+  }
+  .landing-grid,
+  .landing-glow {
+    animation: none !important;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Print — for the /reports PDF export.
+
+   The app is dark by default, which would put a full-bleed dark background on
+   every printed page (most browsers drop it, leaving light text on white and an
+   unreadable sheet). So print forces light surfaces regardless of theme.
+
+   `.report-block` marks a unit that must not be split across a page break —
+   a KPI row or a chart cut in half is worse than a shorter page.
+   ──────────────────────────────────────────────────────────────────────────── */
+@media print {
+  /* Chrome, not content. */
+  [data-sidebar],
+  header,
+  nav,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  /* Cards keep a hairline border but lose fills, so they read on paper. */
+  .bg-surface,
+  .bg-background,
+  .bg-surface-2 {
+    background: #fff !important;
+  }
+
+  .report-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 12pt;
+  }
+
+  table {
+    font-size: 9pt;
+  }
+
+  thead {
+    display: table-header-group; /* repeat headers on every page */
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+
+  a {
+    text-decoration: none !important;
+    color: inherit !important;
+  }
+
+  @page {
+    margin: 12mm;
   }
 }
