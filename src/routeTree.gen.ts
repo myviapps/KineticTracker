@@ -12,12 +12,16 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as SearchRouteImport } from './routes/search'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated._admin'
 import { Route as AuthenticatedClassroomsRouteImport } from './routes/_authenticated.classrooms'
+import { Route as AuthenticatedCollegesRouteImport } from './routes/_authenticated.colleges'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedOverviewRouteImport } from './routes/_authenticated.overview'
+import { Route as AuthenticatedReportsRouteImport } from './routes/_authenticated.reports'
 import { Route as StudentsRollRouteImport } from './routes/students.$roll'
 import { Route as AuthenticatedAdminImportRouteImport } from './routes/_authenticated._admin.import'
+import { Route as AuthenticatedAdminPlatformsRouteImport } from './routes/_authenticated._admin.platforms'
 import { Route as AuthenticatedAdminScrapeRunsRouteImport } from './routes/_authenticated._admin.scrape-runs'
 import { Route as AuthenticatedAdminSettingsRouteImport } from './routes/_authenticated._admin.settings'
 import { Route as AuthenticatedAdminStaffRouteImport } from './routes/_authenticated._admin.staff'
@@ -25,6 +29,7 @@ import { Route as AuthenticatedClassroomsIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedClassroomsIdRouteImport } from './routes/_authenticated.classrooms.$id'
 import { Route as AuthenticatedAdminClassroomsNewRouteImport } from './routes/_authenticated._admin.classrooms.new'
 import { Route as ApiPublicCronRefreshRouteImport } from './routes/api/public/cron/refresh'
+import { Route as ApiPublicCronSeedDemoRouteImport } from './routes/api/public/cron/seed-demo'
 import { Route as ApiPublicJobsPumpRouteImport } from './routes/api/public/jobs/pump'
 import { Route as ApiPublicJobsRunRouteImport } from './routes/api/public/jobs/run'
 import { Route as AuthenticatedClassroomsIdStudentsNewRouteImport } from './routes/_authenticated.classrooms.$id_.students.new'
@@ -43,6 +48,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/_admin',
   getParentRoute: () => AuthenticatedRoute,
@@ -50,6 +60,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
 const AuthenticatedClassroomsRoute = AuthenticatedClassroomsRouteImport.update({
   id: '/classrooms',
   path: '/classrooms',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedCollegesRoute = AuthenticatedCollegesRouteImport.update({
+  id: '/colleges',
+  path: '/colleges',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -62,6 +77,11 @@ const AuthenticatedOverviewRoute = AuthenticatedOverviewRouteImport.update({
   path: '/overview',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedReportsRoute = AuthenticatedReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const StudentsRollRoute = StudentsRollRouteImport.update({
   id: '/students/$roll',
   path: '/students/$roll',
@@ -71,6 +91,12 @@ const AuthenticatedAdminImportRoute =
   AuthenticatedAdminImportRouteImport.update({
     id: '/import',
     path: '/import',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminPlatformsRoute =
+  AuthenticatedAdminPlatformsRouteImport.update({
+    id: '/platforms',
+    path: '/platforms',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
 const AuthenticatedAdminScrapeRunsRoute =
@@ -113,6 +139,11 @@ const ApiPublicCronRefreshRoute = ApiPublicCronRefreshRouteImport.update({
   path: '/api/public/cron/refresh',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicCronSeedDemoRoute = ApiPublicCronSeedDemoRouteImport.update({
+  id: '/api/public/cron/seed-demo',
+  path: '/api/public/cron/seed-demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicJobsPumpRoute = ApiPublicJobsPumpRouteImport.update({
   id: '/api/public/jobs/pump',
   path: '/api/public/jobs/pump',
@@ -133,11 +164,15 @@ const AuthenticatedClassroomsIdStudentsNewRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/search': typeof SearchRoute
   '/classrooms': typeof AuthenticatedClassroomsRouteWithChildren
+  '/colleges': typeof AuthenticatedCollegesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/overview': typeof AuthenticatedOverviewRoute
+  '/reports': typeof AuthenticatedReportsRoute
   '/students/$roll': typeof StudentsRollRoute
   '/import': typeof AuthenticatedAdminImportRoute
+  '/platforms': typeof AuthenticatedAdminPlatformsRoute
   '/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/settings': typeof AuthenticatedAdminSettingsRoute
   '/staff': typeof AuthenticatedAdminStaffRoute
@@ -145,6 +180,7 @@ export interface FileRoutesByFullPath {
   '/classrooms/': typeof AuthenticatedClassroomsIndexRoute
   '/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
+  '/api/public/cron/seed-demo': typeof ApiPublicCronSeedDemoRoute
   '/api/public/jobs/pump': typeof ApiPublicJobsPumpRoute
   '/api/public/jobs/run': typeof ApiPublicJobsRunRoute
   '/classrooms/$id/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
@@ -152,10 +188,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/search': typeof SearchRoute
+  '/colleges': typeof AuthenticatedCollegesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/overview': typeof AuthenticatedOverviewRoute
+  '/reports': typeof AuthenticatedReportsRoute
   '/students/$roll': typeof StudentsRollRoute
   '/import': typeof AuthenticatedAdminImportRoute
+  '/platforms': typeof AuthenticatedAdminPlatformsRoute
   '/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/settings': typeof AuthenticatedAdminSettingsRoute
   '/staff': typeof AuthenticatedAdminStaffRoute
@@ -163,6 +203,7 @@ export interface FileRoutesByTo {
   '/classrooms': typeof AuthenticatedClassroomsIndexRoute
   '/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
+  '/api/public/cron/seed-demo': typeof ApiPublicCronSeedDemoRoute
   '/api/public/jobs/pump': typeof ApiPublicJobsPumpRoute
   '/api/public/jobs/run': typeof ApiPublicJobsRunRoute
   '/classrooms/$id/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
@@ -172,12 +213,16 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/auth': typeof AuthRoute
+  '/search': typeof SearchRoute
   '/_authenticated/_admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/classrooms': typeof AuthenticatedClassroomsRouteWithChildren
+  '/_authenticated/colleges': typeof AuthenticatedCollegesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/overview': typeof AuthenticatedOverviewRoute
+  '/_authenticated/reports': typeof AuthenticatedReportsRoute
   '/students/$roll': typeof StudentsRollRoute
   '/_authenticated/_admin/import': typeof AuthenticatedAdminImportRoute
+  '/_authenticated/_admin/platforms': typeof AuthenticatedAdminPlatformsRoute
   '/_authenticated/_admin/scrape-runs': typeof AuthenticatedAdminScrapeRunsRoute
   '/_authenticated/_admin/settings': typeof AuthenticatedAdminSettingsRoute
   '/_authenticated/_admin/staff': typeof AuthenticatedAdminStaffRoute
@@ -185,6 +230,7 @@ export interface FileRoutesById {
   '/_authenticated/classrooms/': typeof AuthenticatedClassroomsIndexRoute
   '/_authenticated/_admin/classrooms/new': typeof AuthenticatedAdminClassroomsNewRoute
   '/api/public/cron/refresh': typeof ApiPublicCronRefreshRoute
+  '/api/public/cron/seed-demo': typeof ApiPublicCronSeedDemoRoute
   '/api/public/jobs/pump': typeof ApiPublicJobsPumpRoute
   '/api/public/jobs/run': typeof ApiPublicJobsRunRoute
   '/_authenticated/classrooms/$id_/students/new': typeof AuthenticatedClassroomsIdStudentsNewRoute
@@ -194,11 +240,15 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/search'
     | '/classrooms'
+    | '/colleges'
     | '/dashboard'
     | '/overview'
+    | '/reports'
     | '/students/$roll'
     | '/import'
+    | '/platforms'
     | '/scrape-runs'
     | '/settings'
     | '/staff'
@@ -206,6 +256,7 @@ export interface FileRouteTypes {
     | '/classrooms/'
     | '/classrooms/new'
     | '/api/public/cron/refresh'
+    | '/api/public/cron/seed-demo'
     | '/api/public/jobs/pump'
     | '/api/public/jobs/run'
     | '/classrooms/$id/students/new'
@@ -213,10 +264,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/search'
+    | '/colleges'
     | '/dashboard'
     | '/overview'
+    | '/reports'
     | '/students/$roll'
     | '/import'
+    | '/platforms'
     | '/scrape-runs'
     | '/settings'
     | '/staff'
@@ -224,6 +279,7 @@ export interface FileRouteTypes {
     | '/classrooms'
     | '/classrooms/new'
     | '/api/public/cron/refresh'
+    | '/api/public/cron/seed-demo'
     | '/api/public/jobs/pump'
     | '/api/public/jobs/run'
     | '/classrooms/$id/students/new'
@@ -232,12 +288,16 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/search'
     | '/_authenticated/_admin'
     | '/_authenticated/classrooms'
+    | '/_authenticated/colleges'
     | '/_authenticated/dashboard'
     | '/_authenticated/overview'
+    | '/_authenticated/reports'
     | '/students/$roll'
     | '/_authenticated/_admin/import'
+    | '/_authenticated/_admin/platforms'
     | '/_authenticated/_admin/scrape-runs'
     | '/_authenticated/_admin/settings'
     | '/_authenticated/_admin/staff'
@@ -245,6 +305,7 @@ export interface FileRouteTypes {
     | '/_authenticated/classrooms/'
     | '/_authenticated/_admin/classrooms/new'
     | '/api/public/cron/refresh'
+    | '/api/public/cron/seed-demo'
     | '/api/public/jobs/pump'
     | '/api/public/jobs/run'
     | '/_authenticated/classrooms/$id_/students/new'
@@ -254,8 +315,10 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AuthRoute: typeof AuthRoute
+  SearchRoute: typeof SearchRoute
   StudentsRollRoute: typeof StudentsRollRoute
   ApiPublicCronRefreshRoute: typeof ApiPublicCronRefreshRoute
+  ApiPublicCronSeedDemoRoute: typeof ApiPublicCronSeedDemoRoute
   ApiPublicJobsPumpRoute: typeof ApiPublicJobsPumpRoute
   ApiPublicJobsRunRoute: typeof ApiPublicJobsRunRoute
 }
@@ -283,6 +346,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/_admin': {
       id: '/_authenticated/_admin'
       path: ''
@@ -295,6 +365,13 @@ declare module '@tanstack/react-router' {
       path: '/classrooms'
       fullPath: '/classrooms'
       preLoaderRoute: typeof AuthenticatedClassroomsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/colleges': {
+      id: '/_authenticated/colleges'
+      path: '/colleges'
+      fullPath: '/colleges'
+      preLoaderRoute: typeof AuthenticatedCollegesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/dashboard': {
@@ -311,6 +388,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOverviewRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/reports': {
+      id: '/_authenticated/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AuthenticatedReportsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/students/$roll': {
       id: '/students/$roll'
       path: '/students/$roll'
@@ -323,6 +407,13 @@ declare module '@tanstack/react-router' {
       path: '/import'
       fullPath: '/import'
       preLoaderRoute: typeof AuthenticatedAdminImportRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/_admin/platforms': {
+      id: '/_authenticated/_admin/platforms'
+      path: '/platforms'
+      fullPath: '/platforms'
+      preLoaderRoute: typeof AuthenticatedAdminPlatformsRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
     '/_authenticated/_admin/scrape-runs': {
@@ -374,6 +465,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCronRefreshRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/cron/seed-demo': {
+      id: '/api/public/cron/seed-demo'
+      path: '/api/public/cron/seed-demo'
+      fullPath: '/api/public/cron/seed-demo'
+      preLoaderRoute: typeof ApiPublicCronSeedDemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/jobs/pump': {
       id: '/api/public/jobs/pump'
       path: '/api/public/jobs/pump'
@@ -400,6 +498,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminImportRoute: typeof AuthenticatedAdminImportRoute
+  AuthenticatedAdminPlatformsRoute: typeof AuthenticatedAdminPlatformsRoute
   AuthenticatedAdminScrapeRunsRoute: typeof AuthenticatedAdminScrapeRunsRoute
   AuthenticatedAdminSettingsRoute: typeof AuthenticatedAdminSettingsRoute
   AuthenticatedAdminStaffRoute: typeof AuthenticatedAdminStaffRoute
@@ -408,6 +507,7 @@ interface AuthenticatedAdminRouteChildren {
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminImportRoute: AuthenticatedAdminImportRoute,
+  AuthenticatedAdminPlatformsRoute: AuthenticatedAdminPlatformsRoute,
   AuthenticatedAdminScrapeRunsRoute: AuthenticatedAdminScrapeRunsRoute,
   AuthenticatedAdminSettingsRoute: AuthenticatedAdminSettingsRoute,
   AuthenticatedAdminStaffRoute: AuthenticatedAdminStaffRoute,
@@ -439,15 +539,19 @@ const AuthenticatedClassroomsRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedClassroomsRoute: typeof AuthenticatedClassroomsRouteWithChildren
+  AuthenticatedCollegesRoute: typeof AuthenticatedCollegesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedOverviewRoute: typeof AuthenticatedOverviewRoute
+  AuthenticatedReportsRoute: typeof AuthenticatedReportsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedClassroomsRoute: AuthenticatedClassroomsRouteWithChildren,
+  AuthenticatedCollegesRoute: AuthenticatedCollegesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedOverviewRoute: AuthenticatedOverviewRoute,
+  AuthenticatedReportsRoute: AuthenticatedReportsRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -458,8 +562,10 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AuthRoute: AuthRoute,
+  SearchRoute: SearchRoute,
   StudentsRollRoute: StudentsRollRoute,
   ApiPublicCronRefreshRoute: ApiPublicCronRefreshRoute,
+  ApiPublicCronSeedDemoRoute: ApiPublicCronSeedDemoRoute,
   ApiPublicJobsPumpRoute: ApiPublicJobsPumpRoute,
   ApiPublicJobsRunRoute: ApiPublicJobsRunRoute,
 }
