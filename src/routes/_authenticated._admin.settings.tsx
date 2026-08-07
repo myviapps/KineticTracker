@@ -96,15 +96,23 @@ function SettingsPage() {
           </div>
 
           {/* Status badge */}
-          <div className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-mono ${
-            googleEnabled
-              ? "border border-easy/30 bg-easy/5 text-easy"
-              : "border border-border bg-background text-muted-foreground"
-          }`}>
+          <div
+            className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs font-mono ${
+              googleEnabled
+                ? "border border-easy/30 bg-easy/5 text-easy"
+                : "border border-border bg-background text-muted-foreground"
+            }`}
+          >
             {googleEnabled ? (
-              <><Check className="size-3" /> Google Sign-In is <strong>enabled</strong> — visible on login page</>
+              <>
+                <Check className="size-3" /> Google Sign-In is <strong>enabled</strong> — visible on
+                login page
+              </>
             ) : (
-              <><X className="size-3" /> Google Sign-In is <strong>disabled</strong> — hidden from login page</>
+              <>
+                <X className="size-3" /> Google Sign-In is <strong>disabled</strong> — hidden from
+                login page
+              </>
             )}
           </div>
         </div>
@@ -114,7 +122,8 @@ function SettingsPage() {
       <div className="rounded-lg border border-border bg-surface/50 p-4 text-xs text-muted-foreground">
         <p className="font-semibold text-foreground">About these settings</p>
         <p className="mt-1">
-          Settings are stored globally in the database. They apply to all users and devices immediately.
+          Settings are stored globally in the database. They apply to all users and devices
+          immediately.
         </p>
       </div>
     </div>

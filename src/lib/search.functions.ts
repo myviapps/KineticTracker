@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { accessibleClassroomIds, resolveOptionalViewer } from "@/lib/authz";
 import { maskHandle, maskName } from "@/lib/mask";
+import { requirePublicRateLimit } from "@/lib/rate-limit.server";
 
 /**
  * Student lookup for the landing page. Two very different contracts depending on
@@ -20,12 +21,21 @@ import { maskHandle, maskName } from "@/lib/mask";
  * `email` is deliberately not searchable in either mode.
  */
 export const searchStudents = createServerFn({ method: "GET" })
-  .validator((d: unknown) => z.object({
-    // Kept deliberately strict: `q` is interpolated into a PostgREST `or` filter
-    // below, and this character class excludes the comma, parens and percent that
-    // would let a caller restructure the filter.
-    q: z.string().trim().min(1).max(100).regex(/^[a-zA-Z0-9\s.\-_@]+$/),
-  }).parse(d))
+  .validator((d: unknown) =>
+    z
+      .object({
+        // Kept deliberately strict: `q` is interpolated into a PostgREST `or` filter
+        // below, and this character class excludes the comma, parens and percent that
+        // would let a caller restructure the filter.
+        q: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .regex(/^[a-zA-Z0-9\s.\-_@]+$/),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const q = data.q.trim();
@@ -34,9 +44,12 @@ export const searchStudents = createServerFn({ method: "GET" })
     const isStaff = !!viewer?.role;
     const masked = !isStaff;
 
-    let studentQuery = supabaseAdmin
-      .from("students")
-      .select("id, name, roll, leetcode_id");
+    // Anonymous callers are rate limited per IP. The public contract is "look
+    // yourself up by roll", which needs a handful of requests, not a directory
+    // walk. Staff are exempt: they are authenticated and already scoped.
+    if (!isStaff) await requirePublicRateLimit("search");
+
+    let studentQuery = supabaseAdmin.from("students").select("id, name, roll, leetcode_id");
 
     // Scoping goes through memberships. Resolved to a student-id list first rather
     // than an embed filter, so a student in two of the caller's cohorts still comes
@@ -59,29 +72,57 @@ export const searchStudents = createServerFn({ method: "GET" })
         .or(`roll.ilike.%${like}%,name.ilike.%${like}%,leetcode_id.ilike.%${like}%`)
         .limit(20);
     } else {
-      // Exact, case-insensitive roll. No wildcards, so nothing to enumerate.
+      // Exact, case-insensitive roll.
+      //
+      // `_` and `%` are LIKE metacharacters. The validator above permits `_`
+      // because staff search legitimately matches handles containing it, but on
+      // this branch a single `_` would turn "you must know the exact roll" back
+      // into a character-by-character walk of the directory — `24CS0__` matches
+      // rolls the caller never knew. That is precisely the enumeration primitive
+      // the header comment says was removed, so reject rather than escape.
+      if (/[_%]/.test(q)) return [];
       studentQuery = studentQuery.ilike("roll", q).limit(1);
     }
 
-    const { data: students, error } = await studentQuery;
+    let { data: students, error } = await studentQuery;
     if (error) throw new Error("Search failed");
     if (!students || students.length === 0) return [];
 
-    // Cohort names per student, scoped to what this viewer may see.
-    let memQuery = supabaseAdmin
-      .from("classroom_students")
-      .select("student_id, classrooms(name)")
-      .in("student_id", students.map((s) => s.id));
-    if (allowedClassrooms !== null) memQuery = memQuery.in("classroom_id", allowedClassrooms);
-    const { data: memberships } = await memQuery;
+    // Belt and braces: whatever LIKE did above, an anonymous caller only ever
+    // gets back a row whose roll is an exact case-insensitive match.
+    if (!isStaff) {
+      const needle = q.toLowerCase();
+      students = students.filter((s) => s.roll?.toLowerCase() === needle);
+      if (students.length === 0) return [];
+    }
 
+    // Cohort names per student, scoped to what this viewer may see.
+    //
+    // Skipped entirely for anonymous callers. `allowedClassrooms` stays null for
+    // anon, which used to mean the scoping filter below never applied and every
+    // cohort name came back unmasked — the opposite of the intent. Cohort
+    // membership is exactly what masking withholds, and getStudentByRoll already
+    // suppresses it for masked viewers (students.functions.ts). The two public
+    // endpoints now agree.
     const classroomsByStudent = new Map<string, string[]>();
-    for (const m of memberships ?? []) {
-      const name = (m.classrooms as { name: string } | null)?.name;
-      if (!name) continue;
-      const list = classroomsByStudent.get(m.student_id);
-      if (list) list.push(name);
-      else classroomsByStudent.set(m.student_id, [name]);
+    if (isStaff) {
+      let memQuery = supabaseAdmin
+        .from("classroom_students")
+        .select("student_id, classrooms(name)")
+        .in(
+          "student_id",
+          students.map((s) => s.id),
+        );
+      if (allowedClassrooms !== null) memQuery = memQuery.in("classroom_id", allowedClassrooms);
+      const { data: memberships } = await memQuery;
+
+      for (const m of memberships ?? []) {
+        const name = (m.classrooms as { name: string } | null)?.name;
+        if (!name) continue;
+        const list = classroomsByStudent.get(m.student_id);
+        if (list) list.push(name);
+        else classroomsByStudent.set(m.student_id, [name]);
+      }
     }
 
     const studentIds = students.map((s) => s.id);

@@ -14,7 +14,7 @@ export function RefreshButton({
   scope: "classroom" | "platform";
   classroomId?: string;
 }) {
-  const { job, isLoading } = useRefreshJobStatus();
+  const { jobs, active, status, processed, total, isLoading } = useRefreshJobStatus();
   const qc = useQueryClient();
   const enqueue = useServerFn(enqueueRefresh);
 
@@ -25,19 +25,28 @@ export function RefreshButton({
       }),
     // Without this the UI shows nothing until the next poll — which, while idle,
     // is up to 15s away. That reads as "the button does nothing".
-    onSuccess: async () => {
+    onSuccess: async (res) => {
       await qc.invalidateQueries({ queryKey: REFRESH_JOB_KEY });
-      toast.success("Refresh queued");
+      const n = res?.queued?.length ?? 0;
+      const busy = res?.skipped?.filter((s) => s.reason === "already running") ?? [];
+      toast.success(
+        `Refresh queued for ${n} platform${n === 1 ? "" : "s"}` +
+          (busy.length ? ` · ${busy.map((b) => b.platformId).join(", ")} already running` : ""),
+      );
     },
     onError: (e: unknown) => toast.error(String(e)),
   });
 
-  const isActive = job && (job.status === "queued" || job.status === "running");
-  const isPaused = job?.status === "paused";
-  // Label by the RUNNING job's scope, not this button's — a classroom refresh
-  // also disables the platform button (single-flight), and vice versa.
-  const jobLabel =
-    job?.scope === "platform" ? "platform" : job?.scope === "classroom" ? "classroom" : "students";
+  const isActive = active && (status === "queued" || status === "running");
+  const isPaused = status === "paused";
+  // Label by what is RUNNING, not by this button's scope — a classroom refresh
+  // also disables the platform button, and vice versa.
+  const scopeLabel =
+    jobs[0]?.scope === "platform"
+      ? "platform"
+      : jobs[0]?.scope === "classroom"
+        ? "classroom"
+        : "students";
 
   if (isLoading) {
     return (
@@ -52,19 +61,26 @@ export function RefreshButton({
     return (
       <Button variant="outline" disabled>
         <RefreshCw className="mr-1 size-4 animate-spin" />
-        {job.status === "queued"
-          ? `Starting ${jobLabel} refresh…`
-          : `Refreshing ${jobLabel} — ${job.processed}/${job.total}`}
+        {status === "queued" || total === 0
+          ? `Starting ${scopeLabel} refresh…`
+          : `Refreshing ${scopeLabel} — ${processed}/${total}`}
       </Button>
     );
   }
 
-  if (isPaused && job?.resume_after) {
-    const resumeAt = new Date(job.resume_after);
+  if (isPaused) {
+    // Earliest resume across the paused platforms, so the button says when
+    // something will actually move again.
+    const resumeAt = jobs
+      .map((j) => j.resume_after)
+      .filter((v): v is string => !!v)
+      .sort()[0];
     return (
       <Button variant="outline" disabled>
         <Pause className="mr-1 size-4" />
-        Rate limited — resumes {resumeAt.toLocaleTimeString()}
+        {resumeAt
+          ? `Rate limited — resumes ${new Date(resumeAt).toLocaleTimeString()}`
+          : "Rate limited — will resume"}
       </Button>
     );
   }

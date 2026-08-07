@@ -31,6 +31,13 @@ dist-ssr
 # Vercel
 .vercel/
 
+# Python bytecode (scraper-service)
+__pycache__/
+*.py[cod]
+
+# Supabase CLI local link state — per-machine, not per-repo
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,7 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getRequest } from "@tanstack/react-start/server";
+import { z } from "zod";
 import { requireCronSecret } from "@/integrations/supabase/cron-auth";
 
+const Body = z.object({ jobId: z.string().uuid() });
+
+/**
+ * Run one chunk of a legacy (student-scoped) refresh job.
+ *
+ * There used to be a self-recursive `fetch` here that continued the job by
+ * calling this same route again. It was removed for two reasons:
+ *
+ *   1. It was unreachable. Its guard was `!("claimed" in result)`, but `claimed`
+ *      is a required field on ChunkResult and every return path sets it, so the
+ *      condition was always false.
+ *   2. It built the target URL from the request's own `origin`/`host` header and
+ *      attached `Authorization: Bearer ${CRON_SECRET}`. Any caller who could
+ *      reach this route could name the host that received the secret.
+ *
+ * Continuation is already handled: .github/workflows/pump.yml pumps every 10
+ * minutes and each chunk resumes from the job's persisted cursor.
+ */
 export const Route = createFileRoute("/api/public/jobs/run")({
   server: {
     handlers: {
@@ -13,27 +32,13 @@ export const Route = createFileRoute("/api/public/jobs/run")({
         }
 
         const request = getRequest();
-        const body: { jobId?: string } = await request.json();
-        if (!body.jobId) return Response.json({ error: "Missing jobId" }, { status: 400 });
-
-        const { runChunk } = await import("@/lib/refresh-worker.server");
-        const result = await runChunk({ jobId: body.jobId, budgetMs: 50_000 });
-
-        if (!result.done && !result.paused && !result.aborted && !("claimed" in result)) {
-          const origin = request.headers.get("origin") ?? request.headers.get("host") ?? "";
-          const selfUrl = `https://${origin}/api/public/jobs/run`;
-          fetch(selfUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${process.env.CRON_SECRET}`,
-            },
-            body: JSON.stringify({ jobId: body.jobId }),
-            signal: AbortSignal.timeout(1500),
-          }).catch(() => {});
+        const parsed = Body.safeParse(await request.json().catch(() => null));
+        if (!parsed.success) {
+          return Response.json({ error: "Invalid or missing jobId" }, { status: 400 });
         }
 
-        return Response.json(result);
+        const { runChunk } = await import("@/lib/refresh-worker.server");
+        return Response.json(await runChunk({ jobId: parsed.data.jobId, budgetMs: 50_000 }));
       },
     },
   },

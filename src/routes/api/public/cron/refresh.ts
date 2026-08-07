@@ -11,19 +11,22 @@ export const Route = createFileRoute("/api/public/cron/refresh")({
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        // One platform-wide job per enabled platform, not one job overall.
+        const { enqueueRefreshFanOut } = await import("@/lib/refresh-enqueue.server");
+        const { queued, skipped } = await enqueueRefreshFanOut({ scope: "platform" });
 
-        // Enqueue a platform-wide refresh job
-        const { data: jobId, error } = await supabaseAdmin.rpc("enqueue_refresh_job", {
-          p_scope: "platform",
-        });
-        if (error) return Response.json({ error: error.message }, { status: 500 });
+        if (queued.length === 0) {
+          return Response.json({ queued: [], skipped, reason: "nothing to queue" });
+        }
 
-        // Run the first chunk
-        const { runChunk } = await import("@/lib/refresh-worker.server");
-        const result = await runChunk({ jobId, budgetMs: 50_000 });
+        // Run the first chunk of the first job. The pump picks up the rest —
+        // next_platform_job() round-robins, so the other platforms are not
+        // waiting on this one to finish.
+        const { runPlatformChunk } = await import("@/lib/platform-worker.server");
+        const first = queued[0];
+        const result = await runPlatformChunk({ jobId: first.jobId, budgetMs: 50_000 });
 
-        return Response.json({ jobId, ...result });
+        return Response.json({ queued, skipped, ran: first.platformId, ...result });
       },
       GET: async () => Response.json({ ok: true, hint: "POST to run refresh" }),
     },

@@ -1,0 +1,11 @@
+# Pinned. Scrapling pins playwright==1.61.0 / patchright==1.61.2 internally, and
+# the browser binaries baked into the image are matched to those exact versions —
+# an unpinned bump here means the image ships a browser its driver cannot talk to.
+#
+# `[fetchers]` is the extra that pulls curl_cffi, playwright, patchright and
+# browserforge. The bare `scrapling` install is parser-only and has no browser.
+scrapling[fetchers]==0.4.12
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+pydantic==2.13.4

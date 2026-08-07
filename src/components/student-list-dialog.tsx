@@ -35,14 +35,36 @@ export function StudentListDialog({
   function exportCsv() {
     const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const header = [
-      "Name", "Roll", ...(showClassroom ? ["Classroom"] : []),
-      "LeetCode ID", "Total", "Easy", "Medium", "Hard", "Today", "This week", "Last 30d", "Streak",
+      "Name",
+      "Roll",
+      ...(showClassroom ? ["Classroom"] : []),
+      "LeetCode ID",
+      "Total",
+      "Easy",
+      "Medium",
+      "Hard",
+      "Today",
+      "This week",
+      "Last 30d",
+      "Streak",
     ];
     const lines = students.map((s) =>
       [
-        s.name, s.roll, ...(showClassroom ? [(s.classrooms ?? []).join(" | ")] : []),
-        s.leetcode_id, s.total, s.easy, s.medium, s.hard, s.today, s.week, s.last30, s.streak,
-      ].map(escape).join(","),
+        s.name,
+        s.roll,
+        ...(showClassroom ? [(s.classrooms ?? []).join(" | ")] : []),
+        s.leetcode_id,
+        s.total,
+        s.easy,
+        s.medium,
+        s.hard,
+        s.today,
+        s.week,
+        s.last30,
+        s.streak,
+      ]
+        .map(escape)
+        .join(","),
     );
     const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -59,8 +81,8 @@ export function StudentListDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            {students.length} student{students.length === 1 ? "" : "s"}. Select a name to open
-            their full profile.
+            {students.length} student{students.length === 1 ? "" : "s"}. Select a name to open their
+            full profile.
           </DialogDescription>
         </DialogHeader>
 
@@ -83,7 +105,10 @@ export function StudentListDialog({
             <tbody className="divide-y divide-border font-mono tabular-nums">
               {students.length === 0 && (
                 <tr>
-                  <td colSpan={showClassroom ? 10 : 9} className="px-3 py-12 text-center text-muted-foreground">
+                  <td
+                    colSpan={showClassroom ? 10 : 9}
+                    className="px-3 py-12 text-center text-muted-foreground"
+                  >
                     No students in this group.
                   </td>
                 </tr>

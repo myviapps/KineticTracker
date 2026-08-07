@@ -1,6 +1,9 @@
 // Server-only helper: scrape a single student and persist stats.
 // Reused by students.functions and bulk-import.functions.
-export async function scrapeStudentById(id: string) {
+//
+// `deadline` is an epoch-ms ceiling for the enclosing chunk. Omit it for
+// interactive single-student refreshes, which have no batch budget to protect.
+export async function scrapeStudentById(id: string, deadline?: number) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { fetchLeetCodeProfile } = await import("./leetcode.server");
   const { log } = await import("./log.server");
@@ -19,7 +22,7 @@ export async function scrapeStudentById(id: string) {
 
   try {
     const tFetch = Date.now();
-    const p = await fetchLeetCodeProfile(student.leetcode_id);
+    const p = await fetchLeetCodeProfile(student.leetcode_id, deadline);
     const fetchMs = Date.now() - tFetch;
 
     await supabaseAdmin.from("student_stats").upsert({
@@ -114,6 +117,18 @@ export async function scrapeStudentById(id: string) {
     );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+
+    // A budget abort means WE ran out of chunk time, not that the handle is
+    // bad. Leave the student row completely untouched so the penalty counter
+    // stays clean and the next run picks them up as if nothing happened —
+    // counting this as a failure would eventually park a perfectly valid
+    // handle at FAILURE_CUTOFF.
+    const kind = (e as { kind?: string } | null)?.kind;
+    if (kind === "budget") {
+      log.warn("scrape", `  ⏱ ${student.leetcode_id} skipped — chunk budget exhausted`);
+      throw e;
+    }
+
     log.error("scrape", `  ✕ ${student.leetcode_id} after ${Date.now() - tStart}ms`, e);
     // Track repeat offenders so the worker can skip permanently-broken handles
     // (typo'd leetcode_id) instead of burning a request on them every run.

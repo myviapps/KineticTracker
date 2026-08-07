@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { buildHeatmapGrid, type CalendarMap } from "@/lib/date-buckets";
 import { cn } from "@/lib/utils";
 
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function bucket(count: number): number {
   if (count === 0) return 0;
@@ -14,10 +14,7 @@ function bucket(count: number): number {
 
 export function Heatmap({ calendar }: { calendar: CalendarMap }) {
   const weeks = useMemo(() => buildHeatmapGrid(calendar), [calendar]);
-  const total = useMemo(
-    () => Object.values(calendar).reduce((s, n) => s + n, 0),
-    [calendar],
-  );
+  const total = useMemo(() => Object.values(calendar).reduce((s, n) => s + n, 0), [calendar]);
 
   const monthLabels: { col: number; label: string }[] = [];
   let lastMonth = -1;
@@ -92,12 +89,20 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
   );
 }
 
-function cellClass(b: number): string {
+/** Exported so the landing showcase mock stays in lockstep with the real
+    product surface instead of copy-pasting five intensity classes that go
+    stale. */
+export function cellClass(b: number): string {
   switch (b) {
-    case 0: return "bg-muted";
-    case 1: return "bg-primary/25";
-    case 2: return "bg-primary/50";
-    case 3: return "bg-primary/75";
-    default: return "bg-primary";
+    case 0:
+      return "bg-muted";
+    case 1:
+      return "bg-primary/25";
+    case 2:
+      return "bg-primary/50";
+    case 3:
+      return "bg-primary/75";
+    default:
+      return "bg-primary";
   }
 }

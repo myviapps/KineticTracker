@@ -1,39 +1,109 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useSuspenseQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
-} from "recharts";
-import { Plus, Trash2, ExternalLink, Search, ArrowUpDown, Download, Pencil, X, UserMinus, Users2, TriangleAlert } from "lucide-react";
+  Plus,
+  Trash2,
+  ExternalLink,
+  Search,
+  ArrowUpDown,
+  Download,
+  Pencil,
+  UserMinus,
+  Users2,
+  TriangleAlert,
+  Users,
+  Target,
+  Flame,
+  Activity,
+  BarChart3,
+  LayoutGrid,
+  Trophy,
+  type LucideIcon,
+} from "lucide-react";
 import {
-  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
-  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogCancel, AlertDialogAction,
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 
 import { getClassroom, deleteClassroom, updateClassroom } from "@/lib/classrooms.functions";
-import { updateStudent, removeStudentFromClassroom } from "@/lib/students.functions";
+import {
+  updateStudent,
+  removeStudentFromClassroom,
+  getStudentHandles,
+} from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { StatCard, SectionTitle } from "@/components/stat-card";
-import { toStudentRow, filterBucket, bucketCounts, BUCKETS, type BucketId } from "@/lib/buckets";
-import { LeaderboardBars } from "@/components/leaderboard-bars";
-import { TopNControl } from "@/components/top-n-control";
+import { CohortPlatformReport } from "@/components/cohort-platform-report";
+import { CohortOverall } from "@/components/cohort-overall";
+import { ReportExportDialog } from "@/components/report-export-dialog";
+import { toStudentRow } from "@/lib/buckets";
 import { DailyMatrix } from "@/components/daily-matrix";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { useCssVars } from "@/hooks/use-css-vars";
 import { CHART_MOTION, CHART_MOTION_STATIC } from "@/lib/chart-motion";
 import { RefreshButton } from "@/components/refresh-button";
 import { useRole } from "@/hooks/use-role";
 import { useRefreshJobStatus } from "@/hooks/use-refresh-job";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { AnimatedLoader } from "@/components/animated-loader";
 import { useDuplicates } from "@/components/duplicates";
+import { CohortFilterBar } from "@/components/cohort-filter-bar";
+import { CohortToolbar } from "@/components/cohort-toolbar";
+import { LensStatRow } from "@/components/lens-stat-row";
+import { CohortInsightPanel } from "@/components/cohort-insight-panel";
+import { ScrapeStatusBadge } from "@/components/scrape-status-badge";
+import { getPerformanceWindows } from "@/lib/performance.functions";
+import {
+  ALL_LENS,
+  lensFor,
+  lensFilters,
+  applyLensFilter,
+  lensStatCards,
+  hasDifficultySplit,
+  metricLabel,
+} from "@/lib/platform-lens";
+
+/**
+ * Sum several per-platform series onto a shared date axis.
+ *
+ * Platforms refresh on different days, so their series have different — and
+ * sometimes disjoint — date sets. Zipping by index would add Monday's Codeforces
+ * to Thursday's GeeksforGeeks; keying by date is the only correct merge.
+ */
+function mergeSeries(all: { date: string; solved: number }[][]) {
+  const byDate = new Map<string, number>();
+  for (const series of all) {
+    for (const p of series) byDate.set(p.date, (byDate.get(p.date) ?? 0) + p.solved);
+  }
+  return [...byDate.entries()]
+    .map(([date, solved]) => ({ date, solved }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
 
 const clsQO = (id: string) =>
   queryOptions({
@@ -45,8 +115,69 @@ function PendingClassroom() {
   return <AnimatedLoader text="Loading classroom…" />;
 }
 
+/**
+ * Filter state lives in the URL.
+ *
+ * Every filter on this page used to be component-local `useState`, so it was
+ * lost on refresh, could not be shared, and — because the sidebar collapses and
+ * re-navigates aggressively — was wiped by ordinary navigation. Putting it in
+ * the search params makes a filtered cohort a link you can send someone.
+ *
+ * Every field is optional and every parse is total: a stale or hand-edited URL
+ * degrades to the default view rather than throwing.
+ */
+export type ClassroomSearch = {
+  /** Platform lens id, or "all". */
+  p?: string;
+  /** Free-text search. */
+  q?: string;
+  /** Bucket id (LeetCode/all lens) or band id (other platforms). */
+  b?: string;
+  v?: "report" | "matrix";
+  sort?: SortKey;
+  dir?: "asc" | "desc";
+};
+
+const SORT_KEYS: SortKey[] = [
+  "name",
+  "roll",
+  "total",
+  "easy",
+  "medium",
+  "hard",
+  "today",
+  "yesterday",
+  "week",
+  "month",
+  "streak",
+  "classRank",
+  "collegeRank",
+  "lcRank",
+];
+
 export const Route = createFileRoute("/_authenticated/classrooms/$id")({
   head: () => ({ meta: [{ title: "Classroom — Almanac" }] }),
+  /*
+    The INPUT type is what decides whether a <Link to="/classrooms/$id"> must
+    pass search params. Typing it as Record<string, unknown> made every one of
+    the six required at eight call sites across the app; Partial keeps them all
+    optional while the return type stays total, so reads below never need a
+    fallback.
+  */
+  validateSearch: (search: Partial<ClassroomSearch>): ClassroomSearch => {
+    const str = (v: unknown, fallback: string) =>
+      typeof v === "string" && v.length > 0 && v.length <= 100 ? v : fallback;
+    const sort = str(search.sort, "total") as SortKey;
+    return {
+      p: str(search.p, ALL_LENS),
+      q: str(search.q, ""),
+      b: str(search.b, "all"),
+      v: search.v === "matrix" ? "matrix" : "report",
+      // An unknown key would silently sort by nothing; fall back instead.
+      sort: SORT_KEYS.includes(sort) ? sort : "total",
+      dir: search.dir === "asc" ? "asc" : "desc",
+    };
+  },
   loader: ({ params, context }) => {
     if (typeof window !== "undefined") {
       return context.queryClient.ensureQueryData(clsQO(params.id));
@@ -60,10 +191,43 @@ export const Route = createFileRoute("/_authenticated/classrooms/$id")({
   notFoundComponent: () => <div className="p-8 text-sm">Classroom not found.</div>,
 });
 
+/**
+ * Icon per stat-card label. Keyed by label rather than by metric so the mapping
+ * lives next to the labels it describes; anything unmapped falls back to Target.
+ */
+const LENS_ICONS: Record<string, LucideIcon> = {
+  Students: Users,
+  "On platform": Users,
+  Coverage: Users2,
+  "Platforms tracked": LayoutGrid,
+  "Avg Almanac Score": Trophy,
+  "Solved (all platforms)": Target,
+  "Total solved": Target,
+  "Problems solved": Target,
+  "Avg / student": BarChart3,
+  "Avg rating": Trophy,
+  "Cohort best": Trophy,
+  "Avg score": Trophy,
+  "Top score": Trophy,
+  "Solved (30d)": Flame,
+  "Active (30d)": Activity,
+};
+
 type SortKey =
-  | "name" | "roll" | "total" | "easy" | "medium" | "hard"
-  | "today" | "yesterday" | "week" | "month" | "streak"
-  | "classRank" | "collegeRank" | "lcRank";
+  | "name"
+  | "roll"
+  | "total"
+  | "easy"
+  | "medium"
+  | "hard"
+  | "today"
+  | "yesterday"
+  | "week"
+  | "month"
+  | "streak"
+  | "classRank"
+  | "collegeRank"
+  | "lcRank";
 
 function ClassroomDetail() {
   const { id } = Route.useParams();
@@ -75,33 +239,81 @@ function ClassroomDetail() {
   // While a refresh job is advancing, the pump invalidates these queries every few
   // seconds. Replaying the draw-in animation on that cadence reads as flicker, so
   // charts update in place instead.
-  const { job } = useRefreshJobStatus();
+  const { status: refreshStatus } = useRefreshJobStatus();
   const chartMotion =
-    job && (job.status === "running" || job.status === "queued")
-      ? CHART_MOTION_STATIC
-      : CHART_MOTION;
-  const [search, setSearch] = useState("");
-  const [bucket, setBucket] = useState<BucketId>("all");
-  const [tab, setTab] = useState<"report" | "matrix">("report");
+    refreshStatus === "running" || refreshStatus === "queued" ? CHART_MOTION_STATIC : CHART_MOTION;
+  /*
+    Filters come from the URL, not from useState. `replace: true` on every write
+    so dragging a slider or typing in the search box does not fill the back
+    stack — Back should leave the page, not step through filter history.
+  */
+  const sp = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const setSearchParams = (patch: Partial<ClassroomSearch>) =>
+    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+
+  // Every field is optional in the TYPE so that <Link to="/classrooms/$id">
+  // elsewhere in the app needs no search prop, but validateSearch always
+  // populates them — these fallbacks are belt-and-braces, not real branches.
+  const search = sp.q ?? "";
+  const setSearch = (q: string) => setSearchParams({ q });
+  // The lens: "all" or a platform id. Resolved against the platforms this cohort
+  // actually uses, so a stale id degrades to "all" rather than an empty page.
+  const lens = lensFor(sp.p, data.platforms);
+  // Changing platform resets the chip: a Codeforces rating band means nothing
+  // once the lens is GeeksforGeeks, and leaving it set would silently filter the
+  // roster by a rule that no longer applies.
+  const setLens = (p: string) => setSearchParams({ p, b: "all" });
+  const filterId = sp.b ?? "all";
+  const setFilterId = (b: string) => setSearchParams({ b });
+  const tab = sp.v ?? "report";
+  const setTab = (v: "report" | "matrix") => setSearchParams({ v });
+  const sort = { key: sp.sort ?? "total", dir: sp.dir ?? "desc" };
+
+  const [exportOpen, setExportOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
-    key: "total",
-    dir: "desc",
-  });
   const [editingStudent, setEditingStudent] = useState<{
-    id: string; name: string; roll: string; email: string; leetcode_id: string;
+    id: string;
+    name: string;
+    roll: string;
+    email: string;
+    leetcode_id: string;
   } | null>(null);
-  const [hideScrapingStatus, setHideScrapingStatus] = useState(false);
 
   const updateStu = useServerFn(updateStudent);
   const editM = useMutation({
-    mutationFn: (s: { id: string; name: string; roll: string; email: string; leetcode_id: string }) =>
-      updateStu({ data: { id: s.id, name: s.name, roll: s.roll, email: s.email || null, leetcode_id: s.leetcode_id } }),
-    onSuccess: (_data, s) => {
-      toast.success("Student updated");
+    mutationFn: (s: {
+      id: string;
+      name: string;
+      roll: string;
+      email: string;
+      leetcode_id: string;
+      /** platform id -> handle; "" removes. Omitted when nothing was touched. */
+      handles?: Record<string, string>;
+    }) =>
+      updateStu({
+        data: {
+          id: s.id,
+          name: s.name,
+          roll: s.roll,
+          email: s.email || null,
+          leetcode_id: s.leetcode_id,
+          handles: s.handles,
+        },
+      }),
+    onSuccess: (res, s) => {
+      const h = res?.handles;
+      const changed = h ? h.added + h.updated + h.removed : 0;
+      toast.success(
+        changed > 0
+          ? `Student updated · ${changed} platform handle${changed === 1 ? "" : "s"} changed`
+          : "Student updated",
+        changed > 0 ? { description: "New handles are fetched on the next refresh." } : undefined,
+      );
       setEditingStudent(null);
       qc.invalidateQueries({ queryKey: ["classroom", id] });
       qc.invalidateQueries({ queryKey: ["student", s.roll] });
+      qc.invalidateQueries({ queryKey: ["student-handles", s.id] });
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -124,7 +336,8 @@ function ClassroomDetail() {
   });
 
   const [editingClassroom, setEditingClassroom] = useState<{
-    name: string; description: string;
+    name: string;
+    description: string;
   } | null>(null);
   const updateCls = useServerFn(updateClassroom);
   const renameM = useMutation({
@@ -144,10 +357,11 @@ function ClassroomDetail() {
   });
 
   const removeFromCohort = useServerFn(removeStudentFromClassroom);
-  const [removing, setRemoving] = useState<{ id: string; name: string; shared: boolean } | null>(null);
+  const [removing, setRemoving] = useState<{ id: string; name: string; shared: boolean } | null>(
+    null,
+  );
   const removeM = useMutation({
-    mutationFn: (studentId: string) =>
-      removeFromCohort({ data: { studentId, classroomId: id } }),
+    mutationFn: (studentId: string) => removeFromCohort({ data: { studentId, classroomId: id } }),
     onSuccess: (r) => {
       setRemoving(null);
       qc.invalidateQueries({ queryKey: ["classroom", id] });
@@ -162,12 +376,72 @@ function ClassroomDetail() {
     onError: (e) => toast.error(String(e)),
   });
 
-  const rows = useMemo(
-    () => data.students.map((s) => toStudentRow(s)),
+  const rows = useMemo(() => data.students.map((s) => toStudentRow(s)), [data.students]);
+
+  /** student id -> that student's per-platform stats, for every lens helper. */
+  const statsByStudent = useMemo(
+    () => new Map(data.students.map((s) => [s.id, s.platformStats ?? {}])),
     [data.students],
   );
 
-  const counts = useMemo(() => bucketCounts(rows), [rows]);
+  // Whatever chips this lens offers: the nine behavioural buckets on LeetCode
+  // and "all", metric bands on every other platform.
+  const lensFilterSet = useMemo(
+    () => lensFilters(lens, rows, statsByStudent),
+    [lens, rows, statsByStudent],
+  );
+
+  /*
+    Per-platform 30-day history for this cohort, from daily_snapshots.
+
+    This is what replaces the LeetCode submission calendar as the trend source.
+    `solved` comes back NULL rather than 0 when a platform has no history, which
+    is the difference between "nobody did anything" and "we only started
+    collecting yesterday" — see the header comment in performance.functions.ts.
+  */
+  const perfQuery = useQuery({
+    queryKey: ["cohort-performance", id],
+    queryFn: () => getPerformanceWindows({ data: { windows: [30], classroomId: id } }),
+    staleTime: 60_000,
+  });
+  // Memoised: `?? []` allocates a new array each render, which would make every
+  // downstream useMemo that depends on it recompute on every render.
+  const windowPlatforms = useMemo(
+    () => perfQuery.data?.windows?.[0]?.platforms ?? [],
+    [perfQuery.data],
+  );
+  const lensWindow = lens.isAll ? null : windowPlatforms.find((w) => w.platform_id === lens.id);
+  const allWindowSolved = windowPlatforms.length
+    ? windowPlatforms.reduce<number | null>(
+        (a, w) => (w.solved === null ? a : (a ?? 0) + w.solved),
+        null,
+      )
+    : null;
+
+  const lensCards = useMemo(
+    () =>
+      lensStatCards({
+        lens,
+        rows,
+        statsByStudent,
+        almanacScoreOf: (sid) =>
+          data.students.find((s) => s.id === sid)?.ranks?.almanac_score ?? null,
+        platforms: data.platforms,
+        windowSolved: lens.isAll ? allWindowSolved : (lensWindow?.solved ?? null),
+        windowDays: 30,
+        activeInWindow: lens.isAll
+          ? windowPlatforms.reduce((a, w) => Math.max(a, w.active_students), 0)
+          : (lensWindow?.active_students ?? null),
+        firstSnapshotDate: lens.isAll
+          ? (windowPlatforms
+              .map((w) => w.first_snapshot_date)
+              .filter(Boolean)
+              .sort()[0] ?? null)
+          : (lensWindow?.first_snapshot_date ?? null),
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lens, rows, statsByStudent, data.platforms, lensWindow, allWindowSolved, windowPlatforms],
+  );
 
   /*
     Class rank is derived here rather than fetched: the roster is already in hand,
@@ -220,7 +494,7 @@ function ClassroomDetail() {
   );
 
   const filtered = useMemo(() => {
-    const bFiltered = filterBucket(rows, bucket);
+    const bFiltered = applyLensFilter(lens, rows, statsByStudent, filterId);
     const q = search.toLowerCase().trim();
     const list = q
       ? bFiltered.filter(
@@ -234,40 +508,59 @@ function ClassroomDetail() {
       const dir = sort.dir === "asc" ? 1 : -1;
       const get = (r: typeof a): number | string => {
         switch (sort.key) {
-          case "name": return r.name.toLowerCase();
-          case "roll": return r.roll.toLowerCase();
-          case "total": return r.total;
-          case "easy": return r.easy;
-          case "medium": return r.medium;
-          case "hard": return r.hard;
-          case "today": return r.today;
-          case "yesterday": return r.yesterday;
-          case "week": return r.week;
-          case "month": return r.month;
-          case "streak": return r.streak;
+          case "name":
+            return r.name.toLowerCase();
+          case "roll":
+            return r.roll.toLowerCase();
+          case "total":
+            return r.total;
+          case "easy":
+            return r.easy;
+          case "medium":
+            return r.medium;
+          case "hard":
+            return r.hard;
+          case "today":
+            return r.today;
+          case "yesterday":
+            return r.yesterday;
+          case "week":
+            return r.week;
+          case "month":
+            return r.month;
+          case "streak":
+            return r.streak;
           // Ranks sort ascending-is-better; MAX_SAFE_INTEGER parks the unranked at
           // the bottom either way rather than pretending they are joint first.
-          case "classRank": return rankOf(r.id).classRank ?? Number.MAX_SAFE_INTEGER;
-          case "collegeRank": return rankOf(r.id).collegeRank ?? Number.MAX_SAFE_INTEGER;
-          case "lcRank": return r.rank;
+          case "classRank":
+            return rankOf(r.id).classRank ?? Number.MAX_SAFE_INTEGER;
+          case "collegeRank":
+            return rankOf(r.id).collegeRank ?? Number.MAX_SAFE_INTEGER;
+          case "lcRank":
+            return r.rank;
         }
       };
-      const av = get(a); const bv = get(b);
+      const av = get(a);
+      const bv = get(b);
       if (av < bv) return -1 * dir;
       if (av > bv) return 1 * dir;
       return 0;
     });
-  }, [rows, search, sort, bucket]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, search, sort.key, sort.dir, lens, statsByStudent, filterId]);
 
-  const cohort = useMemo(() => ({
-    total: rows.reduce((s, r) => s + r.total, 0),
-    today: rows.reduce((s, r) => s + r.today, 0),
-    week: rows.reduce((s, r) => s + r.week, 0),
-    easy: rows.reduce((s, r) => s + r.easy, 0),
-    medium: rows.reduce((s, r) => s + r.medium, 0),
-    hard: rows.reduce((s, r) => s + r.hard, 0),
-    avg: rows.length ? Math.round(rows.reduce((s, r) => s + r.total, 0) / rows.length) : 0,
-  }), [rows]);
+  const cohort = useMemo(
+    () => ({
+      total: rows.reduce((s, r) => s + r.total, 0),
+      today: rows.reduce((s, r) => s + r.today, 0),
+      week: rows.reduce((s, r) => s + r.week, 0),
+      easy: rows.reduce((s, r) => s + r.easy, 0),
+      medium: rows.reduce((s, r) => s + r.medium, 0),
+      hard: rows.reduce((s, r) => s + r.hard, 0),
+      avg: rows.length ? Math.round(rows.reduce((s, r) => s + r.total, 0) / rows.length) : 0,
+    }),
+    [rows],
+  );
 
   /*
     Cohort progress from daily_snapshots — the same measure the Daily Matrix
@@ -299,70 +592,165 @@ function ClassroomDetail() {
   }, [data.students]);
 
   const [topN, setTopN] = useState(10);
-  // Bucket-filtered but not search-filtered: typing a name shouldn't reduce the
+  // Filter-scoped but not search-filtered: typing a name shouldn't reduce the
   // leaderboard to one row, but selecting "At Risk" should rank that group.
-  const bucketRows = useMemo(() => filterBucket(rows, bucket), [rows, bucket]);
+  const bucketRows = useMemo(
+    () => applyLensFilter(lens, rows, statsByStudent, filterId),
+    [lens, rows, statsByStudent, filterId],
+  );
   const ranked = useMemo(
     () => [...bucketRows].sort((a, b) => b.total - a.total).slice(0, topN),
     [bucketRows, topN],
   );
 
-  const [cEasy, cMedium, cHard, cSurface, cBorder, cMutedFg, cPrimary] = useCssVars(
-    "--easy", "--medium", "--hard", "--surface", "--border", "--muted-foreground", "--primary",
+  /*
+    Difficulty for the current lens.
+
+    On LeetCode this still comes from student_stats, which is the live store and
+    the most current thing we have. Every other lens reads daily_snapshots, where
+    each platform records whatever split it publishes — and `null` there means
+    "this platform reports no split", which is what decides donut vs histogram.
+  */
+  const lensDifficulty = useMemo(() => {
+    if (lens.id === "leetcode" || lens.isAll) {
+      return { easy: cohort.easy, medium: cohort.medium, hard: cohort.hard };
+    }
+    return {
+      easy: lensWindow?.easy ?? null,
+      medium: lensWindow?.medium ?? null,
+      hard: lensWindow?.hard ?? null,
+    };
+  }, [lens, cohort, lensWindow]);
+
+  /*
+    LeetCode's calendar-derived figures. They are real data and worth keeping,
+    but they cannot be part of the primary row — no other platform publishes a
+    submission feed, so a card that exists on one lens and vanishes on the next
+    is exactly the inconsistency that made this page hard to read. They live in
+    the disclosure instead.
+  */
+  const leetcodeExtraStats = useMemo(
+    () =>
+      lens.id !== "leetcode"
+        ? []
+        : [
+            {
+              label: "Newly solved",
+              value: progress.solved === null ? "—" : `+${progress.solved}`,
+              hint: progress.hint,
+              tone: (progress.solved === null ? "default" : "easy") as "default" | "easy",
+            },
+            {
+              label: "Submissions today",
+              value: cohort.today.toLocaleString(),
+              hint: "UTC day · at last sync",
+            },
+            {
+              label: "Submissions this week",
+              value: cohort.week.toLocaleString(),
+              hint: "UTC Mon–today",
+            },
+          ],
+    [lens.id, progress, cohort],
   );
 
-  const [activeDiff, setActiveDiff] = useState<number | null>(null);
-  const diff = [
-    { name: "Easy", value: cohort.easy, color: cEasy },
-    { name: "Medium", value: cohort.medium, color: cMedium },
-    { name: "Hard", value: cohort.hard, color: cHard },
-  ];
-  const centerDiff = activeDiff != null ? diff[activeDiff] : null;
+  const showDifficulty = hasDifficultySplit(lensDifficulty);
+  const difficultyValues = {
+    easy: lensDifficulty.easy ?? 0,
+    medium: lensDifficulty.medium ?? 0,
+    hard: lensDifficulty.hard ?? 0,
+  };
 
+  /** Fallback panel when a platform publishes no difficulty split. */
+  const bandHistogram = useMemo(
+    () =>
+      lensFilterSet.filters
+        .filter((f) => f.id !== "all")
+        .map((f) => ({ label: f.label, count: f.count })),
+    [lensFilterSet],
+  );
 
-  const trend = useMemo(() => {
-    const out: { day: string; solved: number }[] = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(); d.setUTCDate(d.getUTCDate() - i);
-      const key = String(Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000));
-      let sum = 0;
-      for (const r of rows) sum += r.calendar[key] ?? 0;
-      out.push({ day: `${d.getUTCMonth()+1}/${d.getUTCDate()}`, solved: sum });
-    }
-    return out;
-  }, [rows]);
+  /*
+    Trend, from daily_snapshots rather than the LeetCode submission calendar.
+
+    The calendar only exists on LeetCode, so the old chart drew LeetCode activity
+    no matter which platform the page claimed to be showing. daily_snapshots is
+    keyed by platform, so every lens gets its own honest line — and an empty
+    series means "no history", which the panel says rather than drawing a flat
+    zero.
+  */
+  const trendSeries = useMemo(() => {
+    const series = lens.isAll
+      ? mergeSeries(windowPlatforms.map((w) => w.series))
+      : (lensWindow?.series ?? []);
+    return series.map((p) => {
+      const [, m, d] = p.date.split("-");
+      return { day: `${Number(m)}/${Number(d)}`, solved: p.solved };
+    });
+  }, [lens.isAll, lensWindow, windowPlatforms]);
+
+  const trendSince = lens.isAll
+    ? (windowPlatforms
+        .map((w) => w.first_snapshot_date)
+        .filter((v): v is string => !!v)
+        .sort()[0] ?? null)
+    : (lensWindow?.first_snapshot_date ?? null);
 
   function toggleSort(key: SortKey) {
-    setSort((prev) =>
-      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" },
+    setSearchParams(
+      sort.key === key
+        ? { sort: key, dir: sort.dir === "asc" ? "desc" : "asc" }
+        : { sort: key, dir: "desc" },
     );
   }
 
   function exportCsv() {
     const header = [
-      "Name","Roll","Email","LeetCode","Total","Easy","Medium","Hard",
-      "Today","Yesterday","ThisWeek","Last30","Streak","Rank",
+      "Name",
+      "Roll",
+      "Email",
+      "LeetCode",
+      "Total",
+      "Easy",
+      "Medium",
+      "Hard",
+      "Today",
+      "Yesterday",
+      "ThisWeek",
+      "Last30",
+      "Streak",
+      "Rank",
     ];
     const lines = filtered.map((r) => {
       const s = data.students.find((x) => x.id === r.id)!;
       return [
-        r.name, r.roll, s.email ?? "", r.leetcode_id,
-        r.total, r.easy, r.medium, r.hard,
-        r.today, r.yesterday, r.week, r.last30, r.streak,
+        r.name,
+        r.roll,
+        s.email ?? "",
+        r.leetcode_id,
+        r.total,
+        r.easy,
+        r.medium,
+        r.hard,
+        r.today,
+        r.yesterday,
+        r.week,
+        r.last30,
+        r.streak,
         s.stats?.ranking ?? "",
-      ].map((v) => `"${String(v).replace(/"/g,'""')}"`).join(",");
+      ]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(",");
     });
     const csv = [header.join(","), ...lines].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${data.classroom.name.replace(/\s+/g,"_")}_report.csv`;
+    a.download = `${data.classroom.name.replace(/\s+/g, "_")}_report.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
-
-
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -376,11 +764,15 @@ function ClassroomDetail() {
         return;
       }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "1") { setTab("report"); }
-      else if (e.key === "2") { setTab("matrix"); }
-      else if (e.key.toLowerCase() === "b") {
-        const el = document.getElementById(`bucket-${bucket}`);
-        el?.focus();
+      if (e.key === "1") {
+        setTab("report");
+      } else if (e.key === "2") {
+        setTab("matrix");
+      } else if (e.key.toLowerCase() === "b") {
+        document.getElementById(`filter-${filterId}`)?.focus();
+      } else if (e.key.toLowerCase() === "p") {
+        // The lens is now the primary control, so it gets a shortcut too.
+        document.getElementById(`lens-${lens.id}`)?.focus();
       } else if (e.key.toLowerCase() === "e") {
         exportCsv();
       }
@@ -388,668 +780,627 @@ function ClassroomDetail() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bucket, filtered]);
+  }, [filterId, lens.id, filtered]);
 
   return (
-    <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Link to="/dashboard" className="mb-2 inline-block font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary">
-            ← Dashboard
-          </Link>
-          <h1 className="text-3xl font-bold tracking-tight">{data.classroom.name}</h1>
-          {data.classroom.description && (
-            <p className="mt-1 text-sm text-muted-foreground">{data.classroom.description}</p>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {roleLoading ? (
-            // Render the row at its final height so the header doesn't reflow once
-            // the role resolves.
-            <Skeleton className="h-9 w-64" />
-          ) : (
-            <>
-              {canManageStudents && (
-                <>
-                  <Button asChild variant="outline">
-                    <Link to="/classrooms/$id/students/new" params={{ id }}>
-                      <Plus className="mr-1 size-4" /> Add students
-                    </Link>
-                  </Button>
-                  <RefreshButton scope="classroom" classroomId={id} />
-                </>
-              )}
-              <Button variant="outline" onClick={exportCsv} title="Export summary CSV (E)">
-                <Download className="mr-1 size-4" /> Export summary
-              </Button>
-              {canAdminister && (
+    /*
+      Three bands, not one container: the page header scrolls away, the lens bar
+      pins under the app header, then the content. The bar needs to be outside
+      the padded container so its border spans the full width, and it carries the
+      cohort name so context survives once the header above it is gone.
+    */
+    <div>
+      <div className="mx-auto max-w-[1600px] px-4 pb-4 pt-6 sm:px-6 lg:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <Link
+              to="/dashboard"
+              className="mb-2 inline-block font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary"
+            >
+              ← Dashboard
+            </Link>
+            <h1 className="text-3xl font-bold tracking-tight">{data.classroom.name}</h1>
+            {data.classroom.description && (
+              <p className="mt-1 text-sm text-muted-foreground">{data.classroom.description}</p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {roleLoading ? (
+              // Render the row at its final height so the header doesn't reflow once
+              // the role resolves.
+              <Skeleton className="h-9 w-64" />
+            ) : (
+              <>
+                {canManageStudents && (
+                  <>
+                    <Button asChild variant="outline">
+                      <Link to="/classrooms/$id/students/new" params={{ id }}>
+                        <Plus className="mr-1 size-4" /> Add students
+                      </Link>
+                    </Button>
+                    <RefreshButton scope="classroom" classroomId={id} />
+                  </>
+                )}
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    setEditingClassroom({
-                      name: data.classroom.name,
-                      description: data.classroom.description ?? "",
-                    })
-                  }
+                  onClick={() => setExportOpen(true)}
+                  title="Export a multi-sheet report, optionally across several cohorts"
                 >
-                  <Pencil className="mr-1 size-4" /> Rename
+                  Export report
                 </Button>
-              )}
-              {canAdminister && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" aria-label="Delete classroom">
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete classroom</AlertDialogTitle>
-                      {/*
+                <Button variant="outline" onClick={exportCsv} title="Export summary CSV (E)">
+                  <Download className="mr-1 size-4" /> Export summary
+                </Button>
+                {canAdminister && (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setEditingClassroom({
+                        name: data.classroom.name,
+                        description: data.classroom.description ?? "",
+                      })
+                    }
+                  >
+                    <Pencil className="mr-1 size-4" /> Rename
+                  </Button>
+                )}
+                {canAdminister && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" aria-label="Delete classroom">
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete classroom</AlertDialogTitle>
+                        {/*
                         "and all its students" stopped being true once students
                         could belong to several cohorts — shared students survive.
                         The numbers come from classroom_delete_preview so the
                         dialog states what will actually happen.
                       */}
-                      <AlertDialogDescription asChild>
-                        <div className="space-y-2 text-sm">
-                          <p>
-                            <b className="text-hard">
-                              {data.deletePreview.orphan_count} student
-                              {data.deletePreview.orphan_count === 1 ? "" : "s"} belong
-                              {data.deletePreview.orphan_count === 1 ? "s" : ""} only to this cohort
-                            </b>{" "}
-                            — they and all their scraped history will be deleted permanently.
-                          </p>
-                          {data.deletePreview.shared_count > 0 && (
+                        <AlertDialogDescription asChild>
+                          <div className="space-y-2 text-sm">
                             <p>
-                              <b className="text-foreground">
-                                {data.deletePreview.shared_count} also belong to other cohorts
+                              <b className="text-hard">
+                                {data.deletePreview.orphan_count} student
+                                {data.deletePreview.orphan_count === 1 ? "" : "s"} belong
+                                {data.deletePreview.orphan_count === 1 ? "s" : ""} only to this
+                                cohort
                               </b>{" "}
-                              — they will only be removed from this one and keep their history.
+                              — they and all their scraped history will be deleted permanently.
                             </p>
-                          )}
-                        </div>
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => delM.mutate()}>Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {/*
-        Labels name the measure AND the window. "Today" previously read as
-        "problems solved today" but was submissions on the current UTC day from
-        LeetCode's calendar, which is a different number from the matrix's
-        newly-solved delta — the two disagreed and nothing said why.
-      */}
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Students" value={rows.length} />
-        <StatCard
-          label="Solved (total)"
-          value={cohort.total.toLocaleString()}
-          hint="unique problems"
-        />
-        <StatCard
-          label="Newly solved"
-          value={progress.solved === null ? "—" : `+${progress.solved}`}
-          hint={progress.hint}
-        />
-        <StatCard label="Submissions today" value={cohort.today} hint="UTC day · at last sync" />
-        <StatCard label="Submissions this week" value={cohort.week} hint="UTC Mon–today" />
-        <StatCard label="Avg / student" value={cohort.avg} hint="lifetime solved" />
-      </div>
-
-      {!hideScrapingStatus && (() => {
-        const pending = data.students.filter((s) => !s.last_scraped_at).length;
-        const failed = data.students.filter((s) => s.scrape_error).length;
-        const scraped = data.students.length - pending;
-        const latest = data.students
-          .map((s) => s.last_scraped_at)
-          .filter((v): v is string => !!v)
-          .sort()
-          .at(-1);
-        const errors = data.students
-          .filter((s) => s.scrape_error)
-          .slice(0, 5);
-        return (
-          <div className="mb-8 rounded-lg border border-border bg-surface p-4">
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                Scraping status
-              </span>
-              <span className="text-easy">✓ Scraped: <b className="font-mono">{scraped}</b></span>
-              <span className="text-medium">⏳ Pending: <b className="font-mono">{pending}</b></span>
-              <span className="text-hard">✕ Failed: <b className="font-mono">{failed}</b></span>
-              {latest && (
-                <span className="text-muted-foreground">
-                  Last run: <span className="font-mono">{new Date(latest).toLocaleString()}</span>
-                </span>
-              )}
-              {pending > 0 && (
-                <span className="ml-auto mr-4 text-xs text-muted-foreground">
-                  Click <b>Refresh all</b> to scrape pending students.
-                </span>
-              )}
-              <button
-                className="ml-auto grid size-6 place-items-center rounded hover:bg-muted"
-                onClick={() => setHideScrapingStatus(true)}
-                title="Dismiss status panel"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-            {errors.length > 0 && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs text-hard">
-                  Show {failed} failing student{failed === 1 ? "" : "s"}
-                </summary>
-                <ul className="mt-2 space-y-1 font-mono text-[11px] text-muted-foreground">
-                  {errors.map((s) => (
-                    <li key={s.id}>
-                      <span className="text-foreground">{s.roll}</span> · {s.leetcode_id} — {s.scrape_error}
-                    </li>
-                  ))}
-                  {failed > errors.length && <li>… and {failed - errors.length} more</li>}
-                </ul>
-              </details>
+                            {data.deletePreview.shared_count > 0 && (
+                              <p>
+                                <b className="text-foreground">
+                                  {data.deletePreview.shared_count} also belong to other cohorts
+                                </b>{" "}
+                                — they will only be removed from this one and keep their history.
+                              </p>
+                            )}
+                          </div>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => delM.mutate()}>Delete</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </>
             )}
           </div>
-        );
-      })()}
-
-      <div className="mb-8 grid gap-6 lg:grid-cols-3">
-        <div className="rounded-lg border border-border bg-surface p-6 lg:col-span-2">
-          <h3 className="mb-4 text-sm font-bold uppercase tracking-wider">30-Day Cohort Activity</h3>
-          <div className="h-56">
-            <ResponsiveContainer>
-              <LineChart data={trend}>
-                <CartesianGrid stroke={cBorder} strokeDasharray="3 3" />
-                <XAxis dataKey="day" fontSize={10} stroke={cMutedFg} />
-                <YAxis fontSize={10} stroke={cMutedFg} />
-                <Tooltip contentStyle={{ background: cSurface, border: `1px solid ${cBorder}`, fontSize: 12, color: cMutedFg }} />
-                <Line
-                  type="monotone"
-                  dataKey="solved"
-                  stroke={cPrimary}
-                  strokeWidth={2}
-                  dot={false}
-                  {...chartMotion}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
         </div>
-        <div className="rounded-lg border border-border bg-surface p-6">
-          <h3 className="mb-4 text-sm font-bold uppercase tracking-wider">Difficulty</h3>
-          <div className="relative h-56">
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  {...chartMotion}
-                  data={diff}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={45}
-                  outerRadius={75}
-                  paddingAngle={2}
-                  strokeWidth={0}
-                  activeIndex={activeDiff ?? undefined}
-                  onMouseEnter={(_, i) => setActiveDiff(i)}
-                  onMouseLeave={() => setActiveDiff(null)}
-                >
-                  {diff.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="text-2xl font-bold leading-none text-foreground">{centerDiff ? centerDiff.value : cohort.total}</div>
-                <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {centerDiff ? centerDiff.name : "Solved"}
-                </div>
-              </div>
+      </div>
+
+      <CohortFilterBar
+        title={data.classroom.name}
+        subtitle={lens.isAll ? "All platforms" : lens.name}
+        platforms={data.platforms}
+        value={lens.id}
+        onChange={setLens}
+        shownCount={filtered.length}
+        totalCount={rows.length}
+        status={<ScrapeStatusBadge students={data.students} />}
+      />
+
+      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        {/*
+        Search and the filter chips sit together, directly under the lens they
+        belong to — the search box used to be inside the report tab, invisible
+        from the matrix view even though it filtered both.
+      */}
+        {/* ZONE 1 — four cards, everything else folded away. */}
+        <LensStatRow
+          cards={lensCards}
+          icons={LENS_ICONS}
+          fallbackIcon={Target}
+          extra={leetcodeExtraStats}
+        />
+
+        {/* ZONE 2 — one panel, three tabs. Was three stacked sections. */}
+        <CohortInsightPanel
+          title={lens.isAll ? "All platforms" : lens.name}
+          trend={trendSeries}
+          trendEmptyNote={
+            trendSince
+              ? `collecting since ${new Date(trendSince).toLocaleDateString(undefined, {
+                  day: "numeric",
+                  month: "short",
+                })}`
+              : "starts after the first refresh"
+          }
+          difficulty={showDifficulty ? difficultyValues : null}
+          bands={bandHistogram}
+          board={ranked.map((r) => ({ id: r.id, name: r.name, roll: r.roll, total: r.total }))}
+          boardMax={bucketRows.length}
+          topN={topN}
+          onTopN={setTopN}
+          animate={chartMotion !== CHART_MOTION_STATIC}
+        />
+
+        {/* ZONE 3 — the roster. Search and chips sit against the table they
+            filter, not three sections above it. */}
+        <CohortToolbar
+          ref={searchRef}
+          search={search}
+          onSearch={setSearch}
+          filters={lensFilterSet}
+          value={filterId}
+          onFilter={setFilterId}
+          placeholder={
+            lens.isAll || lens.id === "leetcode"
+              ? "Search name, roll, or leetcode… ( / )"
+              : `Search name, roll, or ${lens.name} handle… ( / )`
+          }
+        />
+
+        {/*
+        The view switch sits directly above the data it switches — no more
+        scrolling past stats, charts and the leaderboard to find it. The bucket
+        pills live inside the tab strip so the filter is reachable from either
+        view instead of buried between sections.
+      */}
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as "report" | "matrix")}
+          className="w-full"
+        >
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <TabsList>
+              <TabsTrigger value="report">Day-wise report</TabsTrigger>
+              <TabsTrigger value="matrix">Daily matrix</TabsTrigger>
+            </TabsList>
+            <div className="hidden font-mono text-[10px] uppercase tracking-widest text-muted-foreground md:block">
+              Shortcuts: <kbd className="rounded border border-border px-1">1</kbd> report ·
+              <kbd className="ml-1 rounded border border-border px-1">2</kbd> matrix ·
+              <kbd className="ml-1 rounded border border-border px-1">/</kbd> search ·
+              <kbd className="ml-1 rounded border border-border px-1">P</kbd> platform ·
+              <kbd className="ml-1 rounded border border-border px-1">B</kbd> filters ·
+              <kbd className="ml-1 rounded border border-border px-1">E</kbd> export summary ·
+              <kbd className="ml-1 rounded border border-border px-1">M</kbd> export matrix
             </div>
           </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center font-mono text-[10px]">
-            <div><span className="text-easy">■</span> Easy {cohort.easy}</div>
-            <div><span className="text-medium">■</span> Med {cohort.medium}</div>
-            <div><span className="text-hard">■</span> Hard {cohort.hard}</div>
-          </div>
-        </div>
-      </div>
 
-      <div className="mb-8 rounded-lg border border-border bg-surface p-6">
-        <div className="mb-1 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-bold uppercase tracking-wider">Leaderboard</h3>
-          <TopNControl value={topN} max={bucketRows.length} onChange={setTopN} />
-        </div>
-        <p className="mb-4 text-[11px] text-muted-foreground">
-          Hover a row to see the count. Follows the bucket filter.
-        </p>
-        <div className="max-h-[520px] overflow-y-auto pr-1">
-          <LeaderboardBars entries={ranked} />
-        </div>
-      </div>
+          <TabsContent value="report" className="mt-0">
+            {/* The two halves of this table are different units and nothing said so. */}
+            {lens.id === "leetcode" && (
+              <div className="mb-3 flex justify-end">
+                <span className="hidden rounded-md border border-border bg-surface px-2 py-1 font-mono text-[10px] text-muted-foreground xl:inline">
+                  Total/E/M/H = solved · Today/Yest./Week/30d = submissions
+                </span>
+              </div>
+            )}
 
-      <SectionTitle>Buckets · click or use ← → to filter</SectionTitle>
-      <div
-        role="radiogroup"
-        aria-label="Filter students by bucket"
-        className="mb-4 flex flex-wrap gap-2"
-        onKeyDown={(e) => {
-          const keys = ["ArrowRight", "ArrowLeft", "Home", "End"];
-          if (!keys.includes(e.key)) return;
-          e.preventDefault();
-          const idx = BUCKETS.findIndex((b) => b.id === bucket);
-          let next = idx;
-          if (e.key === "ArrowRight") next = (idx + 1) % BUCKETS.length;
-          if (e.key === "ArrowLeft") next = (idx - 1 + BUCKETS.length) % BUCKETS.length;
-          if (e.key === "Home") next = 0;
-          if (e.key === "End") next = BUCKETS.length - 1;
-          const target = BUCKETS[next];
-          setBucket(target.id);
-          const btn = document.getElementById(`bucket-${target.id}`);
-          btn?.focus();
-        }}
-      >
-        {BUCKETS.map((b) => {
-          const active = bucket === b.id;
-          return (
-            <button
-              key={b.id}
-              id={`bucket-${b.id}`}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              tabIndex={active ? 0 : -1}
-              onClick={() => setBucket(b.id)}
-              className={cn(
-                "rounded-lg border px-4 py-2 text-left transition-[color,background-color,border-color]",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                active
-                  ? "border-primary bg-primary/10"
-                  : "border-border bg-surface hover:border-primary/50",
-              )}
+            <ReportExportDialog
+              open={exportOpen}
+              onOpenChange={setExportOpen}
+              preselectClassroomIds={[data.classroom.id]}
+            />
+
+            {/* The lens in the sticky bar decides which report this is. PlatformTabs
+              used to do it from down here, below the stats and charts it was
+              meant to govern — so the page could show LeetCode numbers while the
+              selector said Codeforces. */}
+            {lens.isAll && <CohortOverall students={data.students} platforms={data.platforms} />}
+
+            {!lens.isAll &&
+              lens.id !== "leetcode" &&
+              (() => {
+                const sel = data.platforms.find((pl) => pl.id === lens.id);
+                return sel ? (
+                  <CohortPlatformReport platform={sel} students={data.students} />
+                ) : null;
+              })()}
+
+            <div
+              className="overflow-x-auto rounded-lg border border-border bg-surface"
+              hidden={lens.id !== "leetcode"}
             >
-              <div className={cn(
-                "font-mono text-[9px] uppercase tracking-widest",
-                active ? "text-primary" : "text-muted-foreground",
-              )}>
-                {b.label}
-              </div>
-              <div className="font-mono text-xl font-bold">{counts[b.id]}</div>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        Shortcuts: <kbd className="rounded border border-border px-1">1</kbd> report ·
-        <kbd className="ml-1 rounded border border-border px-1">2</kbd> matrix ·
-        <kbd className="ml-1 rounded border border-border px-1">/</kbd> search ·
-        <kbd className="ml-1 rounded border border-border px-1">B</kbd> buckets ·
-        <kbd className="ml-1 rounded border border-border px-1">E</kbd> export summary ·
-        <kbd className="ml-1 rounded border border-border px-1">M</kbd> export matrix
-      </div>
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "report" | "matrix")} className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="report">Day-wise report</TabsTrigger>
-          <TabsTrigger value="matrix">Daily matrix</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="report" className="mt-0">
-          <div className="mb-3 flex items-center gap-2">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchRef}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search name, roll, or leetcode… ( / )"
-                className="pl-9"
-              />
-            </div>
-            <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              {filtered.length} / {rows.length} shown · bucket: <b className="text-primary">{BUCKETS.find((b) => b.id === bucket)?.label}</b>
-              {" · "}
-              {/* The two halves of this table are different units and nothing said so. */}
-              <span className="text-muted-foreground">
-                Total/E/M/H are problems solved; Today/Yest./Week/30d are submissions
-              </span>
-            </span>
-          </div>
-
-          <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <Th onClick={() => toggleSort("name")}>Student</Th>
-                  <Th onClick={() => toggleSort("roll")}>Roll</Th>
-                  <th className="px-3 py-3">LeetCode</th>
-                  <Th right onClick={() => toggleSort("total")}>Total</Th>
-                  <Th right onClick={() => toggleSort("easy")} className="text-easy">E</Th>
-                  <Th right onClick={() => toggleSort("medium")} className="text-medium">M</Th>
-                  <Th right onClick={() => toggleSort("hard")} className="text-hard">H</Th>
-                  <Th right onClick={() => toggleSort("today")}>Today</Th>
-                  <Th right onClick={() => toggleSort("yesterday")}>Yest.</Th>
-                  <Th right onClick={() => toggleSort("week")}>Week</Th>
-                  <Th right onClick={() => toggleSort("month")}>30d</Th>
-                  <Th right onClick={() => toggleSort("streak")}>Streak</Th>
-                  <Th right onClick={() => toggleSort("classRank")} title="Rank within this cohort by problems solved">Class</Th>
-                  <Th right onClick={() => toggleSort("collegeRank")} title="Rank across every student on the platform">College</Th>
-                  <Th right onClick={() => toggleSort("lcRank")} title="LeetCode's worldwide ranking, from their profile">LC World</Th>
-                  {canManageStudents && <th className="px-3 py-3 text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border font-mono">
-                {filtered.length === 0 && (
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <td
-                      colSpan={canManageStudents ? 14 : 13}
-                      className="px-4 py-16 text-center text-muted-foreground"
+                    <Th onClick={() => toggleSort("name")}>Student</Th>
+                    <Th onClick={() => toggleSort("roll")}>Roll</Th>
+                    <th className="px-3 py-3">LeetCode</th>
+                    <Th right onClick={() => toggleSort("total")}>
+                      Total
+                    </Th>
+                    <Th right onClick={() => toggleSort("easy")} className="text-easy">
+                      E
+                    </Th>
+                    <Th right onClick={() => toggleSort("medium")} className="text-medium">
+                      M
+                    </Th>
+                    <Th right onClick={() => toggleSort("hard")} className="text-hard">
+                      H
+                    </Th>
+                    <Th right onClick={() => toggleSort("today")}>
+                      Today
+                    </Th>
+                    <Th right onClick={() => toggleSort("yesterday")}>
+                      Yest.
+                    </Th>
+                    <Th right onClick={() => toggleSort("week")}>
+                      Week
+                    </Th>
+                    <Th right onClick={() => toggleSort("month")}>
+                      30d
+                    </Th>
+                    <Th right onClick={() => toggleSort("streak")}>
+                      Streak
+                    </Th>
+                    <Th
+                      right
+                      onClick={() => toggleSort("classRank")}
+                      title="Rank in this cohort by LeetCode problems solved"
                     >
-                      No students match this bucket.
-                    </td>
+                      Class
+                    </Th>
+                    <Th
+                      right
+                      onClick={() => toggleSort("collegeRank")}
+                      title="Rank across the college by Almanac Score (all platforms)"
+                    >
+                      College
+                    </Th>
+                    <Th
+                      right
+                      onClick={() => toggleSort("lcRank")}
+                      title="LeetCode's worldwide ranking, from their profile"
+                    >
+                      LC World
+                    </Th>
+                    {canManageStudents && <th className="px-3 py-3 text-right">Actions</th>}
                   </tr>
-                )}
-                {filtered.map((r) => {
-                  const s = data.students.find((x) => x.id === r.id)!;
-                  return (
-                    <tr
-                      key={r.id}
-                      className={cn(
-                        "group cursor-pointer transition-colors hover:bg-primary/5",
-                        s.scrape_error && "border-l-2 border-l-hard",
-                      )}
-                      onClick={() => router.navigate({ to: "/students/$roll", params: { roll: r.roll } })}
-                    >
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          {s.stats?.avatar ? (
-                            <img
-                              src={s.stats.avatar}
-                              alt=""
-                              className="size-7 rounded bg-muted object-cover"
-                              onError={(e) => (e.currentTarget.style.display = "none")}
-                            />
-                          ) : (
-                            <div className="grid size-7 place-items-center rounded bg-muted font-sans text-[10px] font-bold">
-                              {r.name.slice(0, 2).toUpperCase()}
-                            </div>
+                </thead>
+                <tbody className="divide-y divide-border font-mono">
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={canManageStudents ? 14 : 13}
+                        className="px-4 py-16 text-center text-muted-foreground"
+                      >
+                        No students match this bucket.
+                      </td>
+                    </tr>
+                  )}
+                  {filtered.map((r) => {
+                    const s = data.students.find((x) => x.id === r.id)!;
+                    return (
+                      <tr
+                        key={r.id}
+                        className={cn(
+                          "group cursor-pointer transition-colors hover:bg-primary/5",
+                          s.scrape_error && "border-l-2 border-l-hard",
+                        )}
+                        onClick={() =>
+                          router.navigate({ to: "/students/$roll", params: { roll: r.roll } })
+                        }
+                      >
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-2">
+                            {s.stats?.avatar ? (
+                              <img
+                                src={s.stats.avatar}
+                                alt=""
+                                className="size-7 rounded bg-muted object-cover"
+                                onError={(e) => (e.currentTarget.style.display = "none")}
+                              />
+                            ) : (
+                              <div className="grid size-7 place-items-center rounded bg-muted font-sans text-[10px] font-bold">
+                                {r.name.slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
+                            <span className="font-sans font-semibold">{r.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-muted-foreground">
+                          {r.roll}
+                          {duplicateRolls.has(r.roll.trim().toLowerCase()) && (
+                            <Link
+                              to="/scrape-runs"
+                              onClick={(e) => e.stopPropagation()}
+                              title="This roll number belongs to more than one student record — probably the same person in two cohorts. Resolve under Scrape History → Duplicates"
+                              className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
+                            >
+                              <TriangleAlert className="size-3.5" />
+                            </Link>
                           )}
-                          <span className="font-sans font-semibold">{r.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {r.roll}
-                        {duplicateRolls.has(r.roll.trim().toLowerCase()) && (
-                          <Link
-                            to="/scrape-runs"
-                            onClick={(e) => e.stopPropagation()}
-                            title="This roll number belongs to more than one student record — probably the same person in two cohorts. Resolve under Scrape History → Duplicates"
-                            className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
-                          >
-                            <TriangleAlert className="size-3.5" />
-                          </Link>
-                        )}
-                      </td>
-                      <td className="px-3 py-3">
-                        {s.scrape_error ? (
-                          <span className="inline-flex items-center gap-1 text-hard font-bold" title={s.scrape_error}>
-                            {r.leetcode_id} ⚠️
-                          </span>
-                        ) : (
-                          <a
-                            href={`https://leetcode.com/u/${r.leetcode_id}/`}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-primary hover:underline"
-                          >
-                            {r.leetcode_id}
-                            <ExternalLink className="size-3" />
-                          </a>
-                        )}
-                        {/* One student, one profile. A shared handle means this
+                        </td>
+                        <td className="px-3 py-3">
+                          {s.scrape_error ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-hard font-bold"
+                              title={s.scrape_error}
+                            >
+                              {r.leetcode_id} ⚠️
+                            </span>
+                          ) : (
+                            <a
+                              href={`https://leetcode.com/u/${r.leetcode_id}/`}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 text-primary hover:underline"
+                            >
+                              {r.leetcode_id}
+                              <ExternalLink className="size-3" />
+                            </a>
+                          )}
+                          {/* One student, one profile. A shared handle means this
                             profile is being scraped once per student and building
                             two divergent histories — otherwise only discoverable
                             on an admin page nobody opens. */}
-                        {duplicateHandles.has(r.leetcode_id.toLowerCase()) && (
-                          <Link
-                            to="/scrape-runs"
-                            onClick={(e) => e.stopPropagation()}
-                            title="This LeetCode ID is shared with another student — resolve it under Scrape History → Duplicates"
-                            className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
-                          >
-                            <TriangleAlert className="size-3.5" />
-                          </Link>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-right font-bold">{r.total || "—"}</td>
-                      <td className="px-3 py-3 text-right text-easy">{r.easy || "—"}</td>
-                      <td className="px-3 py-3 text-right text-medium">{r.medium || "—"}</td>
-                      <td className="px-3 py-3 text-right text-hard">{r.hard || "—"}</td>
-                      <td className="px-3 py-3 text-right">
-                        {r.today > 0 ? <span className="text-primary">+{r.today}</span> : <span className="text-muted-foreground">0</span>}
-                      </td>
-                      <td className="px-3 py-3 text-right text-muted-foreground">{r.yesterday || "—"}</td>
-                      <td className="px-3 py-3 text-right">{r.week || "—"}</td>
-                      <td className="px-3 py-3 text-right">{r.last30 || "—"}</td>
-                      <td className="px-3 py-3 text-right">{r.streak}d</td>
-                      {/* Three ranks, three questions. Class is where they sit in
+                          {duplicateHandles.has(r.leetcode_id.toLowerCase()) && (
+                            <Link
+                              to="/scrape-runs"
+                              onClick={(e) => e.stopPropagation()}
+                              title="This LeetCode ID is shared with another student — resolve it under Scrape History → Duplicates"
+                              className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
+                            >
+                              <TriangleAlert className="size-3.5" />
+                            </Link>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold">{r.total || "—"}</td>
+                        <td className="px-3 py-3 text-right text-easy">{r.easy || "—"}</td>
+                        <td className="px-3 py-3 text-right text-medium">{r.medium || "—"}</td>
+                        <td className="px-3 py-3 text-right text-hard">{r.hard || "—"}</td>
+                        <td className="px-3 py-3 text-right">
+                          {r.today > 0 ? (
+                            <span className="text-primary">+{r.today}</span>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right text-muted-foreground">
+                          {r.yesterday || "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right">{r.week || "—"}</td>
+                        <td className="px-3 py-3 text-right">{r.last30 || "—"}</td>
+                        <td className="px-3 py-3 text-right">{r.streak}d</td>
+                        {/* Three ranks, three questions. Class is where they sit in
                           this room, College across the platform, LC World is
                           LeetCode's own global number off their profile. */}
-                      <td className="px-3 py-3 text-right font-bold text-primary">
-                        {rankOf(r.id).classRank ? `#${rankOf(r.id).classRank}` : "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right font-bold">
-                        {rankOf(r.id).collegeRank ? `#${rankOf(r.id).collegeRank}` : "—"}
-                      </td>
-                      <td className="px-3 py-3 text-right text-muted-foreground">
-                        {s.stats?.ranking ? `#${s.stats.ranking.toLocaleString()}` : "—"}
-                      </td>
-                      {canManageStudents && (
-                        <td className="px-3 py-3 text-right">
-                          <button
-                            type="button"
-                            title="Edit student"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingStudent({
-                                id: s.id,
-                                name: s.name,
-                                roll: s.roll,
-                                email: s.email ?? "",
-                                leetcode_id: s.leetcode_id,
-                              });
-                            }}
-                            className="inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-accent hover:text-foreground"
-                          >
-                            <Pencil className="size-3" />
-                          </button>
-                          {/* Net-new. The old deleteStudent had no caller and a
+                        <td className="px-3 py-3 text-right font-bold text-primary">
+                          {rankOf(r.id).classRank ? `#${rankOf(r.id).classRank}` : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold">
+                          {rankOf(r.id).collegeRank ? `#${rankOf(r.id).collegeRank}` : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right text-muted-foreground">
+                          {s.stats?.ranking ? `#${s.stats.ranking.toLocaleString()}` : "—"}
+                        </td>
+                        {canManageStudents && (
+                          <td className="px-3 py-3 text-right">
+                            <button
+                              type="button"
+                              title="Edit student"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingStudent({
+                                  id: s.id,
+                                  name: s.name,
+                                  roll: s.roll,
+                                  email: s.email ?? "",
+                                  leetcode_id: s.leetcode_id,
+                                });
+                              }}
+                              className="inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-accent hover:text-foreground"
+                            >
+                              <Pencil className="size-3" />
+                            </button>
+                            {/* Net-new. The old deleteStudent had no caller and a
                               student id alone can no longer identify what to
                               remove — this removes ONE membership. */}
-                          <button
-                            type="button"
-                            title={
-                              sharedIds.has(s.id)
-                                ? "Remove from this cohort (stays in others)"
-                                : "Remove from this cohort (deletes the student)"
-                            }
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setRemoving({ id: s.id, name: s.name, shared: sharedIds.has(s.id) });
-                            }}
-                            className="ml-1 inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-hard/10 hover:text-hard"
-                          >
-                            <UserMinus className="size-3" />
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            <button
+                              type="button"
+                              title={
+                                sharedIds.has(s.id)
+                                  ? "Remove from this cohort (stays in others)"
+                                  : "Remove from this cohort (deletes the student)"
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRemoving({
+                                  id: s.id,
+                                  name: s.name,
+                                  shared: sharedIds.has(s.id),
+                                });
+                              }}
+                              className="ml-1 inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-hard/10 hover:text-hard"
+                            >
+                              <UserMinus className="size-3" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="matrix" className="mt-0">
+            <div className="mb-2 flex flex-wrap items-center gap-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <span>
+                Anchor:{" "}
+                <b className="text-foreground">
+                  {new Date(data.classroom.created_at).toUTCString().slice(5, 16)}
+                </b>
+              </span>
+              <span>·</span>
+              <span>
+                Filter:{" "}
+                <b className="text-primary">
+                  {lensFilterSet.filters.find((f) => f.id === filterId)?.label ?? "All"}
+                </b>
+              </span>
+            </div>
+            <DailyMatrix
+              classroomId={data.classroom.id}
+              rows={filtered.map((r) => ({ id: r.id, name: r.name, roll: r.roll }))}
+              startDate={new Date(data.classroom.created_at)}
+              platformId={lens.isAll ? undefined : lens.id}
+            />
+          </TabsContent>
+        </Tabs>
+
+        {rows.some((r) => data.students.find((x) => x.id === r.id)?.scrape_error) && (
+          <div className="mt-4 rounded-lg border border-hard/30 bg-hard/5 p-4 text-xs">
+            <strong className="text-hard">Some scrapes failed.</strong> Common reason: LeetCode
+            username not found. Verify the handle on the student's profile.
           </div>
-        </TabsContent>
+        )}
 
-        <TabsContent value="matrix" className="mt-0">
-          <div className="mb-2 flex flex-wrap items-center gap-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            <span>Anchor: <b className="text-foreground">{new Date(data.classroom.created_at).toUTCString().slice(5, 16)}</b></span>
-            <span>·</span>
-            <span>Filter follows bucket: <b className="text-primary">{BUCKETS.find((b) => b.id === bucket)?.label}</b></span>
-          </div>
-          <DailyMatrix
-            classroomId={data.classroom.id}
-            rows={filtered.map((r) => ({ id: r.id, name: r.name, roll: r.roll }))}
-            startDate={new Date(data.classroom.created_at)}
-          />
-        </TabsContent>
-      </Tabs>
-
-      {rows.some((r) => data.students.find((x) => x.id === r.id)?.scrape_error) && (
-        <div className="mt-4 rounded-lg border border-hard/30 bg-hard/5 p-4 text-xs">
-          <strong className="text-hard">Some scrapes failed.</strong> Common reason: LeetCode
-          username not found. Verify the handle on the student's profile.
-        </div>
-      )}
-
-      {/* Rename. Admin-only, and the server rejects a name another cohort already
+        {/* Rename. Admin-only, and the server rejects a name another cohort already
           holds — the bulk importer resolves classrooms by lowercased name, so two
           cohorts sharing one would send future imports to whichever it found. */}
-      <Dialog
-        open={!!editingClassroom}
-        onOpenChange={(o) => !o && setEditingClassroom(null)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Rename classroom</DialogTitle>
-            <DialogDescription>
-              Students, history and assignments are untouched — only the label changes.
-            </DialogDescription>
-          </DialogHeader>
+        <Dialog open={!!editingClassroom} onOpenChange={(o) => !o && setEditingClassroom(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Rename classroom</DialogTitle>
+              <DialogDescription>
+                Students, history and assignments are untouched — only the label changes.
+              </DialogDescription>
+            </DialogHeader>
 
-          <form
-            id="rename-classroom-form"
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (editingClassroom?.name.trim() && !renameM.isPending) {
-                renameM.mutate(editingClassroom);
-              }
-            }}
-          >
-            <div>
-              <Label htmlFor="cls-name">Name</Label>
-              <Input
-                id="cls-name"
-                value={editingClassroom?.name ?? ""}
-                onChange={(e) =>
-                  setEditingClassroom((c) => (c ? { ...c, name: e.target.value } : c))
+            <form
+              id="rename-classroom-form"
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (editingClassroom?.name.trim() && !renameM.isPending) {
+                  renameM.mutate(editingClassroom);
                 }
-                className="mt-1"
-                maxLength={100}
-                autoFocus
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="cls-desc">Description</Label>
-              <Input
-                id="cls-desc"
-                value={editingClassroom?.description ?? ""}
-                onChange={(e) =>
-                  setEditingClassroom((c) => (c ? { ...c, description: e.target.value } : c))
+              }}
+            >
+              <div>
+                <Label htmlFor="cls-name">Name</Label>
+                <Input
+                  id="cls-name"
+                  value={editingClassroom?.name ?? ""}
+                  onChange={(e) =>
+                    setEditingClassroom((c) => (c ? { ...c, name: e.target.value } : c))
+                  }
+                  className="mt-1"
+                  maxLength={100}
+                  autoFocus
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="cls-desc">Description</Label>
+                <Input
+                  id="cls-desc"
+                  value={editingClassroom?.description ?? ""}
+                  onChange={(e) =>
+                    setEditingClassroom((c) => (c ? { ...c, description: e.target.value } : c))
+                  }
+                  className="mt-1"
+                  maxLength={500}
+                  placeholder="optional"
+                />
+              </div>
+              <p className="rounded-md bg-medium/10 px-2 py-1.5 text-[11px] text-muted-foreground">
+                A CSV that still lists the old name will create a new, empty classroom rather than
+                matching this one. Update your import sheets too.
+              </p>
+            </form>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setEditingClassroom(null)}
+                disabled={renameM.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="rename-classroom-form"
+                disabled={
+                  renameM.isPending ||
+                  !editingClassroom?.name.trim() ||
+                  (editingClassroom.name === data.classroom.name &&
+                    editingClassroom.description === (data.classroom.description ?? ""))
                 }
-                className="mt-1"
-                maxLength={500}
-                placeholder="optional"
-              />
-            </div>
-            <p className="rounded-md bg-medium/10 px-2 py-1.5 text-[11px] text-muted-foreground">
-              A CSV that still lists the old name will create a new, empty classroom
-              rather than matching this one. Update your import sheets too.
-            </p>
-          </form>
+              >
+                {renameM.isPending ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditingClassroom(null)}
-              disabled={renameM.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form="rename-classroom-form"
-              disabled={
-                renameM.isPending ||
-                !editingClassroom?.name.trim() ||
-                (editingClassroom.name === data.classroom.name &&
-                  editingClassroom.description === (data.classroom.description ?? ""))
-              }
-            >
-              {renameM.isPending ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/*
+        {/*
         Removing a student now means removing ONE membership. The copy has to
         branch: for a shared student this is reversible in effect (they keep
         everything), for their last cohort it destroys their whole history.
       */}
-      <AlertDialog open={!!removing} onOpenChange={(o) => !o && setRemoving(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Remove {removing?.name} from {data.classroom.name}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {removing?.shared
-                ? "They stay in their other cohorts and keep all their scraped history."
-                : "This is their only cohort, so their profile and all scraped history will be deleted permanently. This cannot be undone."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => removing && removeM.mutate(removing.id)}
-              className={removing?.shared ? undefined : "bg-hard text-white hover:bg-hard/90"}
-            >
-              {removeM.isPending
-                ? "Removing…"
-                : removing?.shared
-                  ? "Remove from cohort"
-                  : "Delete student"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <AlertDialog open={!!removing} onOpenChange={(o) => !o && setRemoving(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Remove {removing?.name} from {data.classroom.name}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {removing?.shared
+                  ? "They stay in their other cohorts and keep all their scraped history."
+                  : "This is their only cohort, so their profile and all scraped history will be deleted permanently. This cannot be undone."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => removing && removeM.mutate(removing.id)}
+                className={removing?.shared ? undefined : "bg-hard text-white hover:bg-hard/90"}
+              >
+                {removeM.isPending
+                  ? "Removing…"
+                  : removing?.shared
+                    ? "Remove from cohort"
+                    : "Delete student"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-      {/* Edit student modal */}
-      {editingStudent && (
-        <EditStudentModal
-          student={editingStudent}
-          shared={sharedIds.has(editingStudent.id)}
-          onChange={setEditingStudent}
-          onSave={() => editM.mutate(editingStudent)}
-          onClose={() => setEditingStudent(null)}
-          isPending={editM.isPending}
-        />
-      )}
+        {/* Edit student modal */}
+        {editingStudent && (
+          <EditStudentModal
+            student={editingStudent}
+            shared={sharedIds.has(editingStudent.id)}
+            onChange={setEditingStudent}
+            onSave={(handles) => editM.mutate({ ...editingStudent, handles })}
+            onClose={() => setEditingStudent(null)}
+            isPending={editM.isPending}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -1071,18 +1422,39 @@ function EditStudentModal({
   /** True when this student belongs to more than one cohort. */
   shared: boolean;
   onChange: (s: typeof student) => void;
-  onSave: () => void;
+  onSave: (handles?: Record<string, string>) => void;
   onClose: () => void;
   isPending: boolean;
 }) {
   const set = (k: keyof typeof student) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...student, [k]: e.target.value });
 
+  /*
+    Handles are loaded here rather than passed in. The cohort payload only knows
+    about platforms that have been fetched successfully, so a freshly-typed or
+    permanently-failing handle would not appear in it — and an editor that shows
+    a blank field for a handle that exists will erase it on save.
+  */
+  const loadHandles = useServerFn(getStudentHandles);
+  const { data: handleData, isLoading: handlesLoading } = useQuery({
+    queryKey: ["student-handles", student.id],
+    queryFn: () => loadHandles({ data: { id: student.id } }),
+  });
+
+  // platform id -> edited value. Only platforms the user actually touched, so an
+  // untouched platform is never written and cannot have its fetch state reset.
+  const [edited, setEdited] = useState<Record<string, string>>({});
+
+  const rows = (handleData?.handles ?? []).filter((h) => h.platform_id !== "leetcode");
+  const valueFor = (platformId: string, original: string) => edited[platformId] ?? original;
+
+  const dirtyHandles = Object.keys(edited).length > 0 ? edited : undefined;
+
   const canSave = !!student.name && !!student.roll && !!student.leetcode_id;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edit Student</DialogTitle>
           <DialogDescription className="font-mono text-[10px]">
@@ -1092,8 +1464,8 @@ function EditStudentModal({
             <p className="flex items-start gap-1.5 rounded-md bg-medium/10 px-2 py-1.5 text-left text-[11px] text-muted-foreground">
               <Users2 className="mt-px size-3.5 shrink-0 text-medium" />
               <span>
-                Also in other cohorts — changes apply everywhere. Roll number and LeetCode ID
-                are admin-only for shared students.
+                Also in other cohorts — changes apply everywhere. Roll number and LeetCode ID are
+                admin-only for shared students.
               </span>
             </p>
           )}
@@ -1103,25 +1475,125 @@ function EditStudentModal({
           id="edit-student-form"
           onSubmit={(e) => {
             e.preventDefault();
-            if (canSave && !isPending) onSave();
+            if (canSave && !isPending) onSave(dirtyHandles);
           }}
           className="space-y-4"
         >
           <div>
             <Label htmlFor="edit-name">Name</Label>
-            <Input id="edit-name" value={student.name} onChange={set("name")} className="mt-1" required />
+            <Input
+              id="edit-name"
+              value={student.name}
+              onChange={set("name")}
+              className="mt-1"
+              required
+            />
           </div>
           <div>
             <Label htmlFor="edit-roll">Roll Number</Label>
-            <Input id="edit-roll" value={student.roll} onChange={set("roll")} className="mt-1" required />
+            <Input
+              id="edit-roll"
+              value={student.roll}
+              onChange={set("roll")}
+              className="mt-1"
+              required
+            />
           </div>
           <div>
-            <Label htmlFor="edit-email">Email <span className="text-muted-foreground">(optional)</span></Label>
-            <Input id="edit-email" type="email" value={student.email} onChange={set("email")} className="mt-1" placeholder="student@college.edu" />
+            <Label htmlFor="edit-email">
+              Email <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="edit-email"
+              type="email"
+              value={student.email}
+              onChange={set("email")}
+              className="mt-1"
+              placeholder="student@college.edu"
+            />
           </div>
           <div>
             <Label htmlFor="edit-lc">LeetCode Username</Label>
-            <Input id="edit-lc" value={student.leetcode_id} onChange={set("leetcode_id")} className="mt-1" placeholder="leetcode_handle" required />
+            <Input
+              id="edit-lc"
+              value={student.leetcode_id}
+              onChange={set("leetcode_id")}
+              className="mt-1"
+              placeholder="leetcode_handle"
+              required
+            />
+          </div>
+
+          {/* Other platforms. LeetCode is excluded from this list on purpose —
+              it has its own field above, and students.leetcode_id is still its
+              source of truth (a trigger mirrors it into the accounts table). */}
+          <div className="border-t border-border pt-3">
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Other platforms
+              </Label>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                clear a field to unlink
+              </span>
+            </div>
+
+            {handlesLoading && (
+              <div className="space-y-2">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+            )}
+
+            {!handlesLoading && rows.length === 0 && (
+              <p className="text-xs text-muted-foreground">No other platform is enabled yet.</p>
+            )}
+
+            <div className="space-y-2">
+              {rows.map((h) => {
+                const value = valueFor(h.platform_id, h.handle);
+                const changed = value.trim() !== h.handle.trim();
+                return (
+                  <div key={h.platform_id} className="flex items-center gap-2">
+                    <Label
+                      htmlFor={`edit-${h.platform_id}`}
+                      className="w-28 shrink-0 truncate text-xs"
+                      title={h.platform_name}
+                    >
+                      {h.platform_name}
+                    </Label>
+                    <div className="relative min-w-0 flex-1">
+                      <Input
+                        id={`edit-${h.platform_id}`}
+                        value={value}
+                        onChange={(e) =>
+                          setEdited((p) => ({ ...p, [h.platform_id]: e.target.value }))
+                        }
+                        placeholder={h.refreshable ? "handle" : "handle (not fetched yet)"}
+                        className={cn("h-9 pr-16 font-mono text-xs", changed && "border-primary")}
+                      />
+                      {/* Fetch state, so a handle that looks fine but keeps
+                          failing explains itself rather than just showing no data. */}
+                      <span
+                        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[9px] uppercase tracking-wider"
+                        title={h.fetch_error ?? undefined}
+                      >
+                        {changed ? (
+                          <span className="text-primary">edited</span>
+                        ) : h.status === "active" ? (
+                          <span className="text-easy">ok</span>
+                        ) : h.status === "invalid_handle" ? (
+                          <span className="text-hard">not found</span>
+                        ) : h.status === "blocked" ? (
+                          <span className="text-medium">blocked</span>
+                        ) : h.handle ? (
+                          <span className="text-muted-foreground">pending</span>
+                        ) : null}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </form>
 

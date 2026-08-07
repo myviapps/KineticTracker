@@ -61,7 +61,9 @@ function ScrapeRunsPage() {
         qc.invalidateQueries({ queryKey: ["failed-students"] }),
       ]);
       toast.success(
-        res.queued === 0 ? "Nothing to retry" : `Queued ${res.queued} student${res.queued === 1 ? "" : "s"}`,
+        res.queued === 0
+          ? "Nothing to retry"
+          : `Queued ${res.queued} student${res.queued === 1 ? "" : "s"}`,
       );
     },
     onError: (e: unknown) => toast.error(String(e)),
@@ -254,7 +256,9 @@ function ScrapeRunsPage() {
                         aria-label="Select all failing students"
                         checked={selected.size === failed.length && failed.length > 0}
                         onChange={(e) =>
-                          setSelected(e.target.checked ? new Set(failed.map((s) => s.id)) : new Set())
+                          setSelected(
+                            e.target.checked ? new Set(failed.map((s) => s.id)) : new Set(),
+                          )
                         }
                         className="size-3.5 accent-[var(--primary)]"
                       />
@@ -326,14 +330,13 @@ function FailedRow({
         </Link>
         <div className="font-mono text-[11px] text-muted-foreground">{s.roll}</div>
       </td>
-      <td className="px-4 py-3 text-xs text-muted-foreground">{s.classroom_names.length > 0 ? s.classroom_names.join(" · ") : "—"}</td>
+      <td className="px-4 py-3 text-xs text-muted-foreground">
+        {s.classroom_names.length > 0 ? s.classroom_names.join(" · ") : "—"}
+      </td>
       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{s.leetcode_id}</td>
       <td className="px-4 py-3 text-right">
         <span
-          className={cn(
-            "font-mono text-xs font-bold",
-            s.abandoned ? "text-hard" : "text-medium",
-          )}
+          className={cn("font-mono text-xs font-bold", s.abandoned ? "text-hard" : "text-medium")}
         >
           {s.consecutive_failures}
         </span>

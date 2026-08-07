@@ -15,27 +15,55 @@ import {
   viewerHasStudentAccess,
   visibleClassroomsForStudent,
 } from "@/lib/authz";
-import type { AppRole } from "@/integrations/supabase/types";
+import type { AppRole } from "@/integrations/supabase/app-role";
 import { maskEmail, maskHandle, maskName } from "@/lib/mask";
+import { requirePublicRateLimit } from "@/lib/rate-limit.server";
+import { optionalEmail } from "@/lib/validation";
+import type { PlatformRank } from "@/lib/ranks.server";
+import type { Json } from "@/integrations/supabase/types";
+
+/**
+ * Cap on daily_snapshots rows returned by the PUBLIC profile endpoint.
+ *
+ * ~2 years of history at one row per day, which is more than any chart on the
+ * page renders, while keeping the response bounded on an endpoint that anyone
+ * can call. Without a cap this grew by one row per student per platform per day
+ * and would eventually hit PostgREST's db-max-rows, which truncates silently.
+ */
+const PUBLIC_SNAPSHOT_LIMIT = 750;
+
+/**
+ * platform id -> handle, for every platform EXCEPT LeetCode.
+ *
+ * LeetCode stays its own field because students.leetcode_id is still NOT NULL
+ * and a trigger mirrors it into the accounts table — accepting it here too would
+ * give one value two writers.
+ */
+const HandlesInput = z.record(z.string().min(1).max(50), z.string().trim().max(100)).optional();
 
 const StudentInput = z.object({
   classroom_id: z.string().uuid(),
   name: z.string().trim().min(1).max(100),
   roll: z.string().trim().min(1).max(50),
-  email: z.string().trim().email().optional().or(z.literal("")).nullable().optional(),
+  email: optionalEmail,
   leetcode_id: z.string().trim().min(1).max(100),
+  handles: HandlesInput,
 });
 
 const BulkInput = z.object({
   classroom_id: z.string().uuid(),
-  rows: z.array(
-    z.object({
-      name: z.string().trim().min(1).max(100),
-      roll: z.string().trim().min(1).max(50),
-      email: z.string().trim().max(200).optional().nullable(),
-      leetcode_id: z.string().trim().min(1).max(100),
-    }),
-  ).min(1).max(500),
+  rows: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(100),
+        roll: z.string().trim().min(1).max(50),
+        email: optionalEmail,
+        leetcode_id: z.string().trim().min(1).max(100),
+        handles: HandlesInput,
+      }),
+    )
+    .min(1)
+    .max(500),
 });
 
 /**
@@ -141,7 +169,9 @@ export const addStudent = createServerFn({ method: "POST" })
       return {
         status: "exists" as const,
         student: { id: existing.id, name: existing.name, leetcode_id: existing.leetcode_id },
-        classrooms: (await visibleClassroomsForStudent(userId, role, existing.id)).map((c) => c.name),
+        classrooms: (await visibleClassroomsForStudent(userId, role, existing.id)).map(
+          (c) => c.name,
+        ),
         alreadyHere: !!here,
       };
     }
@@ -170,15 +200,30 @@ export const addStudent = createServerFn({ method: "POST" })
       throw new Error(memErr.message);
     }
 
+    // Other-platform handles, written through the same reconciler the edit
+    // dialog uses so "add" and "edit" cannot disagree about what a handle change
+    // means. Non-fatal: the student and their membership are already committed,
+    // and losing the whole insert because CodeChef rejected a duplicate handle
+    // would be a worse outcome than one unlinked platform.
+    let handleError: string | null = null;
+    if (data.handles) {
+      try {
+        await applyHandleEdits(row.id, data.handles);
+      } catch (e) {
+        handleError = String((e as Error)?.message ?? e);
+      }
+    }
+
     // Scraping is queued, not awaited: awaiting a LeetCode round-trip here used to
     // hang the form and die on the serverless timeout with the student inserted.
-    await supabaseAdmin.rpc("enqueue_refresh_job", {
-      p_scope: "students",
-      p_student_ids: [row.id],
-      p_created_by: userId,
+    const { enqueueRefreshFanOut } = await import("./refresh-enqueue.server");
+    await enqueueRefreshFanOut({
+      scope: "students",
+      studentIds: [row.id],
+      createdBy: userId,
     });
 
-    return { status: "created" as const, id: row.id };
+    return { status: "created" as const, id: row.id, handleError };
   });
 
 /** Enrol an existing student in an additional classroom. */
@@ -249,16 +294,15 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
     for (const s of existingRows ?? []) {
       if (!existingByRoll.has(s.roll)) existingByRoll.set(s.roll, s.id);
     }
-    const reachable = await accessibleStudentIds(
-      userId,
-      role,
-      [...existingByRoll.values()],
-    );
+    const reachable = await accessibleStudentIds(userId, role, [...existingByRoll.values()]);
 
     const errors: BulkRowError[] = [];
-    const memberFor: string[] = [];      // student ids to enrol here
+    const memberFor: string[] = []; // student ids to enrol here
     const toInsert: {
-      name: string; roll: string; email: string | null; leetcode_id: string;
+      name: string;
+      roll: string;
+      email: string | null;
+      leetcode_id: string;
     }[] = [];
 
     // Handles already taken, so a new row cannot claim one.
@@ -266,7 +310,10 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
       .filter((r) => !existingByRoll.has(normalizeRoll(r.roll)))
       .map((r) => normalizeHandle(r.leetcode_id));
     const { data: handleRows } = newHandles.length
-      ? await supabaseAdmin.from("students").select("roll, leetcode_id").in("leetcode_id", newHandles)
+      ? await supabaseAdmin
+          .from("students")
+          .select("roll, leetcode_id")
+          .in("leetcode_id", newHandles)
       : { data: [] as { roll: string; leetcode_id: string }[] };
     const takenHandle = new Map((handleRows ?? []).map((s) => [s.leetcode_id, s.roll]));
 
@@ -303,27 +350,44 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
       const { data: rows, error } = await supabaseAdmin
         .from("students")
         .insert(toInsert)
-        .select("id");
+        .select("id, roll");
       if (error) throw new Error(error.message);
       created = (rows ?? []).map((r) => r.id);
+
+      /*
+        Other-platform handles for the students this import CREATED.
+
+        Not for existing ones, matching the rule three blocks up: enrolling
+        somebody into a second cohort must not rewrite the record they already
+        have. applyHandleEdits resets fetch state on a changed handle, which is
+        right for a deliberate edit and much too aggressive for a bulk enrol.
+      */
+      for (const r of rows ?? []) {
+        const src = keyed.get(r.roll);
+        if (!src?.handles || Object.keys(src.handles).length === 0) continue;
+        try {
+          await applyHandleEdits(r.id, src.handles);
+        } catch (e) {
+          errors.push({ roll: r.roll, reason: String((e as Error)?.message ?? e) });
+        }
+      }
     }
 
     // Every accepted row gets a membership, new or existing. This is the step that
     // actually implements "a student in many classrooms".
     const allIds = [...created, ...memberFor];
     if (allIds.length > 0) {
-      const { error: memErr } = await supabaseAdmin
-        .from("classroom_students")
-        .upsert(
-          allIds.map((id) => ({ student_id: id, classroom_id: data.classroom_id })),
-          { onConflict: "classroom_id,student_id", ignoreDuplicates: true },
-        );
+      const { error: memErr } = await supabaseAdmin.from("classroom_students").upsert(
+        allIds.map((id) => ({ student_id: id, classroom_id: data.classroom_id })),
+        { onConflict: "classroom_id,student_id", ignoreDuplicates: true },
+      );
       if (memErr) throw new Error(memErr.message);
 
-      await supabaseAdmin.rpc("enqueue_refresh_job", {
-        p_scope: "students",
-        p_student_ids: allIds,
-        p_created_by: userId,
+      const { enqueueRefreshFanOut } = await import("./refresh-enqueue.server");
+      await enqueueRefreshFanOut({
+        scope: "students",
+        studentIds: allIds,
+        createdBy: userId,
       });
     }
 
@@ -408,16 +472,94 @@ export const deleteStudentCompletely = createServerFn({ method: "POST" })
     return { roll: student.roll, name: student.name, snapshotsDeleted: snapshots ?? 0 };
   });
 
+export type StudentHandleRow = {
+  platform_id: string;
+  platform_name: string;
+  handle: string;
+  status: string;
+  last_fetched_at: string | null;
+  fetch_error: string | null;
+  sort_order: number;
+  /** False for a platform with no adapter yet — editable, but nothing fetches it. */
+  refreshable: boolean;
+};
+
+/**
+ * A student's platform handles, for the edit dialog.
+ *
+ * Fetched on demand rather than folded into getClassroom: the cohort payload
+ * carries platform STATS, which only exist once a platform has been fetched
+ * successfully. A handle that was just typed in — or one whose fetches all
+ * failed — has no stats row, so sourcing the editor from that payload would
+ * show an empty field for a handle that is really there and silently wipe it on
+ * save.
+ */
+export const getStudentHandles = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth, withRole])
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId, role } = authContext(context);
+
+    await assertStudentAccess(userId, role, data.id);
+
+    const [{ data: accounts }, { data: platforms }] = await Promise.all([
+      supabaseAdmin
+        .from("student_platform_accounts")
+        .select("platform_id, handle, status, last_fetched_at, fetch_error")
+        .eq("student_id", data.id),
+      supabaseAdmin.from("platforms").select("id, name, enabled, sort_order").order("sort_order"),
+    ]);
+
+    const { implementedPlatformIds } = await import("./platforms/registry");
+    const implemented = new Set(implementedPlatformIds());
+
+    const held = new Map((accounts ?? []).map((a) => [a.platform_id, a]));
+
+    // Enabled platforms, PLUS any the student already holds a handle on even if
+    // that platform was since disabled — hiding an existing handle would make it
+    // uneditable and impossible to remove.
+    const rows: StudentHandleRow[] = (platforms ?? [])
+      .filter((p) => p.enabled || held.has(p.id))
+      .map((p) => {
+        const a = held.get(p.id);
+        return {
+          platform_id: p.id,
+          platform_name: p.name,
+          handle: a?.handle ?? "",
+          status: a?.status ?? "none",
+          last_fetched_at: a?.last_fetched_at ?? null,
+          fetch_error: a?.fetch_error ?? null,
+          sort_order: p.sort_order ?? 100,
+          refreshable: implemented.has(p.id),
+        };
+      });
+
+    return { handles: rows };
+  });
+
 export const updateStudent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
   .validator((d: unknown) =>
-    z.object({
-      id: z.string().uuid(),
-      name: z.string().trim().min(1).max(100),
-      roll: z.string().trim().min(1).max(50),
-      email: z.string().trim().email().optional().or(z.literal("")).nullable().optional(),
-      leetcode_id: z.string().trim().min(1).max(100),
-    }).parse(d),
+    z
+      .object({
+        id: z.string().uuid(),
+        name: z.string().trim().min(1).max(100),
+        roll: z.string().trim().min(1).max(50),
+        email: optionalEmail,
+        leetcode_id: z.string().trim().min(1).max(100),
+        /**
+         * platform id -> handle. An empty string REMOVES that platform's account.
+         * Omit the field entirely to leave every handle untouched.
+         *
+         * "leetcode" is ignored here on purpose — students.leetcode_id above is
+         * still its source of truth and a trigger (20260808000002) mirrors it
+         * into the accounts table. Accepting it in both places would give one
+         * value two writers.
+         */
+        handles: z.record(z.string().min(1).max(50), z.string().trim().max(100)).optional(),
+      })
+      .parse(d),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -469,8 +611,121 @@ export const updateStudent = createServerFn({ method: "POST" })
       if (error.code === "23505") throw new Error(`Roll "${roll}" is already taken`);
       throw new Error(error.message);
     }
-    return { ok: true };
+
+    const handleChanges = data.handles ? await applyHandleEdits(data.id, data.handles) : null;
+
+    return { ok: true, handles: handleChanges };
   });
+
+/**
+ * Reconcile a student's non-LeetCode platform accounts against the submitted map.
+ *
+ * Diffed rather than upserted wholesale, because the row carries fetch STATE as
+ * well as the handle. Blindly upserting would reset `consecutive_failures` and
+ * `sync_cursor` on every save even when nothing changed — and for Codeforces
+ * that cursor is what stops the adapter re-walking ~1.3MB of submission history
+ * on the next run.
+ *
+ * When a handle genuinely CHANGES, the opposite applies: the state belongs to
+ * the old account and every part of it is wrong for the new one, so it is
+ * cleared deliberately.
+ */
+async function applyHandleEdits(studentId: string, submitted: Record<string, string>) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const entries = Object.entries(submitted).filter(([platformId]) => platformId !== "leetcode");
+  if (entries.length === 0) return { added: 0, updated: 0, removed: 0 };
+
+  const { data: knownPlatforms } = await supabaseAdmin
+    .from("platforms")
+    .select("id")
+    .in(
+      "id",
+      entries.map(([id]) => id),
+    );
+  const known = new Set((knownPlatforms ?? []).map((p) => p.id));
+
+  const { data: existing } = await supabaseAdmin
+    .from("student_platform_accounts")
+    .select("id, platform_id, handle")
+    .eq("student_id", studentId);
+  const current = new Map((existing ?? []).map((a) => [a.platform_id, a]));
+
+  let added = 0;
+  let updated = 0;
+  let removed = 0;
+
+  for (const [platformId, rawHandle] of entries) {
+    if (!known.has(platformId)) continue; // unknown platform id: ignore, don't fail the save
+    const handle = rawHandle.trim();
+    const row = current.get(platformId);
+
+    if (!handle) {
+      if (row) {
+        const { error } = await supabaseAdmin
+          .from("student_platform_accounts")
+          .delete()
+          .eq("id", row.id);
+        if (error) throw new Error(`Could not remove ${platformId} handle: ${error.message}`);
+        removed += 1;
+      }
+      continue;
+    }
+
+    if (row) {
+      // Case-insensitive: handle_normalized is what the unique index uses, so
+      // "Foo" -> "foo" is not a change worth resetting fetch state over.
+      if (row.handle.trim().toLowerCase() === handle.toLowerCase()) {
+        if (row.handle !== handle) {
+          const { error } = await supabaseAdmin
+            .from("student_platform_accounts")
+            .update({ handle })
+            .eq("id", row.id);
+          if (error) throw new Error(`Could not update ${platformId} handle: ${error.message}`);
+          updated += 1;
+        }
+        continue;
+      }
+
+      const { error } = await supabaseAdmin
+        .from("student_platform_accounts")
+        .update({
+          handle,
+          // A different account entirely — none of the old state describes it.
+          status: "unverified",
+          verified_at: null,
+          last_fetched_at: null,
+          fetch_error: null,
+          consecutive_failures: 0,
+          sync_cursor: {},
+        })
+        .eq("id", row.id);
+      if (error) throw handleAccountError(error, platformId, handle);
+      updated += 1;
+      continue;
+    }
+
+    const { error } = await supabaseAdmin
+      .from("student_platform_accounts")
+      .insert({ student_id: studentId, platform_id: platformId, handle, status: "unverified" });
+    if (error) throw handleAccountError(error, platformId, handle);
+    added += 1;
+  }
+
+  return { added, updated, removed };
+}
+
+function handleAccountError(
+  error: { code?: string; message: string },
+  platform: string,
+  handle: string,
+) {
+  // unique (platform_id, handle_normalized) — someone else already claims it.
+  if (error.code === "23505") {
+    return new Error(`"${handle}" is already linked to another student on ${platform}`);
+  }
+  return new Error(`Could not save ${platform} handle: ${error.message}`);
+}
 
 /**
  * Public-facing student profile, served to two audiences from one path.
@@ -485,12 +740,233 @@ export const updateStudent = createServerFn({ method: "POST" })
  * memberships that list is itself identifying, so returning it to a masked viewer
  * would be a new leak rather than the same one in a new shape.
  */
+/**
+ * One platform's worth of a student's profile.
+ *
+ * Declared explicitly because the nested PostgREST select behind it nests deeply
+ * enough that TypeScript abandons inference and the entire server function's
+ * return type degrades to `unknown` — which then fails at every call site with a
+ * message that points at the route, not at the query.
+ */
+export type PlatformStatsSummary = {
+  total_solved: number | null;
+  easy_solved: number | null;
+  medium_solved: number | null;
+  hard_solved: number | null;
+  unrated_solved: number | null;
+  rating: number | null;
+  max_rating: number | null;
+  global_rank: number | null;
+  country_rank: number | null;
+  institute_rank: number | null;
+  platform_score: number | null;
+  stars: number | null;
+  streak: number | null;
+  contests_attended: number | null;
+  fetch_status: string | null;
+  fetched_at: string | null;
+  /**
+   * Platform-specific extras (calendars, tag/language breakdowns, contest
+   * history). Typed as the generated `Json` rather than
+   * Record<string, unknown>: `unknown` is not inferable across the server-fn
+   * boundary and collapses the whole return type.
+   */
+  data: Json | null;
+};
+
+export type PlatformSnapshot = {
+  snapshot_date: string;
+  total_solved: number;
+  solved_that_day: number;
+};
+
+export type PlatformSubmission = {
+  title: string;
+  title_slug: string;
+  lang: string | null;
+  submitted_at: string;
+};
+
+export type StudentPlatformSummary = {
+  platform_id: string;
+  name: string;
+  sort_order: number;
+  rank_metric: string;
+  handle: string;
+  profile_url: string | null;
+  status: string;
+  last_fetched_at: string | null;
+  fetch_error: string | null;
+  stats: PlatformStatsSummary | null;
+  /** Drives the "not enabled yet" vs "no adapter" distinction on the panel. */
+  enabled: boolean;
+  /**
+   * This platform's OWN history. Both of these used to be fetched once,
+   * unfiltered, and rendered under the LeetCode tab — but daily_snapshots is
+   * keyed (student_id, platform_id, snapshot_date), so a student on four
+   * platforms produced four rows per date and the "Solved Over Time" chart was
+   * plotting every platform interleaved on one axis. Same for recent
+   * submissions, which carry a platform_id and were being mixed together.
+   */
+  history: PlatformSnapshot[];
+  recent: PlatformSubmission[];
+  rank: {
+    metric: string;
+    value: number | null;
+    college_rank: number;
+    college_total: number;
+    overall_rank: number;
+    overall_total: number;
+  } | null;
+  score_contribution: number | null;
+};
+
+/**
+ * Per-platform accounts and their stats for one student.
+ *
+ * Extracted into its own function with an EXPLICIT return type as a type
+ * firewall. Inlined, the nested PostgREST select below nests deeply enough that
+ * TypeScript gives up and degrades the entire enclosing server function's return
+ * type to `unknown` — every consumer then fails with an error pointing at the
+ * route rather than at this query.
+ *
+ * Handles are masked for anonymous visitors for the same reason the LeetCode one
+ * is: a handle links this page to a person's real accounts elsewhere. The
+ * NUMBERS stay visible — they are already public on each platform, which is the
+ * entire basis for publishing them here.
+ */
+async function loadStudentPlatforms(
+  studentId: string,
+  masked: boolean,
+  rankRow: { platform_ranks: PlatformRank[]; score_breakdown: Record<string, number> } | null,
+): Promise<StudentPlatformSummary[]> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const [{ data }, { data: snaps }, { data: subs }] = await Promise.all([
+    supabaseAdmin
+      .from("student_platform_accounts")
+      .select(
+        "id, platform_id, handle, status, last_fetched_at, fetch_error, " +
+          "platforms(name, profile_url_template, sort_order, rank_metric, enabled), " +
+          "platform_stats(total_solved, easy_solved, medium_solved, hard_solved, unrated_solved, " +
+          "rating, max_rating, global_rank, country_rank, institute_rank, platform_score, stars, " +
+          "streak, contests_attended, fetch_status, fetched_at, data)",
+      )
+      .eq("student_id", studentId),
+    // platform_id is SELECTED here so the rows can be grouped below. Fetching
+    // these once for the student and splitting in JS beats a query per platform.
+    supabaseAdmin
+      .from("daily_snapshots")
+      .select("platform_id, snapshot_date, total_solved, solved_that_day")
+      .eq("student_id", studentId)
+      .order("snapshot_date", { ascending: true }),
+    supabaseAdmin
+      .from("recent_submissions")
+      .select("platform_id, title, title_slug, lang, submitted_at")
+      .eq("student_id", studentId)
+      .order("submitted_at", { ascending: false }),
+  ]);
+
+  const historyByPlatform = new Map<string, PlatformSnapshot[]>();
+  for (const s of snaps ?? []) {
+    const list = historyByPlatform.get(s.platform_id) ?? [];
+    list.push({
+      snapshot_date: s.snapshot_date,
+      total_solved: s.total_solved,
+      solved_that_day: s.solved_that_day,
+    });
+    historyByPlatform.set(s.platform_id, list);
+  }
+
+  const recentByPlatform = new Map<string, PlatformSubmission[]>();
+  for (const r of subs ?? []) {
+    const list = recentByPlatform.get(r.platform_id) ?? [];
+    // Capped per platform, not overall — a chatty LeetCode account would
+    // otherwise consume the whole budget and leave the others empty.
+    if (list.length < 20) {
+      list.push({
+        title: r.title,
+        title_slug: r.title_slug,
+        lang: r.lang,
+        submitted_at: r.submitted_at,
+      });
+    }
+    recentByPlatform.set(r.platform_id, list);
+  }
+
+  const rankByPlatform = new Map((rankRow?.platform_ranks ?? []).map((p) => [p.platform_id, p]));
+  const rows = (data ?? []) as unknown as {
+    platform_id: string;
+    handle: string;
+    status: string;
+    last_fetched_at: string | null;
+    fetch_error: string | null;
+    platforms: {
+      name: string;
+      profile_url_template: string;
+      sort_order: number;
+      rank_metric: string;
+      enabled: boolean;
+    } | null;
+    platform_stats: PlatformStatsSummary | null;
+  }[];
+
+  return rows
+    .map((a): StudentPlatformSummary => {
+      const meta = a.platforms;
+      const r = rankByPlatform.get(a.platform_id);
+      return {
+        platform_id: a.platform_id,
+        name: meta?.name ?? a.platform_id,
+        sort_order: meta?.sort_order ?? 100,
+        rank_metric: meta?.rank_metric ?? "solved",
+        handle: masked ? maskHandle(a.handle) : a.handle,
+        profile_url:
+          masked || !meta?.profile_url_template
+            ? null
+            : meta.profile_url_template.replace("{handle}", encodeURIComponent(a.handle)),
+        status: a.status,
+        last_fetched_at: a.last_fetched_at,
+        // A fetch error can quote the raw handle.
+        fetch_error: masked
+          ? a.fetch_error
+            ? "Profile could not be fetched"
+            : null
+          : a.fetch_error,
+        stats: a.platform_stats,
+        enabled: meta?.enabled ?? false,
+        history: historyByPlatform.get(a.platform_id) ?? [],
+        recent: recentByPlatform.get(a.platform_id) ?? [],
+        rank: r
+          ? {
+              metric: r.metric,
+              value: r.value,
+              college_rank: r.college_rank,
+              college_total: r.college_total,
+              overall_rank: r.overall_rank,
+              overall_total: r.overall_total,
+            }
+          : null,
+        score_contribution: rankRow?.score_breakdown?.[a.platform_id] ?? null,
+      };
+    })
+    .sort((a, b) => a.sort_order - b.sort_order);
+}
+
 export const getStudentByRoll = createServerFn({ method: "GET" })
-  .validator((d: { roll: string }) =>
-    z.object({ roll: z.string().trim().min(1).max(50) }).parse(d),
-  )
+  .validator((d: { roll: string }) => z.object({ roll: z.string().trim().min(1).max(50) }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    /*
+      Public endpoint: a student can look themselves up by roll with no account,
+      and that flow is worth keeping. But rolls are near-sequential, so unmetered
+      access means the directory is walkable one request at a time regardless of
+      masking. Staff are exempt — they are authenticated and already scoped.
+      See src/lib/rate-limit.server.ts.
+    */
+    const viewer = await resolveOptionalViewer();
+    if (!viewer?.role) await requirePublicRateLimit("profile");
 
     /*
       `maybeSingle()` would ERROR, not pick one, if a roll still maps to more than
@@ -509,20 +985,46 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
     if (error) throw new Error("Lookup failed");
     if (!student) throw new Error("Student not found");
 
-    const viewer = await resolveOptionalViewer();
     const masked = !(await viewerHasStudentAccess(viewer, student.id));
 
     const [statsRes, recentRes, historyRes] = await Promise.allSettled([
-      supabaseAdmin.from("student_stats").select("student_id, avatar, total_solved, total_questions, easy_solved, easy_total, medium_solved, medium_total, hard_solved, hard_total, acceptance_rate, reputation, ranking, streak, total_active_days, contest_rating, contest_global_ranking, contests_attended, contest_top_percentage, real_name, country, submission_calendar, language_stats, tag_stats, badges").eq("student_id", student.id).maybeSingle(),
-      supabaseAdmin.from("recent_submissions").select("title, title_slug, lang, submitted_at").eq("student_id", student.id).order("submitted_at", { ascending: false }).limit(20),
-      supabaseAdmin.from("daily_snapshots").select("snapshot_date, total_solved, solved_that_day").eq("student_id", student.id).order("snapshot_date", { ascending: true }),
+      supabaseAdmin
+        .from("student_stats")
+        .select(
+          "student_id, avatar, total_solved, total_questions, easy_solved, easy_total, medium_solved, medium_total, hard_solved, hard_total, acceptance_rate, reputation, ranking, streak, total_active_days, contest_rating, contest_global_ranking, contests_attended, contest_top_percentage, real_name, country, submission_calendar, language_stats, tag_stats, badges",
+        )
+        .eq("student_id", student.id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("recent_submissions")
+        .select("title, title_slug, lang, submitted_at")
+        .eq("student_id", student.id)
+        .order("submitted_at", { ascending: false })
+        .limit(20),
+      /*
+        Bounded deliberately. This read had no limit, on a public endpoint, over
+        a table that gains one row per student per platform per day — so the
+        response grew without bound and would eventually be truncated silently by
+        PostgREST's db-max-rows (wrong numbers, not an error).
+
+        Newest-first + a hard cap, re-sorted ascending below, so the window stays
+        fixed at "the most recent SNAPSHOT_LIMIT days" instead of whatever the
+        server happened to return.
+      */
+      supabaseAdmin
+        .from("daily_snapshots")
+        .select("snapshot_date, total_solved, solved_that_day")
+        .eq("student_id", student.id)
+        .order("snapshot_date", { ascending: false })
+        .limit(PUBLIC_SNAPSHOT_LIMIT),
     ]);
 
-    const stats = statsRes.status === "fulfilled" ? statsRes.value.data ?? null : null;
+    const legacyStats = statsRes.status === "fulfilled" ? (statsRes.value.data ?? null) : null;
 
-    const classrooms = masked || !viewer
-      ? []
-      : await visibleClassroomsForStudent(viewer.userId, viewer.role, student.id);
+    const classrooms =
+      masked || !viewer
+        ? []
+        : await visibleClassroomsForStudent(viewer.userId, viewer.role, student.id);
 
     /*
       Ranks are shown to everyone, including anonymous visitors — they are derived
@@ -537,8 +1039,18 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
     const rankRow = (await fetchStudentRanks([student.id])).get(student.id) ?? null;
     const ranks = rankRow
       ? {
+          almanac_score: rankRow.almanac_score,
+          score_breakdown: rankRow.score_breakdown,
+          college_id: rankRow.college_id,
+          // The college NAME is institutional, not personal, and the public
+          // profile already publishes the college rank — withholding only the
+          // label would make "#3 of 420" meaningless without hiding anything.
+          college_name: rankRow.college_name,
           college_rank: rankRow.college_rank,
           college_total: rankRow.college_total,
+          overall_rank: rankRow.overall_rank,
+          overall_total: rankRow.overall_total,
+          platform_ranks: rankRow.platform_ranks,
           classroom_ranks: masked
             ? []
             : rankRow.classroom_ranks.filter((r) =>
@@ -546,6 +1058,64 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
               ),
         }
       : null;
+
+    const platforms = await loadStudentPlatforms(student.id, masked, rankRow);
+
+    /*
+      LeetCode stats, preferring platform_stats over student_stats.
+
+      Both tables hold LeetCode data during the transition, but only
+      platform_stats is still written — the multi-platform worker stopped
+      updating student_stats. A student created after that changeover has no
+      student_stats row at all, which rendered this page with a populated
+      LeetCode card sitting directly above a "Total Solved 0 of 0" panel and an
+      empty heatmap.
+
+      Reading the fresher table and falling back to the legacy one keeps both
+      populations correct without a schema change, and becomes a no-op once
+      student_stats is swapped for a view over platform_stats.
+    */
+    const lc = platforms.find((p) => p.platform_id === "leetcode");
+    const lcDetail = (lc?.stats?.data ?? {}) as Record<string, unknown>;
+    const stats = lc?.stats
+      ? {
+          student_id: student.id,
+          real_name: legacyStats?.real_name ?? null,
+          avatar: legacyStats?.avatar ?? null,
+          country: legacyStats?.country ?? null,
+          total_solved: lc.stats.total_solved,
+          easy_solved: lc.stats.easy_solved,
+          medium_solved: lc.stats.medium_solved,
+          hard_solved: lc.stats.hard_solved,
+          streak: lc.stats.streak,
+          ranking: lc.stats.global_rank,
+          contest_rating: lc.stats.rating,
+          contests_attended: lc.stats.contests_attended,
+          total_questions:
+            (lcDetail.total_questions as number) ?? legacyStats?.total_questions ?? null,
+          easy_total: (lcDetail.easy_total as number) ?? legacyStats?.easy_total ?? null,
+          medium_total: (lcDetail.medium_total as number) ?? legacyStats?.medium_total ?? null,
+          hard_total: (lcDetail.hard_total as number) ?? legacyStats?.hard_total ?? null,
+          acceptance_rate:
+            (lcDetail.acceptance_rate as number) ?? legacyStats?.acceptance_rate ?? null,
+          reputation: (lcDetail.reputation as number) ?? legacyStats?.reputation ?? null,
+          total_active_days:
+            (lcDetail.total_active_days as number) ?? legacyStats?.total_active_days ?? null,
+          contest_global_ranking:
+            (lcDetail.contest_global_ranking as number) ??
+            legacyStats?.contest_global_ranking ??
+            null,
+          contest_top_percentage:
+            (lcDetail.contest_top_percentage as number) ??
+            legacyStats?.contest_top_percentage ??
+            null,
+          submission_calendar:
+            lcDetail.submission_calendar ?? legacyStats?.submission_calendar ?? null,
+          language_stats: lcDetail.language_stats ?? legacyStats?.language_stats ?? null,
+          tag_stats: lcDetail.tag_stats ?? legacyStats?.tag_stats ?? null,
+          badges: lcDetail.badges ?? legacyStats?.badges ?? null,
+        }
+      : legacyStats;
 
     return {
       masked,
@@ -565,10 +1135,18 @@ export const getStudentByRoll = createServerFn({ method: "GET" })
       // real_name is the student's own name off their LeetCode profile: identity,
       // not activity. Everything else in stats is activity and stays intact.
       stats: stats && masked ? { ...stats, real_name: maskName(stats.real_name) } : stats,
-      recent: recentRes.status === "fulfilled" ? recentRes.value.data ?? [] : [],
-      history: historyRes.status === "fulfilled" ? historyRes.value.data ?? [] : [],
+      recent: recentRes.status === "fulfilled" ? (recentRes.value.data ?? []) : [],
+      // Fetched newest-first so the cap keeps the most RECENT window; the chart
+      // consumes it oldest-first, so flip it back here.
+      history:
+        historyRes.status === "fulfilled"
+          ? [...(historyRes.value.data ?? [])].sort((a, b) =>
+              a.snapshot_date.localeCompare(b.snapshot_date),
+            )
+          : [],
       classrooms,
       ranks,
+      platforms,
     };
   });
 
@@ -585,17 +1163,39 @@ export const refreshStudent = createServerFn({ method: "POST" })
     const runId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
     try {
+      // scrape_runs.student_id did not exist until 20260808000005, so this
+      // insert failed with 42703 and the empty catch swallowed it — a
+      // single-student refresh never once appeared in Scrape History.
       await supabaseAdmin.from("scrape_runs").insert({
-        id: runId, source: "student", student_id: data.id, started_at: startedAt, total_students: 1,
+        id: runId,
+        source: "student",
+        student_id: data.id,
+        started_at: startedAt,
+        total_students: 1,
       });
     } catch {}
     try {
       const { scrapeStudentById } = await import("./scrape.server");
       await scrapeStudentById(data.id);
-      try { await supabaseAdmin.from("scrape_runs").update({ completed_at: new Date().toISOString(), success_count: 1, failed_count: 0 }).eq("id", runId); } catch {}
+      try {
+        await supabaseAdmin
+          .from("scrape_runs")
+          .update({ completed_at: new Date().toISOString(), success_count: 1, failed_count: 0 })
+          .eq("id", runId);
+      } catch {}
       return { ok: true };
     } catch (e) {
-      try { await supabaseAdmin.from("scrape_runs").update({ completed_at: new Date().toISOString(), success_count: 0, failed_count: 1, errors: JSON.stringify([String(e)]) }).eq("id", runId); } catch {}
+      try {
+        await supabaseAdmin
+          .from("scrape_runs")
+          .update({
+            completed_at: new Date().toISOString(),
+            success_count: 0,
+            failed_count: 1,
+            errors: JSON.stringify([String(e)]),
+          })
+          .eq("id", runId);
+      } catch {}
       throw e;
     }
   });

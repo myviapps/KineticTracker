@@ -28,6 +28,8 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
         staleBefore: z.string().optional(),
         /** Admin-only: take over a refresh that is already running. */
         force: z.boolean().optional().default(false),
+        /** Restrict the fan-out to these platforms. Omit for every enabled one. */
+        platformIds: z.array(z.string().min(1).max(50)).optional(),
       })
       .parse(d),
   )
@@ -70,33 +72,53 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
       }
     }
 
-    // enqueue_refresh_job used to unconditionally cancel whatever was queued or
-    // running before inserting, so any faculty member starting a classroom refresh
-    // silently killed an admin's in-flight platform run — the only thing stopping
-    // it was a `disabled` prop in the browser. The RPC now refuses to displace an
-    // active job unless the caller passes p_force, which only an admin can do.
-    const { data: jobId, error } = await supabaseAdmin.rpc("enqueue_refresh_job", {
-      p_scope: data.scope,
-      p_classroom_id: data.classroomId ?? undefined,
-      p_student_ids: data.studentIds ?? undefined,
-      p_filter: data.filter,
-      p_created_by: userId,
-      p_stale_before: data.staleBefore ?? undefined,
-      p_force: data.force && canAdminister(role),
+    /*
+      One job per enabled platform, not one job overall. The RPC refuses to
+      displace a job that is already active for the SAME platform unless the
+      caller passes p_force, which only an admin can do — the guard that stopped
+      a faculty classroom refresh from silently killing an admin's platform run.
+      Per-platform locking means that guard no longer serialises everything.
+    */
+    const { enqueueRefreshFanOut } = await import("./refresh-enqueue.server");
+    const { queued, skipped } = await enqueueRefreshFanOut({
+      scope: data.scope,
+      classroomId: data.classroomId,
+      studentIds: data.studentIds,
+      filter: data.filter,
+      createdBy: userId,
+      staleBefore: data.staleBefore,
+      force: data.force && canAdminister(role),
+      platformIds: data.platformIds,
     });
 
-    if (error) {
-      if (error.message?.includes("refresh_already_active")) {
+    // Only an error if NOTHING started. One platform mid-run while the others
+    // queue is the normal, healthy case.
+    if (queued.length === 0) {
+      const busy = skipped.filter((s) => s.reason === "already running");
+      if (busy.length > 0) {
         throw new Error(
-          "A refresh is already running. Wait for it to finish, or cancel it from Staff Management.",
+          "A refresh is already running for every platform. Wait for it to finish, or cancel it from Staff Management.",
         );
       }
-      throw new Error(error.message);
+      throw new Error(
+        skipped.length > 0
+          ? `Could not queue a refresh: ${skipped.map((s) => `${s.platformId} — ${s.reason}`).join("; ")}`
+          : "No platform is enabled for refresh.",
+      );
     }
-    return { jobId };
+
+    return { jobIds: queued.map((q) => q.jobId), queued, skipped };
   });
 
-export const getActiveRefreshJob = createServerFn({ method: "GET" })
+/**
+ * Every non-terminal job, plus the display name of the platform each belongs to.
+ *
+ * Was `.limit(1).maybeSingle()`, which made sense while a refresh was one global
+ * job. Now that the enqueue fans out per platform there can be one job per
+ * enabled adapter, and returning only the newest made the other four invisible —
+ * the progress UI would show one platform and silently ignore the rest.
+ */
+export const getActiveRefreshJobs = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth, withRole])
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -105,11 +127,41 @@ export const getActiveRefreshJob = createServerFn({ method: "GET" })
       .from("refresh_jobs")
       .select("*")
       .in("status", ["queued", "running", "paused"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order("created_at", { ascending: true });
 
-    return data ?? null;
+    const jobs = data ?? [];
+    if (jobs.length === 0) return [];
+
+    // Names for the UI. A legacy job (platform_id null) is LeetCode by
+    // definition — that is what the old worker refreshes.
+    const ids = [...new Set(jobs.map((j) => j.platform_id).filter((v): v is string => !!v))];
+    const { data: platforms } = ids.length
+      ? await supabaseAdmin.from("platforms").select("id, name, sort_order").in("id", ids)
+      : { data: [] as { id: string; name: string; sort_order: number | null }[] };
+
+    const nameById = new Map((platforms ?? []).map((p) => [p.id, p.name]));
+    const orderById = new Map((platforms ?? []).map((p) => [p.id, p.sort_order ?? 100]));
+
+    return jobs
+      .map((j) => ({
+        ...j,
+        platform_id: j.platform_id ?? "leetcode",
+        platform_name: j.platform_id ? (nameById.get(j.platform_id) ?? j.platform_id) : "LeetCode",
+        sort_order: j.platform_id ? (orderById.get(j.platform_id) ?? 100) : 0,
+      }))
+      .sort((a, b) => a.sort_order - b.sort_order);
+  });
+
+/**
+ * Which job the pump should advance next. Same rule the cron pump uses, so the
+ * browser pump and the cron pump cannot disagree about fairness.
+ */
+export const getNextRefreshJobId = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth, withRole])
+  .handler(async () => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data } = await supabaseAdmin.rpc("next_platform_job");
+    return (data as string | null) ?? null;
   });
 
 /**
@@ -126,7 +178,7 @@ export const runRefreshJobChunk = createServerFn({ method: "POST" })
 
     const { data: job } = await supabaseAdmin
       .from("refresh_jobs")
-      .select("status, processed, succeeded, failed, total")
+      .select("status, processed, succeeded, failed, total, platform_id")
       .eq("id", data.jobId)
       .maybeSingle();
     if (!job) throw new Error("Job not found");
@@ -144,10 +196,22 @@ export const runRefreshJobChunk = createServerFn({ method: "POST" })
       };
     }
 
-    const { runChunk } = await import("./refresh-worker.server");
+    /*
+      Same dispatch rule as the cron pump (routes/api/public/jobs/pump.ts):
+      platform_id decides which worker owns the job. This branch was missing, and
+      it is not hypothetical — the admin Platforms page already enqueues jobs via
+      enqueue_platform_refresh_job, and every signed-in tab pumps through here.
+      A platform job handed to runChunk pages `students` and writes
+      cursor_student_id, while runPlatformChunk resumes from cursor_account_id:
+      the job would restart from the beginning of the account scan on every chunk
+      and never finish.
+    */
     const { log } = await import("./log.server");
+    const runner = job.platform_id
+      ? (await import("./platform-worker.server")).runPlatformChunk
+      : (await import("./refresh-worker.server")).runChunk;
     try {
-      return await runChunk({ jobId: data.jobId, budgetMs: 50_000 });
+      return await runner({ jobId: data.jobId, budgetMs: 50_000 });
     } catch (e) {
       // Previously this rejected straight through the server-fn boundary, so the
       // browser saw a bare 500 and the terminal saw nothing. The job then sat on

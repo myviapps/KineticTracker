@@ -3,20 +3,38 @@ const LC_URL = "https://leetcode.com/graphql";
 
 const HEADERS = {
   "Content-Type": "application/json",
-  "User-Agent":
-    "Mozilla/5.0 (compatible; Almanac/1.0; +https://almanac.example)",
+  "User-Agent": "Mozilla/5.0 (compatible; Almanac/1.0; +https://almanac.example)",
   Referer: "https://leetcode.com/",
 };
 
 export class LeetCodeError extends Error {
-  kind: 'throttle' | 'fail';
+  kind: "throttle" | "fail" | "budget";
   status: number;
-  constructor(kind: 'throttle' | 'fail', status: number, message: string) {
+  constructor(kind: "throttle" | "fail" | "budget", status: number, message: string) {
     super(message);
-    this.name = 'LeetCodeError';
+    this.name = "LeetCodeError";
     this.kind = kind;
     this.status = status;
   }
+}
+
+const CALL_TIMEOUT_MS = 12_000;
+/** Below this much remaining budget a call cannot meaningfully complete. */
+const MIN_CALL_MS = 1_500;
+
+/**
+ * Epoch-ms ceiling for all work in the current chunk, or `undefined` for
+ * "unbounded" (interactive single-student refresh).
+ *
+ * Every network call clamps its own timeout to whatever is left, so a slow
+ * student can no longer push a batch past the caller's budget. That overrun
+ * is what pushed chunks past Vercel's 60s maxDuration and turned the pump
+ * workflow red.
+ */
+export type Deadline = number | undefined;
+
+function remainingMs(deadline: Deadline): number {
+  return deadline === undefined ? Number.POSITIVE_INFINITY : deadline - Date.now();
 }
 
 // LeetCode's public GraphQL has no documented limit but throttles around
@@ -25,40 +43,79 @@ export class LeetCodeError extends Error {
 async function gql<T>(
   query: string,
   variables: Record<string, unknown>,
+  deadline: Deadline,
   attempt = 0,
 ): Promise<T> {
+  const left = remainingMs(deadline);
+  if (left < MIN_CALL_MS) {
+    throw new LeetCodeError("budget", 0, "Chunk budget exhausted before request");
+  }
+  // Clamping to the remaining budget is what makes overrun structurally
+  // impossible rather than merely unlikely: the signal aborts an in-flight
+  // fetch, not just a not-yet-started one.
+  const timeout = Math.min(CALL_TIMEOUT_MS, left);
+
   let res: Response;
   try {
     res = await fetch(LC_URL, {
       method: "POST",
       headers: HEADERS,
       body: JSON.stringify({ query, variables }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(timeout),
     });
   } catch (e: unknown) {
-    const isAbort = e instanceof DOMException && e.name === 'TimeoutError';
+    const isAbort = e instanceof DOMException && e.name === "TimeoutError";
     const status = isAbort ? 408 : 0;
+    // A timeout that fired because the BUDGET ran out is not the student's
+    // fault, and must not be reported as one — see scrapeStudentById, which
+    // skips the consecutive_failures penalty for this kind.
+    if (isAbort && remainingMs(deadline) < MIN_CALL_MS) {
+      throw new LeetCodeError("budget", status, "Chunk budget exhausted mid-request");
+    }
     if (isAbort && attempt < 3) {
       const wait = 1500 * Math.pow(2, attempt);
+      if (remainingMs(deadline) < wait + MIN_CALL_MS) {
+        throw new LeetCodeError("budget", status, "Chunk budget exhausted before retry");
+      }
       await new Promise((r) => setTimeout(r, wait));
-      return gql<T>(query, variables, attempt + 1);
+      return gql<T>(query, variables, deadline, attempt + 1);
     }
-    throw new LeetCodeError('fail', status, isAbort ? 'Request timed out' : `Network error: ${e instanceof Error ? e.message : String(e)}`);
+    throw new LeetCodeError(
+      "fail",
+      status,
+      isAbort
+        ? "Request timed out"
+        : `Network error: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
   if (res.status === 429 || res.status >= 500) {
-    if (attempt >= 3) throw new LeetCodeError('throttle', res.status, `LeetCode HTTP ${res.status} after retries`);
+    if (attempt >= 3)
+      throw new LeetCodeError("throttle", res.status, `LeetCode HTTP ${res.status} after retries`);
     const retryAfter = Number(res.headers.get("retry-after")) || 0;
     const wait = retryAfter > 0 ? retryAfter * 1000 : 1500 * Math.pow(2, attempt);
+    // Don't burn the tail of the budget sleeping on a retry we can't afford.
+    if (remainingMs(deadline) < wait + MIN_CALL_MS) {
+      throw new LeetCodeError(
+        "throttle",
+        res.status,
+        `LeetCode HTTP ${res.status} — no budget left to retry`,
+      );
+    }
     await new Promise((r) => setTimeout(r, wait));
-    return gql<T>(query, variables, attempt + 1);
+    return gql<T>(query, variables, deadline, attempt + 1);
   }
   if (!res.ok) {
     const isCloudflare = res.status === 403 || res.status === 503;
-    throw new LeetCodeError(isCloudflare ? 'throttle' : 'fail', res.status, `LeetCode HTTP ${res.status}`);
+    throw new LeetCodeError(
+      isCloudflare ? "throttle" : "fail",
+      res.status,
+      `LeetCode HTTP ${res.status}`,
+    );
   }
   const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
-  if (json.errors?.length) throw new LeetCodeError('fail', res.status, json.errors.map((e) => e.message).join("; "));
-  if (!json.data) throw new LeetCodeError('fail', res.status, "Empty response from LeetCode");
+  if (json.errors?.length)
+    throw new LeetCodeError("fail", res.status, json.errors.map((e) => e.message).join("; "));
+  if (!json.data) throw new LeetCodeError("fail", res.status, "Empty response from LeetCode");
   return json.data;
 }
 
@@ -74,21 +131,53 @@ const PROFILE_QUERY = /* GraphQL */ `
         ranking
       }
       submitStats: submitStatsGlobal {
-        acSubmissionNum { difficulty count submissions }
+        acSubmissionNum {
+          difficulty
+          count
+          submissions
+        }
       }
       submitStatsAll: submitStats {
-        acSubmissionNum { difficulty count submissions }
-        totalSubmissionNum { difficulty count submissions }
+        acSubmissionNum {
+          difficulty
+          count
+          submissions
+        }
+        totalSubmissionNum {
+          difficulty
+          count
+          submissions
+        }
       }
-      languageProblemCount { languageName problemsSolved }
+      languageProblemCount {
+        languageName
+        problemsSolved
+      }
       tagProblemCounts {
-        advanced { tagName problemsSolved }
-        intermediate { tagName problemsSolved }
-        fundamental { tagName problemsSolved }
+        advanced {
+          tagName
+          problemsSolved
+        }
+        intermediate {
+          tagName
+          problemsSolved
+        }
+        fundamental {
+          tagName
+          problemsSolved
+        }
       }
-      badges { id displayName icon creationDate }
+      badges {
+        id
+        displayName
+        icon
+        creationDate
+      }
     }
-    allQuestionsCount { difficulty count }
+    allQuestionsCount {
+      difficulty
+      count
+    }
     userContestRanking(username: $username) {
       attendedContestsCount
       rating
@@ -115,7 +204,11 @@ const CALENDAR_QUERY = /* GraphQL */ `
 const RECENT_QUERY = /* GraphQL */ `
   query recentAcSubmissions($username: String!, $limit: Int!) {
     recentAcSubmissionList(username: $username, limit: $limit) {
-      id title titleSlug timestamp lang
+      id
+      title
+      titleSlug
+      timestamp
+      lang
     }
   }
 `;
@@ -220,25 +313,43 @@ function pickTotal(list: { difficulty: string; count: number }[], difficulty: st
   return list.find((x) => x.difficulty === difficulty)?.count ?? 0;
 }
 
-export async function fetchLeetCodeProfile(username: string): Promise<ParsedProfile> {
+export async function fetchLeetCodeProfile(
+  username: string,
+  deadline?: Deadline,
+): Promise<ParsedProfile> {
   // Serialize the 3 calls (no Promise.all) with a small gap between them —
   // three parallel bursts per student was the fastest way to trip LeetCode's
   // per-IP throttle.
-  const profile = await gql<LcProfileData>(PROFILE_QUERY, { username });
+  const profile = await gql<LcProfileData>(PROFILE_QUERY, { username }, deadline);
   await new Promise((r) => setTimeout(r, 250));
 
   let calendar: LcCalendarData | null = null;
   let recent: LcRecentData | null = null;
-  try {
-    calendar = await gql<LcCalendarData>(CALENDAR_QUERY, {
-      username,
-      year: new Date().getUTCFullYear(),
-    });
-  } catch { /* calendar may be private or unavailable — non-fatal */ }
+  // The profile call is the only required one. Calendar and recent submissions
+  // are already best-effort, so when the budget is spent we skip them outright
+  // rather than paying a doomed request — the student still gets full stats.
+  if (remainingMs(deadline) >= MIN_CALL_MS) {
+    try {
+      calendar = await gql<LcCalendarData>(
+        CALENDAR_QUERY,
+        {
+          username,
+          year: new Date().getUTCFullYear(),
+        },
+        deadline,
+      );
+    } catch {
+      /* calendar may be private or unavailable — non-fatal */
+    }
+  }
   await new Promise((r) => setTimeout(r, 250));
-  try {
-    recent = await gql<LcRecentData>(RECENT_QUERY, { username, limit: 20 });
-  } catch { /* recent submissions may be unavailable — non-fatal */ }
+  if (remainingMs(deadline) >= MIN_CALL_MS) {
+    try {
+      recent = await gql<LcRecentData>(RECENT_QUERY, { username, limit: 20 }, deadline);
+    } catch {
+      /* recent submissions may be unavailable — non-fatal */
+    }
+  }
 
   if (!profile.matchedUser) throw new Error(`LeetCode user "${username}" not found`);
 
@@ -251,7 +362,7 @@ export async function fetchLeetCodeProfile(username: string): Promise<ParsedProf
   const totalAcSubs = tot.find((x) => x.difficulty === "All")?.submissions ?? 0;
   const totalAllSubs = tot.reduce((s, x) => (x.difficulty === "All" ? s + x.submissions : s), 0);
   const acceptanceRate =
-    totalAllSubs > 0 ? Math.round(((totalAcSubs / totalAllSubs) * 100) * 10) / 10 : null;
+    totalAllSubs > 0 ? Math.round((totalAcSubs / totalAllSubs) * 100 * 10) / 10 : null;
 
   const cal = calendar?.matchedUser?.userCalendar;
   const submissionCalendar: Record<string, number> = cal?.submissionCalendar
@@ -289,11 +400,25 @@ export async function fetchLeetCodeProfile(username: string): Promise<ParsedProf
       solved: l.problemsSolved,
     })),
     tagStats: {
-      fundamental: mu.tagProblemCounts.fundamental.map((t) => ({ tag: t.tagName, solved: t.problemsSolved })),
-      intermediate: mu.tagProblemCounts.intermediate.map((t) => ({ tag: t.tagName, solved: t.problemsSolved })),
-      advanced: mu.tagProblemCounts.advanced.map((t) => ({ tag: t.tagName, solved: t.problemsSolved })),
+      fundamental: mu.tagProblemCounts.fundamental.map((t) => ({
+        tag: t.tagName,
+        solved: t.problemsSolved,
+      })),
+      intermediate: mu.tagProblemCounts.intermediate.map((t) => ({
+        tag: t.tagName,
+        solved: t.problemsSolved,
+      })),
+      advanced: mu.tagProblemCounts.advanced.map((t) => ({
+        tag: t.tagName,
+        solved: t.problemsSolved,
+      })),
     },
-    badges: mu.badges.map((b) => ({ id: b.id, name: b.displayName, icon: b.icon, date: b.creationDate })),
+    badges: mu.badges.map((b) => ({
+      id: b.id,
+      name: b.displayName,
+      icon: b.icon,
+      date: b.creationDate,
+    })),
     recent: (recent?.recentAcSubmissionList ?? []).map((r) => ({
       title: r.title,
       titleSlug: r.titleSlug,

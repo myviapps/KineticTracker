@@ -51,9 +51,7 @@ export const listStaff = createServerFn({ method: "GET" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     // Get all users with roles
-    const { data: userRoles } = await supabaseAdmin
-      .from("user_roles")
-      .select("id, user_id, role");
+    const { data: userRoles } = await supabaseAdmin.from("user_roles").select("id, user_id, role");
 
     // Get all faculty assignments
     const { data: assignments } = await supabaseAdmin
@@ -90,12 +88,16 @@ export const listStaff = createServerFn({ method: "GET" })
 
 export const createStaffUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .validator((d: unknown) => z.object({
-    email: z.string().email(),
-    name: z.string().min(1),
-    role: z.enum(["admin", "placement_officer", "faculty"]),
-    classroom_ids: z.array(z.string().uuid()).optional(),
-  }).parse(d))
+  .validator((d: unknown) =>
+    z
+      .object({
+        email: z.string().email(),
+        name: z.string().min(1),
+        role: z.enum(["admin", "placement_officer", "faculty"]),
+        classroom_ids: z.array(z.string().uuid()).optional(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -117,12 +119,12 @@ export const createStaffUser = createServerFn({ method: "POST" })
 
     // If faculty, assign classrooms
     if (data.role === "faculty" && data.classroom_ids?.length) {
-      const { error: assignError } = await supabaseAdmin
-        .from("faculty_assignments")
-        .insert(data.classroom_ids.map((cid) => ({
+      const { error: assignError } = await supabaseAdmin.from("faculty_assignments").insert(
+        data.classroom_ids.map((cid) => ({
           faculty_user_id: newUser.user.id,
           classroom_id: cid,
-        })));
+        })),
+      );
       if (assignError) throw new Error(assignError.message);
     }
 
@@ -171,9 +173,7 @@ export const deactivateUser = createServerFn({ method: "POST" })
 
 export const resetStaffPassword = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .validator((d: { user_id: string }) =>
-    z.object({ user_id: z.string().uuid() }).parse(d),
-  )
+  .validator((d: { user_id: string }) => z.object({ user_id: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -190,10 +190,14 @@ export const resetStaffPassword = createServerFn({ method: "POST" })
 
 export const assignFacultyToClassroom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .validator((d: unknown) => z.object({
-    faculty_user_id: z.string().uuid(),
-    classroom_id: z.string().uuid(),
-  }).parse(d))
+  .validator((d: unknown) =>
+    z
+      .object({
+        faculty_user_id: z.string().uuid(),
+        classroom_id: z.string().uuid(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -206,10 +210,14 @@ export const assignFacultyToClassroom = createServerFn({ method: "POST" })
 
 export const unassignFaculty = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
-  .validator((d: unknown) => z.object({
-    faculty_user_id: z.string().uuid(),
-    classroom_id: z.string().uuid(),
-  }).parse(d))
+  .validator((d: unknown) =>
+    z
+      .object({
+        faculty_user_id: z.string().uuid(),
+        classroom_id: z.string().uuid(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -238,7 +246,12 @@ export const forceReleaseRefreshLock = createServerFn({ method: "POST" })
     if (active) {
       await supabaseAdmin
         .from("refresh_jobs")
-        .update({ status: "cancelled", finished_at: new Date().toISOString(), lease_owner: null, lease_until: null })
+        .update({
+          status: "cancelled",
+          finished_at: new Date().toISOString(),
+          lease_owner: null,
+          lease_until: null,
+        })
         .eq("id", active.id);
     }
 

@@ -20,12 +20,7 @@ interface AlmanacLogoProps {
  */
 
 /** Intensity per cell, row-major. 0 = no activity, 3 = a heavy day. */
-const DAYS = [
-  0, 1, 0, 2,
-  1, 0, 2, 1,
-  0, 2, 3, 2,
-  2, 3, 2, 3,
-];
+const DAYS = [0, 1, 0, 2, 1, 0, 2, 1, 0, 2, 3, 2, 2, 3, 2, 3];
 
 const LIT_OPACITY = [0, 0.34, 0.66, 1];
 const TRACK = [3, 9.5, 16, 22.5]; // 4 columns/rows of 5px cells across a 32 grid
@@ -67,11 +62,7 @@ export function AlmanacLogo({
           // The wave sweeps along the diagonal, so days fill in the same
           // direction the density already climbs.
           return animated ? (
-            <g
-              key={i}
-              className="almanac-day"
-              style={{ animationDelay: `${(row + col) * 0.11}s` }}
-            >
+            <g key={i} className="almanac-day" style={{ animationDelay: `${(row + col) * 0.11}s` }}>
               {cell}
             </g>
           ) : (
@@ -81,9 +72,7 @@ export function AlmanacLogo({
       </svg>
 
       {showText && (
-        <span className="font-mono text-sm font-bold uppercase tracking-[0.18em]">
-          Almanac
-        </span>
+        <span className="font-mono text-sm font-bold uppercase tracking-[0.18em]">Almanac</span>
       )}
     </div>
   );

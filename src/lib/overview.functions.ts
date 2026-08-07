@@ -76,7 +76,19 @@ export const getOverview = createServerFn({ method: "GET" })
       stats = await chunked<any>(studentIds, (batch) =>
         supabaseAdmin.from("student_stats").select("*").in("student_id", batch),
       );
-    } catch { /* an overview without stats still renders the roster */ }
+    } catch {
+      /* an overview without stats still renders the roster */
+    }
+
+    /*
+      Per-platform numbers, so this page can carry the same platform lens as the
+      classroom page. Reuses the classroom loader rather than a second
+      implementation — the lens helpers all read CohortPlatformStat, and two
+      queries producing "nearly the same shape" is how the two views would start
+      disagreeing about what a platform reports.
+    */
+    const { loadCohortPlatformStats } = await import("./cohort-platforms.server");
+    const { cohortPlatforms, platformStatsById } = await loadCohortPlatformStats(studentIds);
 
     return {
       // Surfaced so the page can title itself honestly: faculty see this data
@@ -84,9 +96,11 @@ export const getOverview = createServerFn({ method: "GET" })
       role: role as string,
       scoped: classroomIds !== null,
       classrooms: classrooms ?? [],
+      platforms: cohortPlatforms,
       students: students.map((s) => ({
         ...s,
         classroom_ids: classroomIdsByStudent.get(s.id) ?? [],
+        platformStats: platformStatsById.get(s.id) ?? {},
       })),
       stats,
     };

@@ -1,0 +1,230 @@
+{
+  "status": "OK",
+  "result": [
+    {
+      "contestId": 1965,
+      "contestName": "Codeforces Round 941 (Div. 1)",
+      "handle": "Petr",
+      "rank": 12,
+      "ratingUpdateTimeSeconds": 1714235700,
+      "oldRating": 3312,
+      "newRating": 3298
+    },
+    {
+      "contestId": 1984,
+      "contestName": "Codeforces Global Round 26",
+      "handle": "Petr",
+      "rank": 12,
+      "ratingUpdateTimeSeconds": 1717954500,
+      "oldRating": 3298,
+      "newRating": 3322
+    },
+    {
+      "contestId": 1987,
+      "contestName": "EPIC Institute of Technology Round Summer 2024 (Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 20,
+      "ratingUpdateTimeSeconds": 1719768900,
+      "oldRating": 3322,
+      "newRating": 3284
+    },
+    {
+      "contestId": 1991,
+      "contestName": "Pinely Round 4 (Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 20,
+      "ratingUpdateTimeSeconds": 1722188100,
+      "oldRating": 3284,
+      "newRating": 3266
+    },
+    {
+      "contestId": 2018,
+      "contestName": "Codeforces Round 975 (Div. 1)",
+      "handle": "Petr",
+      "rank": 109,
+      "ratingUpdateTimeSeconds": 1727453100,
+      "oldRating": 3266,
+      "newRating": 3127
+    },
+    {
+      "contestId": 2029,
+      "contestName": "Refact.ai Match 1 (Codeforces Round 985)",
+      "handle": "Petr",
+      "rank": 35,
+      "ratingUpdateTimeSeconds": 1731173700,
+      "oldRating": 3127,
+      "newRating": 3096
+    },
+    {
+      "contestId": 2048,
+      "contestName": "Codeforces Global Round 28",
+      "handle": "Petr",
+      "rank": 72,
+      "ratingUpdateTimeSeconds": 1734629700,
+      "oldRating": 3096,
+      "newRating": 3036
+    },
+    {
+      "contestId": 2053,
+      "contestName": "Good Bye 2024: 2025 is NEAR",
+      "handle": "Petr",
+      "rank": 6,
+      "ratingUpdateTimeSeconds": 1735407300,
+      "oldRating": 3036,
+      "newRating": 3167
+    },
+    {
+      "contestId": 2057,
+      "contestName": "Hello 2025",
+      "handle": "Petr",
+      "rank": 30,
+      "ratingUpdateTimeSeconds": 1736010300,
+      "oldRating": 3167,
+      "newRating": 3160
+    },
+    {
+      "contestId": 2061,
+      "contestName": "IAEPC Preliminary Contest (Codeforces Round 999, Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 13,
+      "ratingUpdateTimeSeconds": 1737394500,
+      "oldRating": 3160,
+      "newRating": 3207
+    },
+    {
+      "contestId": 2077,
+      "contestName": "Codeforces Round 1008 (Div. 1)",
+      "handle": "Petr",
+      "rank": 35,
+      "ratingUpdateTimeSeconds": 1741626900,
+      "oldRating": 3207,
+      "newRating": 3161
+    },
+    {
+      "contestId": 2084,
+      "contestName": "Teza Round 1 (Codeforces Round 1015, Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 64,
+      "ratingUpdateTimeSeconds": 1743874500,
+      "oldRating": 3161,
+      "newRating": 3093
+    },
+    {
+      "contestId": 2127,
+      "contestName": "Atto Round 1 (Codeforces Round 1041, Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 15,
+      "ratingUpdateTimeSeconds": 1754588100,
+      "oldRating": 3093,
+      "newRating": 3149
+    },
+    {
+      "contestId": 2150,
+      "contestName": "Codeforces Round 1053 (Div. 1)",
+      "handle": "Petr",
+      "rank": 46,
+      "ratingUpdateTimeSeconds": 1758725400,
+      "oldRating": 3149,
+      "newRating": 3100
+    },
+    {
+      "contestId": 2152,
+      "contestName": "Squarepoint Challenge (Codeforces Round 1055, Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 25,
+      "ratingUpdateTimeSeconds": 1759512900,
+      "oldRating": 3100,
+      "newRating": 3121
+    },
+    {
+      "contestId": 2159,
+      "contestName": "Codeforces Round 1058 (Div. 1)",
+      "handle": "Petr",
+      "rank": 30,
+      "ratingUpdateTimeSeconds": 1760288700,
+      "oldRating": 3121,
+      "newRating": 3104
+    },
+    {
+      "contestId": 2161,
+      "contestName": "Pinely Round 5 (Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 4,
+      "ratingUpdateTimeSeconds": 1761852900,
+      "oldRating": 3104,
+      "newRating": 3246
+    },
+    {
+      "contestId": 2164,
+      "contestName": "Codeforces Global Round 30 (Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 20,
+      "ratingUpdateTimeSeconds": 1762450500,
+      "oldRating": 3246,
+      "newRating": 3235
+    },
+    {
+      "contestId": 2180,
+      "contestName": "Codeforces Global Round 31 (Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 81,
+      "ratingUpdateTimeSeconds": 1766163900,
+      "oldRating": 3235,
+      "newRating": 3130
+    },
+    {
+      "contestId": 2178,
+      "contestName": "Good Bye 2025",
+      "handle": "Petr",
+      "rank": 168,
+      "ratingUpdateTimeSeconds": 1766856900,
+      "oldRating": 3130,
+      "newRating": 3006
+    },
+    {
+      "contestId": 2190,
+      "contestName": "Codeforces Round 1073 (Div. 1)",
+      "handle": "Petr",
+      "rank": 1,
+      "ratingUpdateTimeSeconds": 1768671300,
+      "oldRating": 3006,
+      "newRating": 3266
+    },
+    {
+      "contestId": 2219,
+      "contestName": "Codeforces Round 1093 (Div. 1)",
+      "handle": "Petr",
+      "rank": 418,
+      "ratingUpdateTimeSeconds": 1776098100,
+      "oldRating": 3266,
+      "newRating": 2982
+    },
+    {
+      "contestId": 2222,
+      "contestName": "Spectral::Cup 2026 Round 1 (Codeforces Round 1094, Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 30,
+      "ratingUpdateTimeSeconds": 1777136700,
+      "oldRating": 2982,
+      "newRating": 2992
+    },
+    {
+      "contestId": 2229,
+      "contestName": "Spectral::Cup 2026 Round 2 (Codeforces Round 1100, Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 14,
+      "ratingUpdateTimeSeconds": 1779557700,
+      "oldRating": 2992,
+      "newRating": 3054
+    },
+    {
+      "contestId": 2245,
+      "contestName": "Spectral::Cup 2026 Round 3 (Codeforces Round 1110, Div. 1 + Div. 2)",
+      "handle": "Petr",
+      "rank": 97,
+      "ratingUpdateTimeSeconds": 1784222100,
+      "oldRating": 3054,
+      "newRating": 2943
+    }
+  ]
+}

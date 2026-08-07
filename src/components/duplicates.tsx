@@ -15,13 +15,24 @@ import { updateStudent, deleteStudentCompletely } from "@/lib/students.functions
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { AnimatedLoader } from "@/components/animated-loader";
 import { Button } from "@/components/ui/button";
 import {
-  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
@@ -103,8 +114,8 @@ export function Duplicates() {
           {handles.length > 0 && (
             <p>
               <span className="font-medium text-foreground">
-                {handles.length} LeetCode ID{handles.length === 1 ? "" : "s"} shared by more than one
-                student.
+                {handles.length} LeetCode ID{handles.length === 1 ? "" : "s"} shared by more than
+                one student.
               </span>{" "}
               Each shared profile is scraped once per student and builds a separate history.
             </p>
@@ -334,8 +345,8 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
                 {(deleting?.snapshot_count ?? 0) > 0 && (
                   <p className="rounded-md bg-medium/10 px-2 py-1.5 text-[12px] text-muted-foreground">
                     This record has history. If it is the same person as{" "}
-                    {survivor?.roll ?? "the one you kept"}, <b>merge instead</b> — that folds
-                    the history in rather than discarding it.
+                    {survivor?.roll ?? "the one you kept"}, <b>merge instead</b> — that folds the
+                    history in rather than discarding it.
                   </p>
                 )}
               </div>
@@ -497,7 +508,13 @@ function EditDuplicateDialog({
           </div>
           <div>
             <Label htmlFor="dup-name">Name</Label>
-            <Input id="dup-name" value={form.name} onChange={set("name")} className="mt-1" required />
+            <Input
+              id="dup-name"
+              value={form.name}
+              onChange={set("name")}
+              className="mt-1"
+              required
+            />
           </div>
           <div>
             <Label htmlFor="dup-email">Email</Label>

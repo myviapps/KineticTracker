@@ -1,31 +1,105 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
-import { getActiveRefreshJob, runRefreshJobChunk } from "@/lib/refresh-jobs.functions";
+import {
+  getActiveRefreshJobs,
+  getNextRefreshJobId,
+  runRefreshJobChunk,
+} from "@/lib/refresh-jobs.functions";
 import type { Database } from "@/integrations/supabase/types";
 
 export const REFRESH_JOB_KEY = ["refresh-job"] as const;
 
-type RefreshJob = Database["public"]["Tables"]["refresh_jobs"]["Row"] | null;
+type JobRow = Database["public"]["Tables"]["refresh_jobs"]["Row"];
+
+/** A live job, with the platform it belongs to resolved for display. */
+export type RefreshJobView = JobRow & {
+  platform_id: string;
+  platform_name: string;
+  sort_order: number;
+};
+
+export type RefreshAggregate = {
+  /** Non-terminal jobs, in platform sort order. */
+  jobs: RefreshJobView[];
+  active: boolean;
+  /** Worst-of across jobs: running beats queued beats paused. */
+  status: "idle" | "queued" | "running" | "paused";
+  processed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  /** Earliest resume time among paused jobs, for the "resumes at" copy. */
+  resumeAfter: string | null;
+};
+
+function aggregate(jobs: RefreshJobView[]): RefreshAggregate {
+  if (jobs.length === 0) {
+    return {
+      jobs,
+      active: false,
+      status: "idle",
+      processed: 0,
+      total: 0,
+      succeeded: 0,
+      failed: 0,
+      resumeAfter: null,
+    };
+  }
+
+  const status = jobs.some((j) => j.status === "running")
+    ? "running"
+    : jobs.some((j) => j.status === "queued")
+      ? "queued"
+      : "paused";
+
+  const resumes = jobs
+    .filter((j) => j.status === "paused" && j.resume_after)
+    .map((j) => j.resume_after as string)
+    .sort();
+
+  return {
+    jobs,
+    active: true,
+    status,
+    processed: jobs.reduce((a, j) => a + (j.processed ?? 0), 0),
+    total: jobs.reduce((a, j) => a + (j.total ?? 0), 0),
+    succeeded: jobs.reduce((a, j) => a + (j.succeeded ?? 0), 0),
+    failed: jobs.reduce((a, j) => a + (j.failed ?? 0), 0),
+    resumeAfter: resumes[0] ?? null,
+  };
+}
 
 /**
- * Read-only view of the active refresh job. Safe to call from any number of
+ * Read-only view of the active refresh. Safe to call from any number of
  * components — they all share one query. Does NOT pump; see useRefreshJobPump.
  */
 export function useRefreshJobStatus() {
   const query = useQuery({
     queryKey: REFRESH_JOB_KEY,
-    queryFn: () => getActiveRefreshJob(),
-    // Poll fast while a job exists so progress feels live; slow when idle.
-    refetchInterval: (q) => (q.state.data ? 2000 : 15_000),
+    queryFn: () => getActiveRefreshJobs(),
+    // Poll fast while anything is running so progress feels live; slow when idle.
+    refetchInterval: (q) =>
+      (q.state.data as RefreshJobView[] | undefined)?.length ? 2000 : 15_000,
     // Keep polling while the tab is backgrounded. A 1000-student refresh runs
     // for ~15 minutes and the user will switch away; with the default (false)
     // the pump's view of the job froze and it hammered a dead job forever.
     refetchIntervalInBackground: true,
     staleTime: 0,
   });
-  return { ...query, job: query.data as RefreshJob };
+
+  const jobs = useMemo(() => (query.data as RefreshJobView[] | undefined) ?? [], [query.data]);
+  const agg = useMemo(() => aggregate(jobs), [jobs]);
+
+  /** Per-platform lookup for the lens pills. */
+  const byPlatform = useMemo(() => {
+    const m = new Map<string, RefreshJobView>();
+    for (const j of jobs) m.set(j.platform_id, j);
+    return m;
+  }, [jobs]);
+
+  return { ...query, byPlatform, ...agg };
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -41,26 +115,34 @@ async function withPumpLock<T>(fn: () => Promise<T>): Promise<T | undefined> {
 }
 
 /**
- * Drives the job forward. MUST be mounted exactly once (in _authenticated.tsx).
+ * Drives the refresh forward. MUST be mounted exactly once (in _authenticated.tsx).
  *
- * The loop is keyed on jobId ALONE and re-reads the job from a ref. Depending on
- * status/lease_until here would tear down and cancel the in-flight pump every
- * time the row changed — which is every batch — leaving the job stalled.
+ * The loop asks the SERVER which job to advance on every round rather than
+ * closing over one id. It used to be keyed on `jobId`, which was correct while a
+ * refresh was a single global job — but the enqueue now fans out one job per
+ * platform, and a loop bound to one id drives that one to completion while the
+ * other four sit at 0/N. Delegating the choice to next_platform_job() also means
+ * this pump and the cron pump apply the same fairness rule, so a busy platform
+ * cannot starve the rest.
+ *
+ * Everything below the job selection is unchanged and deliberately so: the
+ * lock, the idle cap and the read-through-a-ref pattern each fix a real bug.
  */
 export function useRefreshJobPump() {
-  const { job } = useRefreshJobStatus();
+  const { jobs, active, resumeAfter } = useRefreshJobStatus();
   const qc = useQueryClient();
   const runChunk = useServerFn(runRefreshJobChunk);
+  const nextJobId = useServerFn(getNextRefreshJobId);
 
-  const jobRef = useRef<RefreshJob>(null);
-  jobRef.current = job;
+  const jobsRef = useRef<RefreshJobView[]>([]);
+  jobsRef.current = jobs;
 
   const lastProcessed = useRef<number | null>(null);
   const lastInvalidate = useRef(0);
 
   // Refresh the underlying page data as progress advances — throttled, so a
   // 1000-student run doesn't refetch every classroom query every 2 seconds.
-  const processed = job?.processed ?? null;
+  const processed = active ? jobs.reduce((a, j) => a + (j.processed ?? 0), 0) : null;
   useEffect(() => {
     if (processed === null) {
       lastProcessed.current = null;
@@ -72,45 +154,96 @@ export function useRefreshJobPump() {
     if (now - lastInvalidate.current < 5000) return;
     lastInvalidate.current = now;
     qc.invalidateQueries({ queryKey: ["classroom"] });
+    qc.invalidateQueries({ queryKey: ["classrooms"] });
     qc.invalidateQueries({ queryKey: ["overview"] });
   }, [processed, qc]);
 
-  const jobId = job?.id ?? null;
+  /*
+    Keyed on "is anything live at all", not on a job id — a job finishing no
+    longer tears the loop down, it just picks the next one.
 
+    `resumeAfter` is in the deps for a subtler reason. A rate-limited job is
+    parked with a resume_after 15 minutes out, and until that passes
+    next_platform_job() correctly returns nothing. The loop would spend its idle
+    budget in the first minute, give up, and never come back: `active` stays true
+    the whole time (paused counts as live), so the effect never re-ran and the
+    job sat paused forever. Re-arming when the pause window changes is what makes
+    "resumes at 14:32" actually true rather than a label.
+  */
   useEffect(() => {
-    if (!jobId) return;
+    if (!active) return;
     let cancelled = false;
 
-    // Statuses worth pumping. Anything else means the job is over.
-    const ACTIVE = new Set(["queued", "running", "paused"]);
     // Give up after this many consecutive rounds that move nothing. Without a
     // cap, a backgrounded tab (TanStack Query pauses polling when the window
-    // loses focus, so jobRef goes stale) retried a dead job every few seconds
+    // loses focus, so the ref goes stale) retried a dead job every few seconds
     // forever. Sized to outlast one lease so a chunk finishing on another tab
     // is waited out rather than abandoned.
     const MAX_IDLE_ROUNDS = 15;
     const IDLE_BACKOFF_MS = 4000;
+    /** Longest single sleep while parked. Keeps a stale tab from oversleeping. */
+    const MAX_PARK_MS = 60_000;
+
+    const nameFor = (id: string) =>
+      jobsRef.current.find((j) => j.id === id)?.platform_name ?? "Refresh";
 
     void (async () => {
-      // True right after a chunk that ended only because it ran out of time —
-      // go straight into the next one instead of waiting for the poll to
-      // confirm the lease was released.
-      let continueImmediately = false;
       let idleRounds = 0;
 
       while (!cancelled) {
         if (idleRounds >= MAX_IDLE_ROUNDS) return;
 
-        const j = jobRef.current;
-        if (!j || j.id !== jobId || !ACTIVE.has(j.status)) return;
+        let jobId: string | null;
+        try {
+          jobId = await nextJobId();
+        } catch {
+          idleRounds += 1;
+          await sleep(IDLE_BACKOFF_MS);
+          continue;
+        }
+        if (cancelled) return;
+
+        /*
+          Nothing eligible right now. Two very different reasons, and treating
+          them the same is what left rate-limited jobs stuck.
+
+          If every remaining job is PARKED with a future resume_after, this is
+          not idleness — it is a scheduled wait, and the answer is known: sleep
+          until the earliest one is due. Counting these toward the give-up cap
+          burned all 15 rounds inside the first minute of a 15-minute pause, and
+          because `active` never changed the effect never restarted. The job then
+          waited for a pump that was never coming.
+
+          Genuine idleness — no eligible job and nothing parked either — still
+          counts toward the cap, which is what stops a backgrounded tab spinning.
+        */
+        if (!jobId) {
+          const parkedUntil = jobsRef.current
+            .filter((j) => j.status === "paused" && j.resume_after)
+            .map((j) => Date.parse(j.resume_after as string))
+            .filter((t) => Number.isFinite(t) && t > Date.now())
+            .sort((a, b) => a - b)[0];
+
+          if (parkedUntil) {
+            // +1s so we wake just AFTER it becomes eligible, not on the boundary
+            // where the database clock may still round the other way.
+            const wait = Math.min(parkedUntil - Date.now() + 1_000, MAX_PARK_MS);
+            await sleep(wait);
+            continue;
+          }
+
+          idleRounds += 1;
+          await sleep(IDLE_BACKOFF_MS);
+          continue;
+        }
+
+        const platform = nameFor(jobId);
 
         // Deliberately no client-side lease check here. lease_until is written
         // and compared by the Postgres clock, and the browser's clock can be
         // wildly out of step with it (a dev machine measured 33s ahead), so any
         // comparison done here is unreliable. claim_refresh_job is atomic and
         // cheap — just ask, and let the database be the judge.
-        continueImmediately = false;
-
         let res;
         try {
           res = await withPumpLock(() => runChunk({ data: { jobId } }));
@@ -130,43 +263,49 @@ export function useRefreshJobPump() {
           await sleep(IDLE_BACKOFF_MS);
           continue;
         }
-        // The server's view wins over our possibly-stale cached row.
-        if (res.jobStatus && !ACTIVE.has(res.jobStatus)) {
-          if (res.jobStatus === "completed") {
-            toast.success(`Refresh complete — ${res.succeeded} updated, ${res.failed} failed`);
+
+        const finished =
+          res.done || (res.jobStatus !== undefined && !ACTIVE_STATUSES.has(res.jobStatus));
+
+        if (finished) {
+          if (res.done || res.jobStatus === "completed") {
+            toast.success(`${platform} refreshed — ${res.succeeded} updated, ${res.failed} failed`);
             qc.invalidateQueries({ queryKey: ["classroom"] });
+            qc.invalidateQueries({ queryKey: ["classrooms"] });
             qc.invalidateQueries({ queryKey: ["overview"] });
           }
-          return;
+          // Straight on to the next platform rather than returning — that is the
+          // whole point of not being bound to one job id.
+          idleRounds = 0;
+          continue;
         }
-        if (res.done) {
-          toast.success(`Refresh complete — ${res.succeeded} updated, ${res.failed} failed`);
-          qc.invalidateQueries({ queryKey: ["classroom"] });
-          qc.invalidateQueries({ queryKey: ["overview"] });
-          return;
-        }
+
         if (res.paused) {
-          toast.warning(
-            "Refresh paused — LeetCode is rate limiting. It will resume automatically.",
-          );
-          return;
+          // Named, because "LeetCode is rate limiting" was hardcoded here and
+          // became a lie the moment a second platform could pause.
+          toast.warning(`${platform} is rate limiting — it will resume automatically.`);
+          idleRounds = 0;
+          continue;
         }
+
         if (!res.claimed || res.aborted) {
           idleRounds += 1;
           await sleep(IDLE_BACKOFF_MS);
           continue;
         }
+
         // Chunk hit its time budget with work left — go again now.
         idleRounds = 0;
-        continueImmediately = true;
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [jobId, runChunk, qc]);
+  }, [active, resumeAfter, runChunk, nextJobId, qc]);
 }
+
+const ACTIVE_STATUSES = new Set(["queued", "running", "paused"]);
 
 /** @deprecated use useRefreshJobStatus (read) or useRefreshJobPump (drive) */
 export const useRefreshJob = useRefreshJobStatus;

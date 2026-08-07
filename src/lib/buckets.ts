@@ -94,8 +94,13 @@ export function toStudentRow(s: {
     hard: s.stats?.hard_solved ?? 0,
     today: todayCount(cal),
     yesterday: (() => {
-      const y = new Date(); y.setUTCDate(y.getUTCDate() - 1);
-      return cal[String(Math.floor(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate())/1000))] ?? 0;
+      const y = new Date();
+      y.setUTCDate(y.getUTCDate() - 1);
+      return (
+        cal[
+          String(Math.floor(Date.UTC(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate()) / 1000))
+        ] ?? 0
+      );
     })(),
     week: thisWeekCount(cal),
     month: last30,

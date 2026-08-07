@@ -28,9 +28,7 @@ export function LeaderboardBars({
 }) {
   if (entries.length === 0) {
     return (
-      <div className="py-12 text-center text-sm text-muted-foreground">
-        No students to rank.
-      </div>
+      <div className="py-12 text-center text-sm text-muted-foreground">No students to rank.</div>
     );
   }
 

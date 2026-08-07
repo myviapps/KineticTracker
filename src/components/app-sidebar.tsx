@@ -1,6 +1,21 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Upload, UserCog, LayoutDashboard, LogOut, Settings2, Key, History, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import {
+  BarChart3,
+  FileSpreadsheet,
+  Layers,
+  Building2,
+  Upload,
+  UserCog,
+  LayoutDashboard,
+  LogOut,
+  Settings2,
+  Key,
+  History,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   Sidebar,
@@ -23,12 +38,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
- 
- import { useRouter } from "@tanstack/react-router";
+
+import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 export function AppSidebar() {
@@ -184,6 +204,27 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {/* Colleges is deliberately NOT admin-gated. A CEO's entire remit is
+                  this page, and the server already scopes it to their assignments —
+                  hiding the link would only stop them finding a page they own. */}
+              {(isAdmin || role === "ceo" || isPO) && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={currentPath === "/colleges"}>
+                    <Link to="/colleges" className="flex items-center gap-2">
+                      <Building2 className="size-4" />
+                      {!collapsed && <span>Colleges</span>}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={currentPath === "/reports"}>
+                  <Link to="/reports" className="flex items-center gap-2">
+                    <FileSpreadsheet className="size-4" />
+                    {!collapsed && <span>Reports</span>}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               {roleLoading && (
                 <>
                   <SidebarMenuSkeleton showIcon />
@@ -217,6 +258,14 @@ export function AppSidebar() {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={currentPath === "/platforms"}>
+                      <Link to="/platforms" className="flex items-center gap-2">
+                        <Layers className="size-4" />
+                        {!collapsed && <span>Platforms</span>}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={currentPath === "/scrape-runs"}>
                       <Link to="/scrape-runs" className="flex items-center gap-2">
                         <History className="size-4" />
@@ -235,9 +284,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {classroomsLoading &&
-                Array.from({ length: 3 }).map((_, i) => (
-                  <SidebarMenuSkeleton key={i} showIcon />
-                ))}
+                Array.from({ length: 3 }).map((_, i) => <SidebarMenuSkeleton key={i} showIcon />)}
               {!classroomsLoading && classrooms.length === 0 && !collapsed && (
                 <div className="px-3 py-2 text-xs text-sidebar-foreground/70">
                   {isAdmin ? "No classrooms yet" : "None assigned yet"}
@@ -254,9 +301,7 @@ export function AppSidebar() {
                         className="flex items-center gap-2"
                       >
                         <span
-                          className={
-                            active ? "text-sidebar-primary" : "text-sidebar-foreground/60"
-                          }
+                          className={active ? "text-sidebar-primary" : "text-sidebar-foreground/60"}
                         >
                           {active ? "●" : "○"}
                         </span>
@@ -314,14 +359,15 @@ export function AppSidebar() {
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Change Password</DialogTitle>
-            <DialogDescription>
-              You'll stay signed in on this device.
-            </DialogDescription>
+            <DialogDescription>You'll stay signed in on this device.</DialogDescription>
           </DialogHeader>
 
           <form
             id="change-password-form"
-            onSubmit={(e) => { e.preventDefault(); changePwM.mutate(); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              changePwM.mutate();
+            }}
             className="space-y-4"
           >
             <div>
@@ -368,9 +414,7 @@ export function AppSidebar() {
               type="submit"
               form="change-password-form"
               disabled={
-                changePwM.isPending ||
-                newPassword.length < 8 ||
-                newPassword !== confirmPassword
+                changePwM.isPending || newPassword.length < 8 || newPassword !== confirmPassword
               }
             >
               {changePwM.isPending ? "Updating…" : "Update password"}

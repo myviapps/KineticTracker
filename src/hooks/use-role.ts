@@ -33,6 +33,8 @@ export function useRole() {
     isAdmin: role === "admin",
     isPlacementOfficer: role === "placement_officer",
     isFaculty: role === "faculty",
+    /** Oversees whole colleges, scoped by college_assignments. */
+    isCeo: role === "ceo",
     /** Create/delete classrooms, manage staff, settings, platform refresh. */
     canAdminister: role === "admin",
     /** Add / edit / delete students, refresh a classroom. */

@@ -13,11 +13,7 @@ interface AnimatedLoaderProps {
 }
 
 /** The single loading animation for the app: the Almanac heatmap filling in. */
-export function AnimatedLoader({
-  className,
-  text,
-  fullscreen = false,
-}: AnimatedLoaderProps) {
+export function AnimatedLoader({ className, text, fullscreen = false }: AnimatedLoaderProps) {
   return (
     <div
       className={cn(

@@ -5,17 +5,62 @@ on:
     - cron: '*/10 * * * *'
   workflow_dispatch:
 
+# Runs overlap when a chunk is slow and the next schedule fires. Queue them
+# instead of stacking parallel pumps that fight over the same job lease.
+concurrency:
+  group: refresh-pump
+  cancel-in-progress: false
+
 env:
   DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://kinetic-tracker.vercel.app' }}
 
 jobs:
   pump:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Pump refresh jobs
         run: |
-          curl -X POST "${{ env.DEPLOY_URL }}/api/public/jobs/pump" \
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::CRON_SECRET is not set in this repository's secrets."
+            echo "The endpoint will reject every request with 401. Set it to the"
+            echo "same value as CRON_SECRET in the Vercel project environment."
+            exit 1
+          fi
+
+          # --max-time must exceed the Vercel ceiling, not the chunk budget.
+          # It was 55s against a function that budgets 50s of work plus a 6s
+          # tail and is allowed 60s by maxDuration, so curl aborted with exit
+          # 28 on perfectly healthy chunks and the workflow went red.
+          body=$(mktemp)
+          code=$(curl -sS -X POST "${{ env.DEPLOY_URL }}/api/public/jobs/pump" \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
-            --max-time 55 \
-            --fail-with-body
+            --max-time 90 \
+            -o "$body" -w '%{http_code}')
+
+          echo "HTTP $code"
+          cat "$body"
+          echo
+
+          case "$code" in
+            200)
+              exit 0
+              ;;
+            504|408)
+              # The chunk outlived the platform limit. The job keeps its lease
+              # until it expires and the next pump resumes from the cursor, so
+              # this is recoverable on its own — surface it without failing the
+              # run, or a transient slow chunk permanently reds the workflow.
+              echo "::warning::Gateway timeout ($code) — job resumes on the next pump."
+              exit 0
+              ;;
+            401)
+              echo "::error::401 Unauthorized — CRON_SECRET here does not match the one in Vercel."
+              exit 1
+              ;;
+            *)
+              echo "::error::Pump failed with HTTP $code"
+              exit 1
+              ;;
+          esac

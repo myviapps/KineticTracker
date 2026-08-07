@@ -1,17 +1,38 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useSuspenseQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Plus, Users, Trash2, ArrowRight, Sparkles, BarChart3, Shield, UserCog } from "lucide-react";
+import {
+  Plus,
+  Users,
+  Trash2,
+  ArrowRight,
+  Sparkles,
+  BarChart3,
+  Shield,
+  UserCog,
+} from "lucide-react";
 
 import { listClassrooms, deleteClassroom } from "@/lib/classrooms.functions";
 import { seedMockClassroom } from "@/lib/mock.functions";
 import { Button } from "@/components/ui/button";
 import {
-  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
-  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogCancel, AlertDialogAction,
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { SectionTitle } from "@/components/stat-card";
 import { BulkUploader } from "@/components/bulk-uploader";
@@ -103,7 +124,8 @@ function DashboardPage() {
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-mono text-xs uppercase tracking-[0.25em] text-primary">
-            Almanac / {role === "admin" ? "Admin" : role === "placement_officer" ? "Overview" : "Dashboard"}
+            Almanac /{" "}
+            {role === "admin" ? "Admin" : role === "placement_officer" ? "Overview" : "Dashboard"}
           </h1>
           <h2 className="mt-2 text-3xl font-bold tracking-tight">
             {isAdmin ? "Command Center" : isPO ? "College Overview" : "My Classrooms"}
@@ -128,11 +150,7 @@ function DashboardPage() {
                   <UserCog className="mr-1 size-4" /> Manage Staff
                 </Link>
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => mockM.mutate()}
-                disabled={mockM.isPending}
-              >
+              <Button variant="outline" onClick={() => mockM.mutate()} disabled={mockM.isPending}>
                 <Sparkles className="mr-1 size-4" />
                 {mockM.isPending ? "Seeding…" : "Try Demo Data"}
               </Button>
@@ -146,7 +164,7 @@ function DashboardPage() {
         </div>
       </div>
 
-      {(isAdmin) && (
+      {isAdmin && (
         <div className="mb-10">
           <BulkUploader />
         </div>
@@ -222,7 +240,10 @@ function DashboardPage() {
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
                         className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                         aria-label="Delete classroom"
                       >

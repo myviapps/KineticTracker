@@ -62,7 +62,10 @@ export const listFailedStudents = createServerFn({ method: "GET" })
     const { data: memberships } = await supabaseAdmin
       .from("classroom_students")
       .select("student_id, classrooms(name)")
-      .in("student_id", data.map((s) => s.id));
+      .in(
+        "student_id",
+        data.map((s) => s.id),
+      );
 
     const namesByStudent = new Map<string, string[]>();
     for (const m of memberships ?? []) {
@@ -167,8 +170,7 @@ export const mergeStudents = createServerFn({ method: "POST" })
 
     const norm = (v: string) => v.trim().toLowerCase();
     const [a, b] = pair;
-    const collides =
-      norm(a.roll) === norm(b.roll) || norm(a.leetcode_id) === norm(b.leetcode_id);
+    const collides = norm(a.roll) === norm(b.roll) || norm(a.leetcode_id) === norm(b.leetcode_id);
     if (!collides) {
       throw new Error(
         `${a.roll} and ${b.roll} no longer share a roll number or a LeetCode ID — refresh the page. Merging is only for genuine duplicates.`,
@@ -231,20 +233,25 @@ export const retryFailedStudents = createServerFn({ method: "POST" })
       .in("id", ids);
     if (resetError) throw new Error(resetError.message);
 
-    const { data: jobId, error } = await supabaseAdmin.rpc("enqueue_refresh_job", {
-      p_scope: "students",
-      p_student_ids: ids,
-      p_filter: "all",
-      p_created_by: userId,
-      p_force: data.force,
+    const { enqueueRefreshFanOut } = await import("./refresh-enqueue.server");
+    const { queued: jobs, skipped } = await enqueueRefreshFanOut({
+      scope: "students",
+      studentIds: ids,
+      filter: "all",
+      createdBy: userId,
+      force: data.force,
     });
 
-    if (error) {
-      if (error.message?.includes("refresh_already_active")) {
+    if (jobs.length === 0) {
+      if (skipped.some((s) => s.reason === "already running")) {
         throw new Error("A refresh is already running. Wait for it to finish, or force it.");
       }
-      throw new Error(error.message);
+      throw new Error(
+        skipped.length > 0
+          ? skipped.map((s) => `${s.platformId} — ${s.reason}`).join("; ")
+          : "No platform is enabled for refresh.",
+      );
     }
 
-    return { jobId, queued: ids.length };
+    return { jobIds: jobs.map((j) => j.jobId), queued: ids.length };
   });

@@ -60,13 +60,7 @@ export function SkeletonCard({
 }
 
 /** Table placeholder that keeps the header row solid so the page doesn't jump. */
-export function SkeletonTable({
-  rows = 8,
-  columns = 6,
-}: {
-  rows?: number;
-  columns?: number;
-}) {
+export function SkeletonTable({ rows = 8, columns = 6 }: { rows?: number; columns?: number }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-surface">
       <div className="flex gap-4 border-b border-border bg-background/60 px-4 py-3">

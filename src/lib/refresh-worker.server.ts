@@ -95,6 +95,26 @@ export async function runChunk({
   let consecutiveThrottleBatches = 0;
   let batchNo = 0;
 
+  // Hard ceiling for all work in this chunk. Every fetch clamps its own timeout
+  // to what is left of this, so no batch can run past it.
+  const deadline = t0 + budgetMs - TAIL_MS;
+
+  // Batch duration used to be a hardcoded 12s guess, which is what let a chunk
+  // overrun: the guard admitted a final batch at ~29s elapsed, and a batch of
+  // slow students (3 serialized calls each, 12s timeout, 3 retries) could run
+  // far longer than 12s and push the function past Vercel's 60s ceiling.
+  //
+  // Track it instead. `observedMaxMs` is the pessimistic half of the pair —
+  // an EMA alone would happily re-admit a batch right after one slow outlier.
+  let estBatchMs = 12_000;
+  let observedMaxMs = 0;
+  let calibrated = false;
+
+  const canFitAnotherBatch = () => {
+    const need = Math.max(estBatchMs * 1.5, observedMaxMs) + cooldownMs;
+    return Date.now() - t0 + need < budgetMs - TAIL_MS;
+  };
+
   log.ok("chunk", "✔ claimed", {
     scope: job.scope,
     classroom: job.classroom_id?.slice(0, 8) ?? "-",
@@ -104,7 +124,7 @@ export async function runChunk({
     cooldownMs,
   });
 
-  while (Date.now() - t0 + estimateBatchMs(batchSize, cooldownMs) < budgetMs - TAIL_MS) {
+  while (canFitAnotherBatch()) {
     batchNo += 1;
     const bStart = Date.now();
     let students: { id: string; consecutive_failures: number }[] | null;
@@ -161,11 +181,12 @@ export async function runChunk({
     }
 
     log.info("chunk", `batch ${batchNo}: fetching ${students.length} students concurrently…`);
-    const scrapeResults = await Promise.allSettled(students.map((s) => scrapeOne(s.id)));
+    const scrapeResults = await Promise.allSettled(students.map((s) => scrapeOne(s.id, deadline)));
     log.info("chunk", `batch ${batchNo}: fetch done ${Date.now() - bStart}ms`);
 
     let batchOk = 0;
     let batchThrottled = 0;
+    let batchBudgetCut = 0;
     const batchErrors: { student_id: string; error: string; kind: string }[] = [];
 
     for (let i = 0; i < scrapeResults.length; i++) {
@@ -176,22 +197,48 @@ export async function runChunk({
         const err = r.reason;
         const isThrottle =
           err?.kind === "throttle" || (err?.name === "LeetCodeError" && err?.kind === "throttle");
+        // Ran out of chunk time, not rate-limited. Must not feed the circuit
+        // breaker — parking the whole job for 15 minutes because we hit our own
+        // deadline would be self-inflicted.
+        const isBudget = err?.kind === "budget";
         if (isThrottle) {
           batchThrottled++;
         }
+        if (isBudget) {
+          batchBudgetCut++;
+        }
+        const kind = isBudget ? "budget" : isThrottle ? "throttle" : "fail";
         batchErrors.push({
           student_id: students[i].id,
           error: err?.message ?? String(err),
-          kind: isThrottle ? "throttle" : "fail",
+          kind,
         });
         log.warn("chunk", `  ✕ student ${students[i].id.slice(0, 8)}`, {
-          kind: isThrottle ? "throttle" : "fail",
+          kind,
           err: String(err?.message ?? err).slice(0, 160),
         });
       }
     }
     const batchFailed = scrapeResults.length - batchOk;
     const lastStudent = students[students.length - 1];
+
+    // Calibrate off the first real batch rather than easing toward it — the
+    // seed is a guess, the measurement is not. A chunk only fits ~3-4 batches,
+    // so a slow EMA would still be wrong by the time it mattered.
+    const batchMs = Date.now() - bStart;
+    observedMaxMs = Math.max(observedMaxMs, batchMs);
+    estBatchMs = calibrated ? Math.round(0.7 * estBatchMs + 0.3 * batchMs) : batchMs;
+    calibrated = true;
+
+    if (batchBudgetCut > 0) {
+      // Expected only at the tail. Their rows were left untouched, so the next
+      // run re-reads them; the cursor moving past is a one-run staleness, not
+      // a lost student.
+      log.warn(
+        "chunk",
+        `batch ${batchNo}: ${batchBudgetCut} student(s) cut off by chunk budget — will retry next run`,
+      );
+    }
 
     if (batchThrottled > 0) {
       cooldownMs = Math.min(cooldownMs * 2, 60_000);
@@ -231,7 +278,13 @@ export async function runChunk({
       {
         p_job_id: jobId,
         p_owner: owner,
-        p_expected_cursor: cursor,
+        // null is the legitimate value for the FIRST batch of a job, and the SQL
+        // parameter is a plain nullable uuid. The type generator models every
+        // function argument as non-null, so this cast asserts what the function
+        // signature already allows. Passing `undefined` instead would drop the
+        // key from the request body and PostgREST would reject the call, since
+        // p_expected_cursor has no default.
+        p_expected_cursor: cursor as string,
         p_new_cursor: lastStudent.id,
         p_ok: batchOk,
         p_failed: batchFailed,
@@ -268,14 +321,17 @@ export async function runChunk({
 
     log.ok(
       "chunk",
-      `batch ${batchNo}: committed ✓${batchOk} ✕${batchFailed} — ${processed}/${total} in ${Date.now() - bStart}ms`,
+      `batch ${batchNo}: committed ✓${batchOk} ✕${batchFailed} — ${processed}/${total} in ${batchMs}ms`,
       {
         cooldownMs,
+        estBatchMs,
         elapsed: `${Math.round((Date.now() - t0) / 1000)}s/${Math.round(budgetMs / 1000)}s`,
       },
     );
 
-    if (Date.now() - t0 + cooldownMs < budgetMs - TAIL_MS) {
+    // Only pay the cooldown if another batch is actually going to follow it —
+    // otherwise it is dead time charged against the function's wall clock.
+    if (canFitAnotherBatch()) {
       await sleep(cooldownMs);
     }
   }
@@ -357,13 +413,9 @@ export async function runChunk({
   return { claimed: true, done, processed, succeeded, failed, total };
 }
 
-async function scrapeOne(studentId: string): Promise<void> {
+async function scrapeOne(studentId: string, deadline: number): Promise<void> {
   const { scrapeStudentById } = await import("./scrape.server");
-  await scrapeStudentById(studentId);
-}
-
-function estimateBatchMs(_batchSize: number, cooldownMs: number): number {
-  return 12_000 + cooldownMs;
+  await scrapeStudentById(studentId, deadline);
 }
 
 function sleep(ms: number): Promise<void> {

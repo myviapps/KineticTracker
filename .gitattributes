@@ -1,0 +1,21 @@
+# Normalize line endings.
+#
+# 41 files had been committed with CRLF while the other 114 used LF, so
+# `eslint` reported ~2400 `Delete ␍` errors that had nothing to do with the code
+# and buried the real findings. Checking everything out as LF keeps the two in
+# step regardless of which OS a contributor is on.
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+*.xlsx binary
+*.xls binary

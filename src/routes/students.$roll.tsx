@@ -3,18 +3,16 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Flame, Trophy, Calendar, Star, Code, Brain, EyeOff } from "lucide-react";
-import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Trophy, EyeOff } from "lucide-react";
 
 import { getStudentByRoll, refreshStudent } from "@/lib/students.functions";
-import { useCssVars } from "@/hooks/use-css-vars";
-import { CHART_MOTION } from "@/lib/chart-motion";
 import { Button } from "@/components/ui/button";
-import { Heatmap } from "@/components/heatmap";
-import { StatCard, SectionTitle } from "@/components/stat-card";
-import {
-  todayCount, thisWeekCount, thisMonthCount, thisYearCount,
-} from "@/lib/date-buckets";
+import { PlatformStrip } from "@/components/platform-strip";
+import { PlatformDetail } from "@/components/platform-detail";
+import { panelFor } from "@/components/platform/registry";
+import { UnavailablePanel } from "@/components/platform/panel-kit";
+import { platformStatus } from "@/lib/platform-capabilities";
+import { StatCard } from "@/components/stat-card";
 import { cn } from "@/lib/utils";
 import { AnimatedLoader } from "@/components/animated-loader";
 
@@ -37,88 +35,30 @@ export const Route = createFileRoute("/students/$roll")({
   },
   component: StudentPage,
   pendingComponent: PendingStudent,
-  errorComponent: ({ error }) => <div className="p-8 text-sm text-destructive">{error.message}</div>,
+  errorComponent: ({ error }) => (
+    <div className="p-8 text-sm text-destructive">{error.message}</div>
+  ),
   notFoundComponent: () => <div className="p-8 text-sm">Student not found.</div>,
 });
-
-function EmptyState({ icon, title, description }: { icon?: React.ReactNode; title: string; description?: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border p-8 text-center">
-      {icon && <div className="mb-2 text-muted-foreground">{icon}</div>}
-      <p className="text-sm font-medium text-muted-foreground">{title}</p>
-      {description && <p className="mt-1 text-xs text-muted-foreground/70">{description}</p>}
-    </div>
-  );
-}
 
 function StudentPage() {
   const { roll } = Route.useParams();
   const { data } = useSuspenseQuery(studentQO(roll));
-  const { student, stats, recent, history, classrooms, ranks, masked } = data;
+  // Which platform's deep-dive is showing. Defaults to LeetCode when present so
+  // the page opens on the view it always had.
+  const [tab, setTab] = useState<string>("leetcode");
+  const { student, stats, classrooms, ranks, masked, platforms } = data;
   const router = useRouter();
 
   const refresh = useServerFn(refreshStudent);
   const refreshM = useMutation({
     mutationFn: () => refresh({ data: { id: student.id } }),
-    onSuccess: () => { toast.success("Refreshed"); router.invalidate(); },
+    onSuccess: () => {
+      toast.success("Refreshed");
+      router.invalidate();
+    },
     onError: (e) => toast.error(String(e)),
   });
-
-  const [cBorder, cMutedFg, cPrimary, cSurface2, cEasy, cMedium, cHard] = useCssVars(
-    "--border", "--muted-foreground", "--primary", "--surface-2", "--easy", "--medium", "--hard",
-  );
-
-  const cal = (stats?.submission_calendar ?? {}) as Record<string, number>;
-  const today = todayCount(cal);
-  const week = thisWeekCount(cal);
-  const month = thisMonthCount(cal);
-  const year = thisYearCount(cal);
-
-  // Normalized language stats
-  const rawLangs = stats?.language_stats;
-  const langs = Array.isArray(rawLangs)
-    ? (rawLangs as any[]).map((l: any) => ({
-        language: l.languageName ?? l.language ?? "Unknown",
-        solved: l.problemsSolved ?? l.solved ?? 0,
-      })).sort((a, b) => b.solved - a.solved).slice(0, 6)
-    : [];
-
-  // Normalized tag stats
-  const rawTags = stats?.tag_stats;
-  const tags = rawTags && typeof rawTags === "object" && !Array.isArray(rawTags)
-    ? {
-        fundamental: ((rawTags as any).fundamental ?? []).map((t: any) => ({
-          tag: t.tagName ?? t.tag ?? "Unknown",
-          solved: t.problemsSolved ?? t.solved ?? 0,
-        })),
-        intermediate: ((rawTags as any).intermediate ?? []).map((t: any) => ({
-          tag: t.tagName ?? t.tag ?? "Unknown",
-          solved: t.problemsSolved ?? t.solved ?? 0,
-        })),
-        advanced: ((rawTags as any).advanced ?? []).map((t: any) => ({
-          tag: t.tagName ?? t.tag ?? "Unknown",
-          solved: t.problemsSolved ?? t.solved ?? 0,
-        })),
-      }
-    : { fundamental: [], intermediate: [], advanced: [] };
-
-  const [activeDiff, setActiveDiff] = useState<number | null>(null);
-  const totalSolved = (stats?.easy_solved ?? 0) + (stats?.medium_solved ?? 0) + (stats?.hard_solved ?? 0);
-  const difficultyData = [
-    { name: "Easy", value: stats?.easy_solved ?? 0, color: cEasy },
-    { name: "Medium", value: stats?.medium_solved ?? 0, color: cMedium },
-    { name: "Hard", value: stats?.hard_solved ?? 0, color: cHard },
-  ];
-  const hasDifficulty = difficultyData.some(d => d.value > 0);
-  const center = activeDiff != null ? difficultyData[activeDiff] : null;
-
-  const badges = (stats?.badges ?? []) as { id: string; name: string; icon: string; date: string }[];
-
-  const chartData = history.map((h: any) => ({
-    date: h.snapshot_date,
-    total: h.total_solved,
-    day: h.solved_that_day,
-  }));
 
   const err = student.scrape_error;
 
@@ -184,7 +124,8 @@ function StudentPage() {
               ) : (
                 <a
                   href={`https://leetcode.com/u/${student.leetcode_id}/`}
-                  target="_blank" rel="noreferrer"
+                  target="_blank"
+                  rel="noreferrer"
                   className="inline-flex items-center gap-1 text-primary hover:underline"
                 >
                   @{student.leetcode_id} <ExternalLink className="size-3" />
@@ -193,7 +134,10 @@ function StudentPage() {
               {student.email && <span className="font-mono">· {student.email}</span>}
               {stats?.real_name && <span>· {stats.real_name}</span>}
               {stats?.country && (
-                <span className="inline-flex items-center gap-1"><MapPin className="size-3" />{stats.country}</span>
+                <span className="inline-flex items-center gap-1">
+                  <MapPin className="size-3" />
+                  {stats.country}
+                </span>
               )}
             </div>
             {student.last_scraped_at && (
@@ -205,7 +149,11 @@ function StudentPage() {
           {/* The Refresh button used to render for anonymous visitors too, where it
               could only ever return Unauthorized. */}
           {!masked && (
-            <Button variant="outline" onClick={() => refreshM.mutate()} disabled={refreshM.isPending}>
+            <Button
+              variant="outline"
+              onClick={() => refreshM.mutate()}
+              disabled={refreshM.isPending}
+            >
               <RefreshCw className={cn("mr-1 size-4", refreshM.isPending && "animate-spin")} />
               Refresh
             </Button>
@@ -217,8 +165,8 @@ function StudentPage() {
         <div className="mb-6 flex items-start gap-3 rounded-lg border border-border bg-surface p-4 text-sm">
           <EyeOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            Personal details are partially hidden on the public view. All LeetCode
-            progress below is complete.{" "}
+            Personal details are partially hidden on the public view. All LeetCode progress below is
+            complete.{" "}
             <span className="text-foreground">Staff can sign in to see full details.</span>
           </p>
         </div>
@@ -240,6 +188,11 @@ function StudentPage() {
         masked viewer: each carries a classroom NAME, and cohort membership is
         precisely what masking exists to hide.
       */}
+      {/* Every platform at a glance, before any single-platform detail. A student
+          on five sites should not have to infer their spread from a LeetCode
+          donut. */}
+      <PlatformStrip platforms={platforms} masked={masked} />
+
       {ranks && ranks.classroom_ranks.length > 0 && (
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           {ranks.classroom_ranks.map((cr) => (
@@ -257,11 +210,25 @@ function StudentPage() {
         </div>
       )}
 
-      {/* Row 2: KPI tiles. Five since College Rank and LeetCode World Rank split
-          apart, so the lg track count moved with it — at 4 the fifth tile dropped
-          to a row of its own. */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Total Solved" value={stats?.total_solved ?? 0} hint={`of ${stats?.total_questions ?? 0}`} />
+      {/*
+        Row 2: KPI tiles.
+
+        The first two are cross-platform and stay put. The rest FOLLOW THE
+        SELECTED PLATFORM — they used to be hardcoded to student_stats, so
+        switching to Codeforces changed the panel at the bottom of the page while
+        "Total Solved", "World Rank", "Streak" and "Contest Rating" above it went
+        on quoting LeetCode. The page said Codeforces and showed LeetCode.
+      */}
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <StatCard
+          label="Almanac Score"
+          value={ranks ? Math.round(ranks.almanac_score).toLocaleString() : "—"}
+          hint={
+            ranks?.college_name
+              ? `#${ranks.college_rank} in ${ranks.college_name}`
+              : "difficulty-weighted, all platforms"
+          }
+        />
         <StatCard
           label="College Rank"
           value={
@@ -273,252 +240,62 @@ function StudentPage() {
               "—"
             )
           }
-          hint={ranks?.college_total ? `of ${ranks.college_total} students` : undefined}
-        />
-        <StatCard
-          label="LeetCode World Rank"
-          value={stats?.ranking ? `#${stats.ranking.toLocaleString()}` : "—"}
-          hint="worldwide, from their profile"
-        />
-        <StatCard
-          label="Streak"
-          value={<span className="inline-flex items-center gap-1"><Flame className="size-5 text-primary" />{stats?.streak ?? 0}d</span>}
-          hint={`${stats?.total_active_days ?? 0} active days`}
-        />
-        <StatCard
-          label="Contest Rating"
-          value={stats?.contest_rating ? Math.round(stats.contest_rating).toLocaleString() : "—"}
-          hint={stats?.contests_attended ? `${stats.contests_attended} contests` : undefined}
+          hint={
+            ranks?.college_total
+              ? `of ${ranks.college_total}${ranks.overall_total > ranks.college_total ? ` · #${ranks.overall_rank} of ${ranks.overall_total} overall` : ""}`
+              : undefined
+          }
         />
       </div>
 
-      {/* Row 3: Heatmap + Difficulty */}
-      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* <Heatmap> renders its own card and "Submission Activity" heading — this
-            used to wrap it in a second card with the same heading, giving nested
-            borders and a duplicated title. */}
-        <div className="lg:col-span-2">
-          <Heatmap calendar={cal} />
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-6">
-          <SectionTitle>Difficulty Breakdown</SectionTitle>
-          {hasDifficulty ? (
-            <div className="mt-2 flex justify-center">
-              <div className="relative size-36">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                  {...CHART_MOTION}
-                      data={difficultyData}
-                      cx="50%" cy="50%"
-                      innerRadius={48} outerRadius={68}
-                      dataKey="value"
-                      strokeWidth={0}
-                      activeIndex={activeDiff ?? undefined}
-                      onMouseEnter={(_, i) => setActiveDiff(i)}
-                      onMouseLeave={() => setActiveDiff(null)}
-                    >
-                      {difficultyData.map((e) => <Cell key={e.name} fill={e.color} />)}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="text-xl font-bold leading-none text-foreground">{center ? center.value : totalSolved}</div>
-                    <div className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
-                      {center ? center.name : "Solved"}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-2 space-y-4">
-              <DifficultyBar label="EASY" color="easy" solved={stats?.easy_solved ?? 0} total={stats?.easy_total ?? 0} />
-              <DifficultyBar label="MEDIUM" color="medium" solved={stats?.medium_solved ?? 0} total={stats?.medium_total ?? 0} />
-              <DifficultyBar label="HARD" color="hard" solved={stats?.hard_solved ?? 0} total={stats?.hard_total ?? 0} />
-            </div>
-          )}
-          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-4 font-mono text-xs">
-            <div>
-              <div className="text-muted-foreground">Acceptance</div>
-              <div className="text-base font-bold">{stats?.acceptance_rate ?? "—"}%</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Reputation</div>
-              <div className="text-base font-bold">{stats?.reputation ?? 0}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Row 4: Languages + Skills */}
-      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-surface p-6">
-          <SectionTitle>Languages</SectionTitle>
-          {langs.length === 0 ? (
-            <EmptyState icon={<Code className="size-6" />} title="No language data" description="Scrape the profile to see language statistics." />
-          ) : (
-            <div className="mt-3 space-y-3">
-              {langs.map((l) => {
-                const max = Math.max(...langs.map((x) => x.solved));
-                return (
-                  <div key={l.language}>
-                    <div className="mb-1 flex justify-between font-mono text-xs">
-                      <span>{l.language}</span>
-                      <span className="text-muted-foreground">{l.solved}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full bg-primary" style={{ width: `${(l.solved / max) * 100}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-border bg-surface p-6">
-          <SectionTitle>Skills by Topic</SectionTitle>
-          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <TagColumn title="Advanced" tags={tags.advanced} color="text-hard" />
-            <TagColumn title="Intermediate" tags={tags.intermediate} color="text-medium" />
-            <TagColumn title="Fundamental" tags={tags.fundamental} color="text-easy" />
-          </div>
-          {tags.fundamental.length === 0 && tags.intermediate.length === 0 && tags.advanced.length === 0 && (
-            <EmptyState icon={<Brain className="size-6" />} title="No skill data" description="Scrape the profile to see skill breakdown." />
-          )}
-        </div>
-      </div>
-
-      {/* Row 5: Solved over time + Badges */}
-      <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          {chartData.length > 1 ? (
-            <div className="rounded-lg border border-border bg-surface p-6">
-              <SectionTitle>Solved Over Time</SectionTitle>
-              <div className="mt-2 h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData}>
-                    <CartesianGrid stroke={cBorder} strokeDasharray="3 3" />
-                    <XAxis dataKey="date" stroke={cMutedFg} fontSize={10} />
-                    <YAxis stroke={cMutedFg} fontSize={10} />
-                    <Tooltip
-                      contentStyle={{
-                        background: cSurface2,
-                        border: `1px solid ${cBorder}`,
-                        borderRadius: 6,
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 12,
-                        color: cMutedFg,
-                      }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="total"
-                      stroke={cPrimary}
-                      strokeWidth={2}
-                      dot={false}
-                      {...CHART_MOTION}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          ) : (
-            <EmptyState icon={<Calendar className="size-6" />} title="Not enough history" description="At least 2 snapshots needed for a chart." />
-          )}
-        </div>
-
-        <div className="rounded-lg border border-border bg-surface p-6">
-          <SectionTitle>Badges</SectionTitle>
-          {badges.length === 0 ? (
-            <EmptyState icon={<Star className="size-6" />} title="No badges earned" />
-          ) : (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {badges.map((b) => (
-                <div
-                  key={b.id}
-                  className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 text-xs"
-                  title={new Date(b.date).toLocaleDateString()}
-                >
-                  {b.icon && <img src={b.icon.startsWith("http") ? b.icon : `https://leetcode.com${b.icon}`} alt="" className="size-6" onError={(e) => (e.currentTarget.style.display = "none")} />}
-                  <span className="font-semibold">{b.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Row 6: Recent submissions */}
-      <div className="rounded-lg border border-border bg-surface p-6">
-        <SectionTitle>Recent Accepted (last 20)</SectionTitle>
-        {recent.length === 0 ? (
-          <EmptyState title="No recent submissions" description="Scrape the profile to populate recent submissions." />
-        ) : (
-          <div className="mt-3 max-h-80 space-y-1 overflow-auto">
-            {recent.map((r: any) => (
-              <a
-                key={r.title_slug + r.submitted_at}
-                href={`https://leetcode.com/problems/${r.title_slug}/`}
-                target="_blank" rel="noreferrer"
-                className="flex items-center justify-between rounded-md border border-transparent px-3 py-2 text-sm hover:border-border hover:bg-surface-2"
-              >
-                <span className="truncate">{r.title}</span>
-                <span className="ml-3 flex shrink-0 items-center gap-2 font-mono text-[10px] text-muted-foreground">
-                  <span className="rounded bg-muted px-1.5 py-0.5">{r.lang}</span>
-                  {new Date(r.submitted_at).toLocaleDateString()}
-                </span>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DifficultyBar({
-  label, color, solved, total,
-}: { label: string; color: "easy" | "medium" | "hard"; solved: number; total: number }) {
-  const pct = total > 0 ? (solved / total) * 100 : 0;
-  const bg = color === "easy" ? "bg-easy" : color === "medium" ? "bg-medium" : "bg-hard";
-  const tc = color === "easy" ? "text-easy" : color === "medium" ? "text-medium" : "text-hard";
-  return (
-    <div>
-      <div className="mb-1 flex justify-between font-mono text-[11px] font-bold">
-        <span className={tc}>{label}</span>
-        <span className="text-muted-foreground">
-          <span className="text-foreground">{solved}</span> / {total}
-        </span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full", bg)} style={{ width: `${Math.min(100, pct)}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function TagColumn({ title, tags, color }: { title: string; tags: { tag: string; solved: number }[]; color: string }) {
-  const sorted = [...tags].sort((a, b) => b.solved - a.solved).slice(0, 8);
-  return (
-    <div>
-      <h4 className={cn("mb-2 font-mono text-[10px] font-bold uppercase tracking-widest", color)}>
-        {title}
-      </h4>
-      {sorted.length === 0 ? (
-        <p className="text-xs text-muted-foreground">—</p>
-      ) : (
-        <ul className="space-y-1.5 text-xs">
-          {sorted.map((t) => (
-            <li key={t.tag} className="flex items-center justify-between font-mono">
-              <span>{t.tag}</span>
-              <span className="text-muted-foreground">{t.solved}</span>
-            </li>
+      {/* Platform switcher.
+          Only the connected platforms appear — a tab for a site the student has
+          no account on is a dead end. LeetCode keeps its bespoke layout because
+          it publishes far more than anything else; everything else shares one
+          generic panel driven by whatever that platform actually returns. */}
+      {platforms.length > 0 && (
+        <div className="mb-5 flex flex-wrap gap-1.5 border-b border-border pb-2">
+          {platforms.map((pl) => (
+            <button
+              key={pl.platform_id}
+              type="button"
+              onClick={() => setTab(pl.platform_id)}
+              className={
+                tab === pl.platform_id
+                  ? "rounded-md bg-primary/15 px-3 py-1.5 text-xs font-semibold text-primary"
+                  : "rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              }
+            >
+              {pl.name}
+            </button>
           ))}
-        </ul>
+        </div>
       )}
+
+      {/*
+        One panel per platform, each speaking that platform's own language.
+        A platform with no adapter never gets a panel — it gets a state that
+        says so, because "nothing fetched yet" implies a fetch is coming.
+      */}
+      {(() => {
+        const sel = platforms.find((pl) => pl.platform_id === tab);
+        if (!sel) return null;
+
+        const status = platformStatus(sel.platform_id, sel.enabled);
+        if (status === "no_adapter" || status === "blocked" || status === "excluded") {
+          return (
+            <UnavailablePanel
+              name={sel.name}
+              platformId={sel.platform_id}
+              status={status}
+              handle={sel.handle}
+            />
+          );
+        }
+
+        const Panel = panelFor(sel.platform_id);
+        return Panel ? <Panel p={sel} stats={stats} /> : <PlatformDetail p={sel} />;
+      })()}
     </div>
   );
 }

@@ -21,20 +21,36 @@
  * and matches `auth-middleware.ts` — a top-level import would pull the
  * service-role client into the browser bundle.
  */
-import { createMiddleware } from "@tanstack/react-start";
-import type { AppRole } from "@/integrations/supabase/types";
+import { createMiddleware, createServerOnlyFn } from "@tanstack/react-start";
+import type { AppRole } from "@/integrations/supabase/app-role";
 
 /** Most privileged last. Used to collapse multi-role users to one effective role. */
 const ROLE_RANK: Record<AppRole, number> = {
   faculty: 1,
   placement_officer: 2,
-  admin: 3,
+  // A CEO oversees whole institutions, so they outrank a placement officer — but
+  // only within the colleges assigned to them. The breadth of their reach is
+  // enforced by college_assignments, not by this number; this only decides which
+  // single role a multi-role user is reported as.
+  ceo: 3,
+  admin: 4,
 };
 
-async function admin() {
+/**
+ * The service-role client, fetched lazily so a top-level import never pulls it
+ * into the browser bundle.
+ *
+ * Wrapped in createServerOnlyFn as defence in depth. The build already strips
+ * this correctly — a production build was checked and none of the 89 client
+ * assets reference supabaseAdmin, SUPABASE_SERVICE_ROLE_KEY or the key itself —
+ * but "correctly stripped" is a property of the bundler, not of this code. If
+ * that ever regresses, this throws loudly on the client instead of quietly
+ * handing a browser a key that bypasses every RLS policy.
+ */
+const admin = createServerOnlyFn(async () => {
   const mod = await import("@/integrations/supabase/client.server");
   return mod.supabaseAdmin;
-}
+});
 
 /**
  * The caller's effective role, or null if they hold none.
@@ -65,8 +81,7 @@ export async function resolveRole(userId: string): Promise<AppRole | null> {
 export const canAdminister = (role: AppRole | null) => role === "admin";
 
 /** Add / edit / delete students, and refresh a classroom. */
-export const canManageStudents = (role: AppRole | null) =>
-  role === "admin" || role === "faculty";
+export const canManageStudents = (role: AppRole | null) => role === "admin" || role === "faculty";
 
 /** See every classroom rather than only assigned ones. */
 export const canViewAllClassrooms = (role: AppRole | null) =>
@@ -83,9 +98,29 @@ export async function accessibleClassroomIds(
   role: AppRole | null,
 ): Promise<string[] | null> {
   if (canViewAllClassrooms(role)) return null;
-  if (role !== "faculty") return [];
 
   const supabaseAdmin = await admin();
+
+  // A CEO sees every classroom of every college assigned to them — broader than
+  // faculty, narrower than admin. Returning [] rather than null when they have no
+  // assignment is deliberate: an unassigned CEO must see nothing, not everything.
+  if (role === "ceo") {
+    const { data: colleges } = await supabaseAdmin
+      .from("college_assignments")
+      .select("college_id")
+      .eq("user_id", userId);
+    const collegeIds = (colleges ?? []).map((c) => c.college_id);
+    if (collegeIds.length === 0) return [];
+
+    const { data } = await supabaseAdmin
+      .from("classrooms")
+      .select("id")
+      .in("college_id", collegeIds);
+    return (data ?? []).map((c) => c.id);
+  }
+
+  if (role !== "faculty") return [];
+
   const { data } = await supabaseAdmin
     .from("faculty_assignments")
     .select("classroom_id")
@@ -100,9 +135,22 @@ export async function assertClassroomAccess(
   classroomId: string,
 ): Promise<void> {
   if (canViewAllClassrooms(role)) return;
-  if (role !== "faculty") throw new Error("Forbidden");
 
   const supabaseAdmin = await admin();
+
+  // Delegated to SQL rather than re-implemented here, so the CEO rule lives in
+  // exactly one place and cannot drift from the RLS policies that use it.
+  if (role === "ceo") {
+    const { data, error } = await supabaseAdmin.rpc("has_classroom_access", {
+      _user: userId,
+      _classroom: classroomId,
+    });
+    // Fail closed: a transport error must not read as "allowed".
+    if (error || !data) throw new Error("Forbidden: classroom not in an assigned college");
+    return;
+  }
+
+  if (role !== "faculty") throw new Error("Forbidden");
   const { data: assignment } = await supabaseAdmin
     .from("faculty_assignments")
     .select("classroom_id")
@@ -136,7 +184,11 @@ export async function assertStudentAccess(
   // Fast path. The predicate agrees — it returns true for both these roles — but
   // this saves a round trip on the majority case.
   if (canViewAllClassrooms(role)) return;
-  if (role !== "faculty") throw new Error("Forbidden");
+  // 'ceo' must fall THROUGH to the predicate, not be rejected here. has_student_access
+  // grants a CEO any student in an assigned college; short-circuiting on
+  // `role !== "faculty"` would deny them every student while the RLS policy said yes —
+  // the two-copies-of-one-rule drift this function exists to avoid.
+  if (role !== "faculty" && role !== "ceo") throw new Error("Forbidden");
 
   const supabaseAdmin = await admin();
   const { data: allowed, error } = await supabaseAdmin.rpc("has_student_access", {
@@ -194,7 +246,7 @@ export type Viewer = { userId: string; role: AppRole | null };
  * lookup: that page has to serve anonymous visitors a masked profile and signed-in
  * staff the full one. Same request path, two audiences.
  */
-export async function resolveOptionalViewer(): Promise<Viewer | null> {
+export const resolveOptionalViewer = createServerOnlyFn(async (): Promise<Viewer | null> => {
   const { getRequest } = await import("@tanstack/react-start/server");
   const request = getRequest();
 
@@ -221,7 +273,7 @@ export async function resolveOptionalViewer(): Promise<Viewer | null> {
     // A malformed or expired token is an anonymous viewer, not a 500.
     return null;
   }
-}
+});
 
 /**
  * True when this viewer may see unmasked identity fields for this student.
@@ -263,10 +315,7 @@ type MiddlewareArgs = {
   context: Record<string, unknown>;
 };
 
-async function attachRole(
-  { next, context }: MiddlewareArgs,
-  allowed: AppRole[] | null,
-) {
+async function attachRole({ next, context }: MiddlewareArgs, allowed: AppRole[] | null) {
   const userId = context.userId as string;
   const role = (context.role as AppRole | undefined) ?? (await resolveRole(userId));
   if (!role) throw new Error("Forbidden: no role assigned");

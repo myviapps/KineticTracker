@@ -28,7 +28,21 @@ export const listClassrooms = createServerFn({ method: "GET" })
 
     const allowed = await accessibleClassroomIds(userId, role);
     if (allowed !== null && allowed.length === 0) {
-      return { classrooms: [], totalStudents: 0 };
+      // Typed explicitly so this branch has the SAME shape as the success path —
+      // an empty literal would widen `platforms` to never[] and make the whole
+      // return type a union the caller has to narrow.
+      return {
+        classrooms: [] as {
+          id: string;
+          name: string;
+          description: string | null;
+          created_at: string;
+          student_count: number;
+          platforms: ClassroomPlatformRollup[];
+        }[],
+        platforms: [] as CohortPlatform[],
+        totalStudents: 0,
+      };
     }
 
     let query = supabaseAdmin
@@ -52,21 +66,118 @@ export const listClassrooms = createServerFn({ method: "GET" })
     let totalStudents = 0;
     try {
       const [countsRes, distinctRes] = await Promise.all([
-        supabaseAdmin.rpc("classroom_student_counts", { p_classroom_ids: allowed }),
-        supabaseAdmin.rpc("distinct_student_count", { p_classroom_ids: allowed }),
+        // `allowed` is null when the viewer is unrestricted. Both RPCs declare
+        // `p_classroom_ids uuid[] default null`, so omitting the argument is
+        // exactly equivalent — the regenerated types simply stopped accepting an
+        // explicit null.
+        supabaseAdmin.rpc("classroom_student_counts", { p_classroom_ids: allowed ?? undefined }),
+        supabaseAdmin.rpc("distinct_student_count", { p_classroom_ids: allowed ?? undefined }),
       ]);
       for (const r of countsRes.data ?? []) countMap.set(r.classroom_id, Number(r.student_count));
       totalStudents = Number(distinctRes.data ?? 0);
-    } catch { /* headcounts are decorative — non-fatal */ }
+    } catch {
+      /* headcounts are decorative — non-fatal */
+    }
+
+    /*
+      Per-classroom, per-platform rollups so the card grid can carry a platform
+      lens instead of showing only a headcount.
+
+      Two flat queries joined in JS rather than a nested PostgREST select: the
+      embed would be `classrooms -> classroom_students -> platform_stats`, which
+      is exactly the depth at which inference collapses (see the note on
+      loadCohortPlatformStats) and, more practically, PostgREST's row cap applies
+      to the OUTER rows so a large install would silently truncate the middle.
+    */
+    const ids = (classrooms ?? []).map((c) => c.id);
+    const byClassroom = new Map<string, Map<string, ClassroomPlatformRollup>>();
+    let platforms: CohortPlatform[] = [];
+
+    if (ids.length) {
+      try {
+        const { data: memberships } = await supabaseAdmin
+          .from("classroom_students")
+          .select("classroom_id, student_id")
+          .in("classroom_id", ids);
+
+        const studentIds = [...new Set((memberships ?? []).map((m) => m.student_id))];
+
+        if (studentIds.length) {
+          const { loadCohortPlatformStats } = await import("./cohort-platforms.server");
+          const { cohortPlatforms, platformStatsById } = await loadCohortPlatformStats(studentIds);
+          platforms = cohortPlatforms;
+
+          for (const m of memberships ?? []) {
+            const perPlatform = platformStatsById.get(m.student_id);
+            if (!perPlatform) continue;
+            const room = byClassroom.get(m.classroom_id) ?? new Map();
+            byClassroom.set(m.classroom_id, room);
+
+            for (const [platformId, stat] of Object.entries(perPlatform)) {
+              const agg = room.get(platformId) ?? {
+                platform_id: platformId,
+                tracked: 0,
+                solved: 0,
+                metric_sum: 0,
+                metric_count: 0,
+              };
+              agg.tracked += 1;
+              agg.solved += stat.total_solved ?? 0;
+              // The value this platform RANKS on, so the card's headline is
+              // rating for Codeforces and solved for LeetCode rather than one
+              // number pretending to mean the same thing everywhere.
+              const meta = cohortPlatforms.find((p) => p.id === platformId);
+              const v =
+                meta?.rank_metric === "rating"
+                  ? stat.rating
+                  : meta?.rank_metric === "score"
+                    ? (stat.platform_score ?? stat.total_solved)
+                    : stat.total_solved;
+              if (v !== null && v !== undefined) {
+                agg.metric_sum += v;
+                agg.metric_count += 1;
+              }
+              room.set(platformId, agg);
+            }
+          }
+        }
+      } catch {
+        /* the grid still renders with headcounts only */
+      }
+    }
 
     return {
       classrooms: (classrooms ?? []).map((c) => ({
         ...c,
         student_count: countMap.get(c.id) ?? 0,
+        platforms: [...(byClassroom.get(c.id)?.values() ?? [])],
       })),
+      // Every platform in use across the visible cohorts, for the lens.
+      platforms,
       totalStudents,
     };
   });
+
+/** One classroom's rollup for one platform, for the classrooms grid. */
+export type ClassroomPlatformRollup = {
+  platform_id: string;
+  /** Students in this cohort holding a handle on this platform. */
+  tracked: number;
+  solved: number;
+  metric_sum: number;
+  metric_count: number;
+};
+
+export type CohortPlatform = { id: string; name: string; rank_metric: string; sort_order: number };
+export type CohortPlatformStat = {
+  total_solved: number | null;
+  rating: number | null;
+  max_rating: number | null;
+  platform_score: number | null;
+  global_rank: number | null;
+  handle: string;
+  fetch_status: string | null;
+};
 
 export const getClassroom = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth, withRole])
@@ -100,10 +211,17 @@ export const getClassroom = createServerFn({ method: "GET" })
           .select("id, name, roll, email, leetcode_id, last_scraped_at, scrape_error")
           .in("id", memberIds)
           .order("roll", { ascending: true })
-      : { data: [] as {
-          id: string; name: string; roll: string; email: string | null;
-          leetcode_id: string; last_scraped_at: string | null; scrape_error: string | null;
-        }[] };
+      : {
+          data: [] as {
+            id: string;
+            name: string;
+            roll: string;
+            email: string | null;
+            leetcode_id: string;
+            last_scraped_at: string | null;
+            scrape_error: string | null;
+          }[],
+        };
 
     const ids = (students ?? []).map((s) => s.id);
 
@@ -136,12 +254,14 @@ export const getClassroom = createServerFn({ method: "GET" })
       });
       const row = Array.isArray(preview) ? preview[0] : preview;
       if (row) deletePreview = { orphan_count: row.orphan_count, shared_count: row.shared_count };
-    } catch { /* the dialog falls back to generic copy */ }
+    } catch {
+      /* the dialog falls back to generic copy */
+    }
     const statsPromise = ids.length
       ? supabaseAdmin.from("student_stats").select("*").in("student_id", ids)
       : Promise.resolve({ data: [] as any[], error: null });
     const [statsRes] = await Promise.allSettled([statsPromise]);
-    const stats = statsRes.status === "fulfilled" ? statsRes.value.data ?? [] : [];
+    const stats = statsRes.status === "fulfilled" ? (statsRes.value.data ?? []) : [];
 
     const statsById = new Map(stats.map((s: any) => [s.student_id, s]));
 
@@ -166,6 +286,13 @@ export const getClassroom = createServerFn({ method: "GET" })
           .from("daily_snapshots")
           .select("student_id, snapshot_date, total_solved")
           .in("student_id", ids)
+          // MUST filter by platform. daily_snapshots is keyed
+          // (student_id, platform_id, snapshot_date) since 20260808000003, so
+          // without this a student with accounts on five platforms returns five
+          // rows per date and the progress delta below silently diffs a LeetCode
+          // total against a Codeforces one. Production already had 10 such
+          // (student, date) collisions when this was found.
+          .eq("platform_id", "leetcode")
           .gte("snapshot_date", since.toISOString().slice(0, 10))
           .order("snapshot_date", { ascending: true })
       : { data: [] as { student_id: string; snapshot_date: string; total_solved: number }[] };
@@ -196,15 +323,25 @@ export const getClassroom = createServerFn({ method: "GET" })
       });
     }
 
+    const { loadCohortPlatformStats } = await import("./cohort-platforms.server");
+    const { cohortPlatforms, platformStatsById } = await loadCohortPlatformStats(ids);
+
     return {
       classroom,
       deletePreview,
+      // Which platforms this cohort actually uses, for the selector. Derived from
+      // the roster rather than listing every enabled platform: a tab for a site
+      // nobody here has an account on is a dead end.
+      platforms: cohortPlatforms,
       students: (students ?? []).map((s) => ({
         ...s,
         stats: statsById.get(s.id) ?? null,
         progress: progressById.get(s.id) ?? null,
         shared: sharedIds.has(s.id),
         ranks: ranksById.get(s.id) ?? null,
+        // platform_id -> that platform's headline numbers, so the table can swap
+        // columns without another round trip per tab.
+        platformStats: platformStatsById.get(s.id) ?? {},
       })),
     };
   });
@@ -212,12 +349,15 @@ export const getClassroom = createServerFn({ method: "GET" })
 export const createClassroom = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, requireRole("admin")])
   .validator((d: unknown) => CreateClassroomInput.parse(d))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { resolveCollegeId } = await import("./colleges.server");
+    const collegeId = await resolveCollegeId({ userId: context.userId });
 
     const { data: row, error } = await supabaseAdmin
       .from("classrooms")
-      .insert({ name: data.name, description: data.description ?? null })
+      .insert({ name: data.name, description: data.description ?? null, college_id: collegeId })
       .select("id")
       .single();
     if (error) throw new Error(error.message);
@@ -295,12 +435,18 @@ export const deleteClassroom = createServerFn({ method: "POST" })
 
 export const getMatrixBreakdown = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth, withRole])
-  .validator((d: { classroomId: string; startDate: string; endDate: string }) =>
-    z.object({
-      classroomId: z.string().uuid(),
-      startDate: z.string(),
-      endDate: z.string()
-    }).parse(d)
+  .validator(
+    (d: { classroomId: string; startDate: string; endDate: string; platformId?: string }) =>
+      z
+        .object({
+          classroomId: z.string().uuid(),
+          startDate: z.string(),
+          endDate: z.string(),
+          // Defaulted rather than required so existing callers keep working; the
+          // matrix can serve any platform once a caller asks for one.
+          platformId: z.string().min(1).max(50).default("leetcode"),
+        })
+        .parse(d),
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -315,27 +461,32 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
 
     const studentIds = (students || []).map((s) => s.student_id);
     if (studentIds.length === 0) return {};
-    
+
     const { data: snapshots } = await supabaseAdmin
       .from("daily_snapshots")
       .select("student_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved")
       .in("student_id", studentIds)
+      // Same reason as above: one platform per matrix, or every cell double-counts.
+      .eq("platform_id", data.platformId)
       .gte("snapshot_date", data.startDate)
       .lte("snapshot_date", data.endDate)
       .order("snapshot_date", { ascending: true });
-      
-    const result: Record<string, {
-      latest: { total: number; easy: number; medium: number; hard: number };
-      snapshots: { date: string; total: number; easy: number; medium: number; hard: number }[];
-    }> = {};
-    
+
+    const result: Record<
+      string,
+      {
+        latest: { total: number; easy: number; medium: number; hard: number };
+        snapshots: { date: string; total: number; easy: number; medium: number; hard: number }[];
+      }
+    > = {};
+
     if (snapshots && snapshots.length > 0) {
       const byStudent = new Map<string, typeof snapshots>();
       for (const s of snapshots) {
         if (!byStudent.has(s.student_id)) byStudent.set(s.student_id, []);
         byStudent.get(s.student_id)!.push(s);
       }
-      
+
       for (const [studentId, snaps] of byStudent.entries()) {
         if (snaps.length > 0) {
           const last = snaps[snaps.length - 1];
@@ -346,7 +497,7 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
               medium: last.medium_solved,
               hard: last.hard_solved,
             },
-            snapshots: snaps.map(s => ({
+            snapshots: snaps.map((s) => ({
               date: s.snapshot_date,
               total: s.total_solved,
               easy: s.easy_solved,
@@ -357,6 +508,6 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
         }
       }
     }
-    
+
     return result;
   });

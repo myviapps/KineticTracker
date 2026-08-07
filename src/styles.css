@@ -107,7 +107,13 @@
 @theme inline {
   --font-sans: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --font-display: "Inter", system-ui, sans-serif;
+  /* Archivo, not Inter. This slot existed but was aliased to the body face, so
+     the product had no display voice at all — every headline was Inter at a
+     larger size. Archivo is variable on a real `wdth` axis, which is what the
+     landing headlines set wide (see .lp-display); a wide grotesque against
+     JetBrains Mono captions IS the type system. Falls back to the sans stack,
+     so a blocked Google Fonts request degrades to today's appearance. */
+  --font-display: "Archivo", "Inter", system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -333,6 +339,169 @@
   overflow: hidden;
 }
 
+/* ─── Landing: the "signal grid" system ───────────────────────────────────
+   SCOPED, and that is the whole point. Every token here lives under `.lp`,
+   which is set once on the landing shell. None of the shared app tokens
+   (--background, --primary, --surface, --easy/--medium/--hard) are touched, so
+   the dashboard, sidebar, classrooms and every chart render exactly as before.
+   The marketing page gets to be louder than the product without dragging the
+   product along with it.
+
+   Dark is the base here, matching the app's convention (values on the class,
+   overridden under .light) — NOT a `dark:` variant. See the note at the top of
+   the token block.
+
+   The background is deliberately deeper than the app's oklch(0.14): a hairline
+   lattice only reads as an instrument surface when the field behind it is close
+   to black. In light mode the same structure has to invert to near-white with
+   the lattice darkened instead, or the grid disappears entirely. */
+.lp {
+  --lp-bg: oklch(0.09 0.006 260);
+  --lp-panel: oklch(0.13 0.008 260);
+  --lp-line: oklch(0.24 0.01 260);
+  --lp-line-lit: oklch(0.34 0.012 260);
+  --lp-ink: oklch(0.98 0.004 260);
+  --lp-dim: oklch(0.58 0.012 260);
+  --lp-signal: oklch(0.82 0.17 65);
+
+  /* The module. 14px cell, 56px tile — the same 4x relationship the logo uses
+     between its 5px cells and the 4-across mark, so section rhythm, card radius
+     and rule offsets all land on the same lattice the product's data does. */
+  --lp-cell: 14px;
+  --lp-tile: 56px;
+
+  /*
+    Re-point the SHARED token names at the landing values, locally.
+
+    Custom properties resolve at the point of use, so `bg-surface`,
+    `border-border`, `text-muted-foreground` and every shadcn primitive
+    (Button, Accordion, Separator, Skeleton) inside this subtree pick up the
+    landing palette with no class changes at all — and nothing outside `.lp`
+    is affected, because these declarations live on the class rather than on
+    :root.
+
+    This is why the revamp does not have to rewrite every component's classes,
+    and it is what keeps the "landing only" promise honest: the global block
+    further up is untouched, so the dashboard renders identically.
+  */
+  --background: var(--lp-bg);
+  --foreground: var(--lp-ink);
+  --surface: var(--lp-panel);
+  --surface-2: var(--lp-panel);
+  --card: var(--lp-panel);
+  --card-foreground: var(--lp-ink);
+  --popover: var(--lp-panel);
+  --popover-foreground: var(--lp-ink);
+  --muted-foreground: var(--lp-dim);
+  --border: var(--lp-line);
+  --input: var(--lp-line);
+  --primary: var(--lp-signal);
+  --ring: var(--lp-signal);
+
+  background-color: var(--lp-bg);
+  color: var(--lp-ink);
+}
+
+.light .lp {
+  --lp-bg: oklch(0.99 0.003 260);
+  --lp-panel: oklch(0.975 0.004 260);
+  --lp-line: oklch(0.9 0.006 260);
+  --lp-line-lit: oklch(0.82 0.008 260);
+  --lp-ink: oklch(0.16 0.01 260);
+  --lp-dim: oklch(0.45 0.01 260);
+  --lp-signal: oklch(0.6 0.17 55);
+}
+
+/* Display type. `wdth` is an axis on the variable font, so this does nothing
+   unless the font request asks for it — see the Google Fonts href in
+   __root.tsx, which requests wdth 75..125. Without the axis the browser serves
+   width 100 and the headline silently renders at normal width. */
+.lp-display {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 115;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  line-height: 0.98;
+}
+
+/* Two-scale lattice: fine cells at --lp-cell, heavier module rules at
+   --lp-tile. One scale alone reads as graph paper; the two together read as a
+   measured surface, which is the difference between texture and instrument.
+   Both hairlines come from tokens, so the whole thing inverts with the theme. */
+.lp-lattice {
+  background-image:
+    linear-gradient(var(--lp-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lp-line) 1px, transparent 1px);
+  background-size: var(--lp-cell) var(--lp-cell);
+  mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 20%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 20%, transparent 78%);
+}
+
+.lp-module {
+  background-image:
+    linear-gradient(var(--lp-line-lit) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lp-line-lit) 1px, transparent 1px);
+  background-size: var(--lp-tile) var(--lp-tile);
+  mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 10%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 75% 55% at 50% 0%, #000 10%, transparent 70%);
+}
+
+/* Hairline panel — the only card treatment on the page. No shadow: a shadow
+   implies a light source and lifts the card off the field, which is the
+   opposite of "cut out of the grid". */
+.lp-panel-surface {
+  background-color: color-mix(in oklab, var(--lp-panel) 78%, transparent);
+  border: 1px solid var(--lp-line);
+  backdrop-filter: blur(6px);
+}
+
+.lp-panel-surface:hover {
+  border-color: color-mix(in oklab, var(--lp-signal) 38%, var(--lp-line));
+}
+
+/* Signal cells. Four discrete steps, the logo's [0, 0.34, 0.66, 1] — a
+   continuous gradient here would read as a glow, and four steps is what makes
+   it read as data; the per-cell intensity is set inline in signal-field.tsx.
+
+   The breathe is on the LAYER, not per cell. The cells live inside an SVG
+   <pattern>, and CSS animation on pattern content is not dependably applied
+   across engines — one shared opacity animation is both reliable and one
+   composited layer instead of hundreds. */
+@keyframes lp-cells-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.lp-cells {
+  opacity: 0.3;
+  animation: lp-cells-breathe 9s var(--ease-swap) infinite;
+}
+
+/* Hero product tilt. Flat below 768px on purpose: a rotated surface on a phone
+   costs real legibility for an effect that is invisible at that width. Above
+   it, a shallow rotateX with a touch of Z reads as "standing in the field"
+   rather than as a novelty 3D card. */
+.lp-tilt {
+  transform: none;
+  transition: transform var(--duration-panel) var(--ease-glide);
+}
+
+@media (min-width: 768px) {
+  .lp-tilt {
+    transform: rotateX(15deg) rotateZ(-3deg) scale(0.98);
+  }
+  /* Straightens as it is read. The hover target is the frame itself, so this
+     only fires when someone is actually looking at the product shot. */
+  .lp-tilt:hover {
+    transform: rotateX(4deg) rotateZ(-1deg) scale(1);
+  }
+}
+
 /* ─── Landing page backdrop ───────────────────────────────────────────────
    Named classes, not utilities: anything using color-mix(), multi-stop
    gradients or mask-image must live here because Tailwind v4 arbitrary values
@@ -440,6 +609,17 @@
   .landing-grid,
   .landing-glow {
     animation: none !important;
+  }
+  /* Same reason as the marquee above, and it is not optional: the global 1ms
+     rule does not STOP an infinite animation, it freezes it at its end state
+     while still holding a composited layer. For lp-cell that end state is
+     opacity 1 on every cell at once — the field would flatten into a solid
+     block of amber, which is both wrong and the brightest thing on the page.
+     Park them at their base intensity instead, so the field still reads as
+     data, just still data. */
+  .lp-cells {
+    animation: none !important;
+    opacity: 0.3 !important;
   }
 }
 
