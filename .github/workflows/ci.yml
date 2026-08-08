@@ -24,7 +24,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          # Must match the Node major used locally (24.x → npm 11).
+          #
+          # This was pinned to 22, which ships npm 10, and npm 10 rejected a
+          # package-lock.json that npm 11 considers perfectly in sync:
+          #   npm error Missing: lru-cache@11.5.2 from lock file
+          # The lockfile is fine — `npm install --package-lock-only` under npm 11
+          # produces zero changes. The two npm majors simply resolve nitro's
+          # nested unstorage dependency differently, so the runner has to match
+          # the toolchain the lockfile was generated with.
+          node-version: "24"
           cache: npm
 
       - name: Install
