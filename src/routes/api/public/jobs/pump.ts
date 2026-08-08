@@ -1,15 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireCronSecret } from "@/integrations/supabase/cron-auth";
+import { cronGuard } from "@/integrations/supabase/cron-auth";
 
 export const Route = createFileRoute("/api/public/jobs/pump")({
   server: {
     handlers: {
       POST: async () => {
-        try {
-          requireCronSecret();
-        } catch {
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        const denied = cronGuard();
+        if (denied) return denied;
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 

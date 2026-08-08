@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { requireCronSecret } from "@/integrations/supabase/cron-auth";
+import { cronGuard } from "@/integrations/supabase/cron-auth";
 
 const Body = z.object({ jobId: z.string().uuid() });
 
@@ -25,11 +25,8 @@ export const Route = createFileRoute("/api/public/jobs/run")({
   server: {
     handlers: {
       POST: async () => {
-        try {
-          requireCronSecret();
-        } catch {
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        const denied = cronGuard();
+        if (denied) return denied;
 
         const request = getRequest();
         const parsed = Body.safeParse(await request.json().catch(() => null));

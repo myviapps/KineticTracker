@@ -24,7 +24,12 @@ jobs:
         # could inject shell or redirect the authenticated request elsewhere.
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://kinetic-tracker.vercel.app' }}
+          # Fallback must match the real deployment. It was
+          # kinetic-tracker.vercel.app, which is not where this app is deployed —
+          # so with no DEPLOY_URL repository variable set, every pump POSTed to
+          # the wrong host. Set the `DEPLOY_URL` repo variable to override this
+          # for a custom domain rather than editing it here.
+          DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://almaanac.vercel.app' }}
         run: |
           set -uo pipefail
 

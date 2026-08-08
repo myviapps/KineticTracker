@@ -1,15 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireCronSecret } from "@/integrations/supabase/cron-auth";
+import { cronGuard } from "@/integrations/supabase/cron-auth";
 
 export const Route = createFileRoute("/api/public/cron/refresh")({
   server: {
     handlers: {
       POST: async () => {
-        try {
-          requireCronSecret();
-        } catch {
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
+        const denied = cronGuard();
+        if (denied) return denied;
 
         // One platform-wide job per enabled platform, not one job overall.
         const { enqueueRefreshFanOut } = await import("@/lib/refresh-enqueue.server");
