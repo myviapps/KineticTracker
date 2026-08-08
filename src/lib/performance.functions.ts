@@ -30,6 +30,20 @@ import { authContext, withRole, accessibleClassroomIds } from "@/lib/authz";
  * window, never as "per day".
  */
 
+/**
+ * PostgREST's default db-max-rows silently truncates; ask for more explicitly.
+ * Same constant and same reason as overview.functions.ts and landing.functions.ts.
+ *
+ * This is the bug that made the trend chart draw five days under a "last 30
+ * days" caption. daily_snapshots holds one row per (student, platform, date), so
+ * a cohort of 30 students across 6 platforms writes ~180 rows a DAY — the
+ * default 1000-row ceiling is reached in under six days. The query orders by
+ * snapshot_date ascending, so the rows that survived were the OLDEST ones, and
+ * the chart confidently plotted the beginning of the window as though it were
+ * the whole of it. No error, no empty state: just a short line.
+ */
+const MAX_ROWS = 50_000;
+
 const Input = z.object({
   windows: z.array(z.number().int().min(1).max(365)).min(1).max(4).default([7, 30]),
   /**
@@ -87,7 +101,13 @@ export const getPerformanceWindows = createServerFn({ method: "GET" })
       await assertClassroomAccess(userId, role, data.classroomId);
     }
 
-    let roomQuery = supabaseAdmin.from("classroom_students").select("student_id");
+    // Ranged like the rest: this is the SCOPING query, so truncating it drops
+    // students from every number below at once — and the institution-wide call
+    // (no classroomId) is exactly the one that selects the most memberships.
+    let roomQuery = supabaseAdmin
+      .from("classroom_students")
+      .select("student_id")
+      .range(0, MAX_ROWS - 1);
     if (data.classroomId) roomQuery = roomQuery.eq("classroom_id", data.classroomId);
     else if (allowed !== null) roomQuery = roomQuery.in("classroom_id", allowed);
     const { data: memberships } = await roomQuery;
@@ -111,28 +131,40 @@ export const getPerformanceWindows = createServerFn({ method: "GET" })
           )
           .in("student_id", studentIds)
           .gte("snapshot_date", since.toISOString().slice(0, 10))
-          .order("snapshot_date", { ascending: true }),
+          .order("snapshot_date", { ascending: true })
+          .range(0, MAX_ROWS - 1),
+        // Drives trackedByPlatform, which decides WHICH PLATFORMS the panel
+        // renders at all — a truncation here does not shrink a number, it makes
+        // a whole platform disappear from the report.
         supabaseAdmin
           .from("student_platform_accounts")
           .select("student_id, platform_id")
-          .in("student_id", studentIds),
+          .in("student_id", studentIds)
+          .range(0, MAX_ROWS - 1),
         supabaseAdmin
           .from("platforms")
           .select("id, name, rank_metric, sort_order")
           .order("sort_order"),
-        // Earliest snapshot per platform, across the whole table rather than the
-        // window — that is what tells us whether a zero means "no history".
-        supabaseAdmin
-          .from("daily_snapshots")
-          .select("platform_id, snapshot_date")
-          .in("student_id", studentIds)
-          .order("snapshot_date", { ascending: true }),
+        /*
+          Earliest snapshot per platform, across all history rather than the
+          window — that is what tells us whether a zero means "no history".
+
+          An AGGREGATE, not a scan. This used to select every snapshot row ever
+          recorded for these students and keep the first date per platform while
+          walking them in JS: O(all history) to produce one row per platform,
+          and truncated by the row ceiling exactly like the query above. When it
+          truncated, a later-onboarded platform lost its rows off the end,
+          returned null here, and the overview reported "no history yet" for a
+          platform that had weeks of data. Raising the cap only delays that;
+          grouping in Postgres removes it.
+        */
+        supabaseAdmin.rpc("first_snapshot_per_platform", { p_student_ids: studentIds }),
       ]);
 
-    const firstByPlatform = new Map<string, string>();
-    for (const r of firstDates ?? []) {
-      if (!firstByPlatform.has(r.platform_id)) firstByPlatform.set(r.platform_id, r.snapshot_date);
-    }
+    // One row per platform now, already minimised — no first-wins scan needed.
+    const firstByPlatform = new Map<string, string>(
+      (firstDates ?? []).map((r) => [r.platform_id, r.first_date]),
+    );
 
     const trackedByPlatform = new Map<string, Set<string>>();
     for (const a of accounts ?? []) {

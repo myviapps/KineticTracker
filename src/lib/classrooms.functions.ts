@@ -8,6 +8,13 @@ import {
   accessibleClassroomIds,
   assertClassroomAccess,
 } from "@/lib/authz";
+import type { Database } from "@/integrations/supabase/types";
+
+/** Full `student_stats` row — this path `select("*")`. */
+type StudentStatsRow = Database["public"]["Tables"]["student_stats"]["Row"];
+
+/** PostgREST's default db-max-rows silently truncates; ask for more explicitly. */
+const MAX_ROWS = 50_000;
 
 const CreateClassroomInput = z.object({
   name: z.string().trim().min(1).max(100),
@@ -259,11 +266,12 @@ export const getClassroom = createServerFn({ method: "GET" })
     }
     const statsPromise = ids.length
       ? supabaseAdmin.from("student_stats").select("*").in("student_id", ids)
-      : Promise.resolve({ data: [] as any[], error: null });
+      : Promise.resolve({ data: [] as StudentStatsRow[], error: null });
     const [statsRes] = await Promise.allSettled([statsPromise]);
-    const stats = statsRes.status === "fulfilled" ? (statsRes.value.data ?? []) : [];
+    const stats: StudentStatsRow[] =
+      statsRes.status === "fulfilled" ? (statsRes.value.data ?? []) : [];
 
-    const statsById = new Map(stats.map((s: any) => [s.student_id, s]));
+    const statsById = new Map(stats.map((s) => [s.student_id, s]));
 
     /*
       Snapshot-derived progress, alongside the LeetCode submission calendar.
@@ -295,6 +303,10 @@ export const getClassroom = createServerFn({ method: "GET" })
           .eq("platform_id", "leetcode")
           .gte("snapshot_date", since.toISOString().slice(0, 10))
           .order("snapshot_date", { ascending: true })
+          // 14 days x one row per student per day passes the default 1000-row
+          // ceiling at ~72 students, and the rows lost are the recent ones this
+          // delta is measured against.
+          .range(0, MAX_ROWS - 1)
       : { data: [] as { student_id: string; snapshot_date: string; total_solved: number }[] };
 
     const snapsByStudent = new Map<string, { date: string; total: number }[]>();
@@ -470,7 +482,10 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
       .eq("platform_id", data.platformId)
       .gte("snapshot_date", data.startDate)
       .lte("snapshot_date", data.endDate)
-      .order("snapshot_date", { ascending: true });
+      .order("snapshot_date", { ascending: true })
+      // The matrix is students x dates, so the default 1000-row ceiling is hit
+      // by any real cohort over a month and the grid loses its rightmost days.
+      .range(0, MAX_ROWS - 1);
 
     const result: Record<
       string,

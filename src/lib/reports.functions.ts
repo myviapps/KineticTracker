@@ -23,6 +23,16 @@ const Input = z.object({
 /** Refuse rather than truncate past this many fact rows. */
 const MAX_FACT_ROWS = 100_000;
 
+/**
+ * Explicit fetch ceiling for the daily-history sheet.
+ *
+ * Held at MAX_FACT_ROWS so the export obeys one limit rather than two: past this
+ * point the request is too large either way, and the check above is what turns
+ * that into a refusal instead of a short sheet. Stating it also overrides
+ * PostgREST's default db-max-rows, which is 1000 and truncates in silence.
+ */
+const MAX_ROWS = MAX_FACT_ROWS;
+
 export type ReportScope = {
   colleges: { id: string; name: string }[];
   classrooms: { id: string; name: string; college_id: string | null }[];
@@ -267,7 +277,11 @@ export const buildReport = createServerFn({ method: "POST" })
         .select("student_id, platform_id, snapshot_date, total_solved, solved_that_day")
         .in("student_id", studentIds)
         .gte("snapshot_date", since.toISOString().slice(0, 10))
-        .order("snapshot_date", { ascending: true });
+        .order("snapshot_date", { ascending: true })
+        // PostgREST's default db-max-rows silently truncates. An export is the
+        // worst place to lose rows quietly: the sheet looks complete, and the
+        // missing days are the RECENT ones because this orders ascending.
+        .range(0, MAX_ROWS - 1);
 
       daily = (snaps ?? [])
         .filter((s) => wantPlatform(s.platform_id))

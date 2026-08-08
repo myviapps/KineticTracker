@@ -159,6 +159,7 @@ export async function persistPlatformProfile(
   await writeDailySnapshot(target, profile);
   await replaceRecentSubmissions(target, profile);
   await mirrorToStudentStats(target, profile);
+  await mirrorIngestionStamp(target);
 
   const { error: acctError } = await supabaseAdmin
     .from("student_platform_accounts")
@@ -174,6 +175,54 @@ export async function persistPlatformProfile(
   if (acctError) throw new Error(acctError.message);
 
   return { ok: true, status, totalSolved: profile.totalSolved ?? null };
+}
+
+/**
+ * Stamp `students.last_scraped_at` when ANY platform fetch succeeds.
+ *
+ * ── The bug this fixes ─────────────────────────────────────────────────────
+ * `students.last_scraped_at` and `students.scrape_error` were written by
+ * scrape.server.ts alone — the LEGACY, LeetCode-only worker. Once refreshes
+ * moved to per-platform jobs that path stopped running, so the column stayed
+ * NULL no matter how many times a student was successfully fetched.
+ *
+ * Everything that reports ingestion health reads that column and nothing else:
+ * the "N pending" badge on the classroom page counts `!last_scraped_at`, and
+ * the admin scrape-runs page prints "Never". So a cohort could be fully
+ * refreshed, with fresh platform_stats and fresh daily_snapshots behind it, and
+ * still report every student as pending forever. The refresh was working; only
+ * the column that vouches for it was frozen.
+ *
+ * ── Why any platform, not just LeetCode ────────────────────────────────────
+ * Unlike the student_stats mirror below, this carries no per-platform numbers —
+ * it answers "has this student ever been ingested at all", and a successful
+ * CodeChef fetch answers that as truthfully as a LeetCode one. Keeping it
+ * LeetCode-only would leave every student without a LeetCode handle pending in
+ * perpetuity.
+ *
+ * ── Why `scrape_error` is deliberately NOT cleared here ────────────────────
+ * Tempting, since the same badge counts it — but a student on five platforms
+ * whose LeetCode handle is genuinely broken would have that error erased by the
+ * next successful CodeChef fetch. This writes the one fact it can vouch for:
+ * an ingestion happened. Per-platform failures are already tracked honestly on
+ * student_platform_accounts.fetch_error, which is what the platform health page
+ * reads.
+ *
+ * Best-effort: a failure here must not fail a refresh that already committed
+ * its real data. A stale badge is a smaller problem than a chunk that reports
+ * failure and gets retried.
+ */
+async function mirrorIngestionStamp(target: PersistTarget): Promise<void> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { log } = await import("./log.server");
+  try {
+    await supabaseAdmin
+      .from("students")
+      .update({ last_scraped_at: new Date().toISOString() })
+      .eq("id", target.studentId);
+  } catch (e) {
+    log.error("persist", `ingestion stamp failed for student ${target.studentId}`, e);
+  }
 }
 
 /**

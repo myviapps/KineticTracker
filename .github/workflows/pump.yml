@@ -11,17 +11,24 @@ concurrency:
   group: refresh-pump
   cancel-in-progress: false
 
-env:
-  DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://kinetic-tracker.vercel.app' }}
-
 jobs:
   pump:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Pump refresh jobs
+        # Secrets and repo variables are passed through `env:` rather than
+        # interpolated into the script with ${{ }}. Interpolation splices the
+        # value into the shell source before it runs, so anyone able to set the
+        # DEPLOY_URL repository VARIABLE (a lower bar than a repository SECRET)
+        # could inject shell or redirect the authenticated request elsewhere.
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://kinetic-tracker.vercel.app' }}
         run: |
-          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+          set -uo pipefail
+
+          if [ -z "$CRON_SECRET" ]; then
             echo "::error::CRON_SECRET is not set in this repository's secrets."
             echo "The endpoint will reject every request with 401. Set it to the"
             echo "same value as CRON_SECRET in the Vercel project environment."
@@ -33,18 +40,23 @@ jobs:
           # tail and is allowed 60s by maxDuration, so curl aborted with exit
           # 28 on perfectly healthy chunks and the workflow went red.
           body=$(mktemp)
-          code=$(curl -sS -X POST "${{ env.DEPLOY_URL }}/api/public/jobs/pump" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          trap 'rm -f "$body"' EXIT
+
+          # `|| true` so a curl transport failure (timeout, DNS, TLS) falls
+          # through to the diagnostics below instead of aborting the step under
+          # the runner's default `bash -e` with no explanation.
+          code=$(curl -sS -X POST "$DEPLOY_URL/api/public/jobs/pump" \
+            -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
             --max-time 90 \
-            -o "$body" -w '%{http_code}')
+            -o "$body" -w '%{http_code}') || true
 
-          echo "HTTP $code"
-          cat "$body"
-          echo
+          echo "HTTP ${code:-<no response>}"
 
           case "$code" in
             200)
+              # Body withheld on success: it carries job ids and platform names,
+              # and workflow logs are readable by anyone on a public repo.
               exit 0
               ;;
             504|408)
@@ -57,10 +69,16 @@ jobs:
               ;;
             401)
               echo "::error::401 Unauthorized — CRON_SECRET here does not match the one in Vercel."
+              echo "Response body:"
+              cat "$body" 2>/dev/null || true
               exit 1
               ;;
             *)
-              echo "::error::Pump failed with HTTP $code"
+              # On a real failure the body IS the diagnostic. Withholding it here
+              # left nothing to debug from but a bare status code.
+              echo "::error::Pump failed with HTTP ${code:-<no response>}"
+              echo "Response body:"
+              cat "$body" 2>/dev/null || true
               exit 1
               ;;
           esac

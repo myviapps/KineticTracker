@@ -106,6 +106,9 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 TOKEN = os.getenv("SCRAPLING_TOKEN", "").strip()
+# Explicit opt-in to running without a token. Local development only — see
+# _authorized() for why the unconfigured default must refuse rather than accept.
+ALLOW_UNAUTHENTICATED = os.getenv("ALLOW_UNAUTHENTICATED", "").strip() in ("1", "true", "yes")
 
 # Tabs per browser. Two is the sweet spot on a 1GB box; each extra tab on a
 # heavy SPA costs roughly 80-150MB of resident memory.
@@ -342,7 +345,16 @@ async def lifespan(_: FastAPI):
         "on" if TOKEN else "OFF",
     )
     if not TOKEN:
-        log.warning("SCRAPLING_TOKEN is unset — every caller is accepted. Do not do this in production.")
+        if ALLOW_UNAUTHENTICATED:
+            log.warning(
+                "SCRAPLING_TOKEN is unset and ALLOW_UNAUTHENTICATED is on — "
+                "every caller is accepted. Never do this outside local development."
+            )
+        else:
+            log.error(
+                "SCRAPLING_TOKEN is unset — refusing every request with 401. "
+                "Set SCRAPLING_TOKEN, or ALLOW_UNAUTHENTICATED=1 for local development."
+            )
 
     """
     Warm the plain browser before serving.
@@ -423,8 +435,19 @@ def _not_found() -> JSONResponse:
 
 
 def _authorized(header: Optional[str]) -> bool:
+    # Fail CLOSED when unconfigured.
+    #
+    # This used to `return True` with no token set, which meant an unconfigured
+    # deployment accepted every caller. For a service whose entire job is to
+    # fetch an arbitrary URL supplied in the request body, that is an open SSRF
+    # proxy: anyone who found the host could use it to reach internal addresses,
+    # cloud metadata endpoints, or any third party, with the traffic attributed
+    # to us. A startup warning is not a control — nobody reads logs of a service
+    # that appears to work.
+    #
+    # ALLOW_UNAUTHENTICATED=1 is the deliberate local-development escape hatch.
     if not TOKEN:
-        return True
+        return ALLOW_UNAUTHENTICATED
     if not header:
         return False
     scheme, _, value = header.partition(" ")

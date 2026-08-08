@@ -84,17 +84,15 @@ export const searchStudents = createServerFn({ method: "GET" })
       studentQuery = studentQuery.ilike("roll", q).limit(1);
     }
 
-    let { data: students, error } = await studentQuery;
+    const { data: matched, error } = await studentQuery;
     if (error) throw new Error("Search failed");
-    if (!students || students.length === 0) return [];
+    if (!matched || matched.length === 0) return [];
 
     // Belt and braces: whatever LIKE did above, an anonymous caller only ever
     // gets back a row whose roll is an exact case-insensitive match.
-    if (!isStaff) {
-      const needle = q.toLowerCase();
-      students = students.filter((s) => s.roll?.toLowerCase() === needle);
-      if (students.length === 0) return [];
-    }
+    const needle = q.toLowerCase();
+    const students = isStaff ? matched : matched.filter((s) => s.roll?.toLowerCase() === needle);
+    if (students.length === 0) return [];
 
     // Cohort names per student, scoped to what this viewer may see.
     //
@@ -130,7 +128,12 @@ export const searchStudents = createServerFn({ method: "GET" })
       .from("student_stats")
       .select("student_id, avatar, total_solved")
       .in("student_id", studentIds);
-    const statsMap = new Map((stats ?? []).map((s: any) => [s.student_id, s]));
+    // Typed rather than `any`: this row shape is exactly the select above, and
+    // the values feed the avatar/total_solved fields in the response below.
+    type StatRow = { student_id: string; avatar: string | null; total_solved: number | null };
+    const statsMap = new Map<string, StatRow>(
+      (stats ?? []).map((s) => [s.student_id, s as StatRow]),
+    );
 
     return students.map((s) => ({
       id: s.id,

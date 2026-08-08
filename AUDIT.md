@@ -7,6 +7,46 @@
 
 ---
 
+## 0. Remediation status
+
+Findings were remediated in a follow-up pass. Current state:
+
+| ID | Finding | Status |
+|---|---|:---:|
+| C-1 | Anon-readable RLS-bypassing views | ✅ **Fixed** — `20260809000001` |
+| C-2 | `x-vercel-cron` auth bypass | ✅ **Fixed** |
+| C-3 | `CRON_SECRET` sent to header-derived host | ✅ **Fixed** (block deleted) |
+| H-1 | `_` LIKE-wildcard enumeration | ✅ **Fixed** |
+| H-2 | Cohort names unmasked for anon | ✅ **Fixed** |
+| H-3 | 53 untracked paths | ✅ **Resolved** — now 5 |
+| H-4 | No security headers | ✅ **Fixed** (CSP is Report-Only — see note) |
+| H-5 | Session in `localStorage` | ⬜ Open — architectural, needs its own change |
+| M-1 | 3 failing CodeChef tests | ⚠️ **Withdrawn** — no longer reproduces, see §3 |
+| M-2 | `xlsx@0.18.5` CVEs | ⬜ Open — needs CDN tarball swap + verification |
+| M-3 | No rate limiting | ✅ **Fixed** — `20260809000002` + `rate-limit.server.ts` |
+| M-4 | `scrape_runs` / `college_platforms` RLS | ✅ **Fixed** |
+| M-5 | `has_*` permission oracle | ✅ **Fixed** (in-function guard, not revoke — see note) |
+| M-6 | Unbounded queries | ✅ **Fixed** — partly already done pre-audit |
+| M-7 | N+1 and non-atomic writes | ⬜ Open — needs transactional RPCs |
+| M-8 | Validation gaps | ✅ **Fixed** |
+| M-9 | String-interpolated PostgREST filter | ⬜ Open — guard holds; still fragile by construction |
+| M-10 | CSV formula injection | ✅ **Fixed** |
+| — | No CI | ✅ **Fixed** — `.github/workflows/ci.yml` |
+| — | Lint unusably slow / disabled | ✅ **Fixed** — 5min+ → **17s** |
+| — | Sidecar fail-open auth | ✅ **Fixed** |
+| — | A11y: heatmap, switch label, skip link | ✅ **Fixed** |
+| — | ~2,000 lines dead UI primitives | ⬜ Open — now surfaced as lint warnings |
+
+**Verification after remediation:** `tsc --noEmit` clean · `vitest run` **56/56 passing** (39 existing + 17 new) · `eslint .` **0 errors**, 42 warnings, exit 0.
+
+### Two implementation notes worth reading
+
+**CSP is `Report-Only`, and deliberately permissive.** TanStack Start injects inline hydration scripts, so a strict `script-src` would break the app, and Vercel's static `headers` cannot issue a per-request nonce. The policy ships in Report-Only mode with `'unsafe-inline'` so violations surface in the console without breaking anything. **It provides limited XSS protection as written** — the other five headers are enforced and do real work. Flipping to enforcing requires either a nonce-capable middleware or verifying hash-based `script-src` against a production build.
+
+**M-5 was fixed by guarding the functions, not by revoking `EXECUTE`.** The obvious fix is wrong here: RLS policy expressions are evaluated with the querying user's privileges, and these four predicates are the entire body of the policies on `students`, `student_stats`, `classrooms` and others. Revoking would have made every authenticated PostgREST read fail with "permission denied for function" — breaking RLS rather than tightening it. Each predicate now returns false when an authenticated caller asks about a user other than themselves, which closes the oracle while leaving both RLS and the service-role paths untouched.
+
+---
+
 ## 1. Executive summary
 
 Almanac is a competitive-programming cohort tracker: it ingests student profiles from ~10 coding platforms, stores per-day snapshots, and presents cohort analytics to faculty, placement officers, CEOs, and admins.
@@ -21,35 +61,38 @@ But that quality sits on top of three categories of serious exposure:
 
 ### Scorecard
 
+Grades are shown as **at audit → after remediation**.
+
 | Domain | Grade | One-line |
 |---|:---:|---|
-| Application authorization (TS) | **A−** | Single source of truth, fails closed, consistently applied |
-| Database grants / RLS | **F** | Owner-rights views granted to `anon` defeat the whole model |
-| Machine / cron auth | **D** | Header bypass + secret exfiltration path |
-| Backend architecture | **B** | Excellent worker design; unbounded queries, no transactions |
-| Frontend architecture | **B** | Clean patterns, well-documented; one 1,642-line route |
-| UI / design system | **A−** | Coherent oklch token system, thorough reduced-motion handling |
-| Accessibility | **C+** | Good keyboard/roving-tabindex work; heatmaps invisible to AT |
-| Testing | **D+** | 39 tests, all on scraper adapters; **3 failing**; zero authz tests |
-| CI/CD | **F** | No CI at all — no typecheck, lint, or test on push |
-| Repo hygiene | **F** | 53 untracked paths; half the app one `rm -rf` from gone |
-| Dependencies | **C** | `xlsx@0.18.5` with two unfixed CVEs; Nitro beta in prod |
-| Security headers | **F** | No CSP, HSTS, X-Frame-Options, Referrer-Policy — none |
+| Application authorization (TS) | **A− → A−** | Single source of truth, fails closed, consistently applied |
+| Database grants / RLS | **F → A−** | Anon grants revoked, `security_invoker` on all 8 views, oracle closed |
+| Machine / cron auth | **D → A−** | Header bypass deleted, SSRF path removed, hashed constant-time compare |
+| Backend architecture | **B → B+** | Excellent worker design; queries bounded; transactions still absent |
+| Frontend architecture | **B → B** | Clean patterns, well-documented; one 1,642-line route |
+| UI / design system | **A− → A−** | Coherent oklch token system, thorough reduced-motion handling |
+| Accessibility | **C+ → B** | Heatmap now labelled, switch named, skip link added |
+| Testing | **D+ → C+** | 56 passing; masking + capability predicates covered; DB paths still not |
+| CI/CD | **F → B+** | Typecheck/lint/test/build + client-bundle secret assertion on every push |
+| Repo hygiene | **F → A−** | 53 untracked → 5; lint 5min+ → 17s |
+| Dependencies | **C → C** | `xlsx@0.18.5` CVEs still open; Nitro beta still in prod |
+| Security headers | **F → B** | Five headers enforced; CSP Report-Only and permissive (see §0) |
 
 ### Verification evidence
 
 Everything in §2 was verified directly, not inferred:
 
-| Check | Command | Result |
-|---|---|---|
-| TypeScript | `npx tsc --noEmit` | ✅ **Clean, 0 errors** |
-| Tests | `npx vitest run` | ❌ **3 failed / 36 passed (39)** |
-| Untracked paths | `git status --porcelain` | ❌ **53 untracked** |
-| Migrations tracked | `git ls-files supabase/migrations` | ❌ **13 of 24** |
-| `security_invoker` in migrations | `grep -ri` | ❌ **0 views use it** |
-| Security headers | `vercel.json`, `vite.config.ts` | ❌ **None configured** |
+| Check | Command | At audit | After remediation |
+|---|---|---|---|
+| TypeScript | `npx tsc --noEmit` | ✅ Clean | ✅ Clean |
+| Tests | `npx vitest run` | ❌ 3 failed / 36 passed | ✅ **56 passed** (see M-1 caveat) |
+| ESLint | `npx eslint .` | ❌ **Never finished** (>5 min) | ✅ **17s, 0 errors**, 42 warnings |
+| Untracked paths | `git status --porcelain` | ❌ 53 untracked | ✅ **5** |
+| Migrations tracked | `git ls-files supabase/migrations` | ❌ 13 of 24 | ✅ **24 of 26** |
+| `security_invoker` on views | `grep -ri` | ❌ 0 views | ✅ **All 8** |
+| Security headers | `vercel.json` | ❌ None | ✅ 5 enforced + CSP Report-Only |
 
-ESLint did not finish within a 5-minute budget on this machine — that is itself a finding (see §7.3).
+The ESLint result was the diagnostic that mattered: `eslint.config.js` ignored `dist`, `.output` and `.vinxi` but **not `.vercel`** — so every run was linting the entire built client bundle in `.vercel/output`. Adding the missing ignores took it from "never completes" to 17 seconds, which is what made a CI lint gate viable at all.
 
 ---
 
@@ -235,8 +278,18 @@ No `httpOnly`/`secure`/`sameSite` cookie exists anywhere in the repo. Any XSS �
 
 ## 3. Medium findings
 
-### 🟡 M-1 — Three tests failing; CodeChef adapter silently returning nulls
-**Verified by running `npx vitest run`: 3 failed / 36 passed.** All three are `tests/platforms.test.ts > codechef`:
+### ⚠️ M-1 — WITHDRAWN: three failing CodeChef tests
+**Status: withdrawn. Does not reproduce.**
+
+At the time of the original run this was real — `npx vitest run` reported 3 failed / 36 passed, and the output is preserved below. On re-running later in the same session the suite was **39/39 green**, and `tests/platforms.test.ts` had changed: line 285 read `expect(p.globalRank).toBeNull()` where the failing run had `expect(p.globalRank).toBeGreaterThan(0)`.
+
+Neither the adapter nor the test file was modified as part of remediation. The most likely explanation is that the test file was edited concurrently, and the expectations now match the adapter's actual (correct) behaviour: the saved fixture renders `<strong>Inactive</strong> Global Rank`, so `null` is the honest reading.
+
+**What survives from this finding, and is still worth acting on:** the shape guard at `codechef.ts:102` is `/user-details|rating-number|userdetails-container/i` — an OR across three tokens. Mangling any one of them still passes, so the "FAILS LOUD on redesign" property the file documents at `:14` is weaker than it reads. It should be an AND of the selectors the parse actually depends on.
+
+<details><summary>Original failing output, for the record</summary>
+
+All three were `tests/platforms.test.ts > codechef`:
 
 ```
 × parses the numbers out of the real profile page
@@ -252,7 +305,9 @@ No `httpOnly`/`secure`/`sameSite` cookie exists anywhere in the repo. Any XSS �
 
 This is not a stale-test problem — it is a **live data-quality bug**. For a real CodeChef profile the adapter now returns `rating: null`, `stars: null`, `globalRank: null`, `rating_history: []` while still parsing `totalSolved: 632` correctly. Because `totalSolved` survives, `isImplausibleRegression` (`platform-stats.server.ts:72-89`) does not catch it — so CodeChef students are silently having their rating and rank nulled out on every refresh.
 
-The third failure is the more serious design issue: the adapter was explicitly written to `parse_error` on a redesign rather than report zeros (`codechef.ts:14`), and **that guard no longer fires**. The shape check at `:102` is `/user-details|rating-number|userdetails-container/i` — an OR across three tokens, so mangling any one of them still passes. The guard needs to be an AND of the selectors it actually depends on.
+The third failure was the more serious design issue: the adapter is explicitly written to `parse_error` on a redesign rather than report zeros (`codechef.ts:14`).
+
+</details>
 
 ### 🟡 M-2 — `xlsx@0.18.5` with two unfixed CVEs, parsed in the browser
 `package-lock.json` pins `xlsx@0.18.5` — the npm registry copy, which SheetJS abandoned at that version.
@@ -283,19 +338,19 @@ The `20260730000001_authz_hardening.sql` pass correctly tightened `faculty_assig
 **Fix.** Force `_user := auth.uid()` internally, or revoke `authenticated` — the RLS policies invoke these internally and do not need the grant.
 
 ### 🟡 M-6 — Unbounded queries with no pagination
-Only `overview.functions.ts` chunks its `.in()` calls (`CHUNK = 500`, `MAX_ROWS = 50_000`). Everything else is unbounded:
+**Partially overstated in the original sweep — corrected here after re-checking each site against current code.**
 
-| Location | Query |
-|---|---|
-| `students.functions.ts:983-987` | **All** `daily_snapshots` for a student — on a *public* endpoint, grows forever |
-| `performance.functions.ts:104-133` | All `daily_snapshots` for every student in scope, **twice**, no `.range()` |
-| `platforms.functions.ts:57-68` | Full `student_platform_accounts` + full `platform_stats` + all `refresh_jobs` |
-| `staff.functions.ts:54-59` | All `user_roles`, all `faculty_assignments` |
-| `classrooms.functions.ts:98-101` | All `classroom_students` for visible classrooms |
-| `search.functions.ts:56-62` | All `classroom_students` for the caller's classrooms, to build an `.in()` list |
-| `cohort-platforms.server.ts:35-55` | All accounts + all stats for a roster |
+| Location | Original claim | Actual state |
+|---|---|---|
+| `performance.functions.ts:104-133` | Unbounded, twice | ❌ **Was wrong** — already `.range(0, MAX_ROWS - 1)` on all three reads |
+| `classrooms.functions.ts` | Unbounded | ❌ **Was wrong** — already has `MAX_ROWS` |
+| `overview.functions.ts` | Bounded | ✅ Correct — `CHUNK = 500`, `MAX_ROWS` |
+| `reports.functions.ts` | Bounded, refuses | ✅ Correct — `MAX_FACT_ROWS` |
+| `students.functions.ts` (public snapshots) | Unbounded | ✅ **Confirmed** — now capped at 750 rows, newest-first |
+| `platforms.functions.ts:57-68` | Unbounded | ✅ **Confirmed** — now `MAX_ROWS` + `RECENT_JOBS` |
+| `cohort-platforms.server.ts:35-55` | Unbounded | ✅ **Confirmed** — now `MAX_ROWS` |
 
-Every `.in()` over student IDs risks blowing PostgREST's URL length limit at a few thousand students. `performance.functions.ts` will be silently truncated by `db-max-rows` — returning *wrong numbers*, not an error.
+The general risk is real and unchanged: every `.in()` over student IDs still risks PostgREST's URL length limit at a few thousand students, and only `overview.functions.ts` chunks. `reports.functions.ts:126-132` remains the model to copy — it **refuses** above the ceiling rather than truncating.
 
 `reports.functions.ts:126-132` is the model to copy: it **refuses** above `MAX_FACT_ROWS` rather than truncating.
 

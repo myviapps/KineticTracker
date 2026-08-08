@@ -1487,6 +1487,13 @@ export type Database = {
         };
         Returns: string;
       };
+      first_snapshot_per_platform: {
+        Args: { p_student_ids: string[] };
+        Returns: {
+          first_date: string;
+          platform_id: string;
+        }[];
+      };
       grant_role: {
         Args: { _email: string; _role: Database["public"]["Enums"]["app_role"] };
         Returns: boolean;

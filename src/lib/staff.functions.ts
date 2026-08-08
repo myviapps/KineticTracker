@@ -72,7 +72,13 @@ export const listStaff = createServerFn({ method: "GET" })
         try {
           const { data: u } = await supabaseAdmin.auth.admin.getUserById(ur.user_id);
           email = u?.user?.email ?? "unknown";
-        } catch {}
+        } catch (e) {
+          // Degrading to "unknown" is intentional — one unreadable auth record
+          // must not blank the whole staff table. But it used to degrade
+          // SILENTLY, so a systematically broken lookup looked identical to a
+          // single missing user.
+          console.warn(`[staff] could not resolve email for ${ur.user_id}:`, e);
+        }
         return {
           id: ur.id,
           user_id: ur.user_id,

@@ -33,6 +33,7 @@ import { CohortFilterBar } from "@/components/cohort-filter-bar";
 import { CohortToolbar } from "@/components/cohort-toolbar";
 import { LensStatRow } from "@/components/lens-stat-row";
 import { CohortInsightPanel } from "@/components/cohort-insight-panel";
+import { clampTrendDays } from "@/components/trend-window-control";
 import {
   ALL_LENS,
   lensFor,
@@ -63,13 +64,14 @@ const OVERVIEW_ICONS: Record<string, LucideIcon> = {
 };
 
 /** Same shape and rationale as the classroom route — see ClassroomSearch. */
-export type OverviewSearch = { p?: string; b?: string };
+export type OverviewSearch = { p?: string; b?: string; d?: number };
 
 export const Route = createFileRoute("/_authenticated/overview")({
   head: () => ({ meta: [{ title: "Overview — Almanac" }] }),
   validateSearch: (search: Partial<OverviewSearch>): OverviewSearch => ({
     p: typeof search.p === "string" && search.p.length <= 50 ? search.p : ALL_LENS,
     b: typeof search.b === "string" && search.b.length <= 50 ? search.b : "all",
+    d: clampTrendDays(search.d, 30),
   }),
   loader: ({ context }) => {
     if (typeof window !== "undefined") {
@@ -93,7 +95,11 @@ function OverviewPage() {
   const chartMotion =
     refreshStatus === "running" || refreshStatus === "queued" ? CHART_MOTION_STATIC : CHART_MOTION;
 
-  const statsById = new Map(data.stats.map((s: { student_id: string }) => [s.student_id, s]));
+  // Annotation removed deliberately: it claimed the row was only
+  // `{ student_id: string }`, which discarded every stats column the server
+  // actually sends and hid the fact that toStudentRow reads streak and ranking
+  // off it. Inference gives the true shape.
+  const statsById = new Map(data.stats.map((s) => [s.student_id, s]));
 
   const allRows = data.students.map((st) =>
     toStudentRow({ ...st, stats: statsById.get(st.id) ?? null }),
@@ -115,6 +121,8 @@ function OverviewPage() {
   const setLens = (p: string) => setSearchParams({ p, b: "all" });
   const bucket = sp.b ?? "all";
   const setBucket = (b: string) => setSearchParams({ b });
+  const trendDays = sp.d ?? 30;
+  const setTrendDays = (d: number) => setSearchParams({ d: clampTrendDays(d) });
 
   // Counts stay cohort-wide so the chips keep their meaning while a filter is
   // applied — otherwise every chip but the active one reads 0.
@@ -196,8 +204,16 @@ function OverviewPage() {
     .slice(0, topN)
     .map((r) => ({ ...r, classrooms: namesFor(r.id) }));
 
+  /*
+    Zero-filled on purpose, unlike the classroom page's snapshot series.
+
+    This one reads LeetCode's submission_calendar, which is a complete record of
+    every day — a day missing from it means zero submissions, not missing data.
+    So every day in the window is a real data point and the count below is
+    honestly `trendDays` of `trendDays`.
+  */
   const trend: { day: string; solved: number }[] = [];
-  for (let i = 29; i >= 0; i--) {
+  for (let i = trendDays - 1; i >= 0; i--) {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() - i);
     const key = String(
@@ -358,6 +374,8 @@ function OverviewPage() {
           title={lens.isAll ? "All platforms" : lens.name}
           trend={showLeetcodeTrend ? trend : []}
           trendEmptyNote={`${lens.name} publishes no daily submission feed — see the performance panel above`}
+          trendWindowDays={trendDays}
+          onTrendWindowDays={showLeetcodeTrend ? setTrendDays : undefined}
           difficulty={
             showLeetcodeTrend
               ? { easy: totals.easy, medium: totals.medium, hard: totals.hard }

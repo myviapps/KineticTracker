@@ -1,6 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { authContext, withRole, accessibleClassroomIds } from "@/lib/authz";
+import type { Database } from "@/integrations/supabase/types";
+
+/** Full `student_stats` row — these paths `select("*")`. */
+type StudentStatsRow = Database["public"]["Tables"]["student_stats"]["Row"];
 
 /** PostgREST's default db-max-rows silently truncates; ask for more explicitly. */
 const MAX_ROWS = 50_000;
@@ -71,9 +75,9 @@ export const getOverview = createServerFn({ method: "GET" })
         .in("id", batch),
     );
 
-    let stats: any[] = [];
+    let stats: StudentStatsRow[] = [];
     try {
-      stats = await chunked<any>(studentIds, (batch) =>
+      stats = await chunked<StudentStatsRow>(studentIds, (batch) =>
         supabaseAdmin.from("student_stats").select("*").in("student_id", batch),
       );
     } catch {

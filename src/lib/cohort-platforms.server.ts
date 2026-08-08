@@ -16,6 +16,9 @@
 
 import type { CohortPlatform, CohortPlatformStat } from "./classrooms.functions";
 
+/** Matches the ceiling used by overview/classrooms/performance server functions. */
+const MAX_ROWS = 50_000;
+
 /**
  * Per-platform numbers for a whole roster, in two queries.
  *
@@ -32,10 +35,18 @@ export async function loadCohortPlatformStats(studentIds: string[]): Promise<{
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
+  /*
+    Ranged rather than open-ended. Both reads below fan out across the whole
+    roster times every platform, so on an institution-wide cohort they are among
+    the largest queries in the app. Left unbounded they would be truncated by
+    PostgREST's db-max-rows, which is silent — a student would simply show no
+    accounts on some platforms, indistinguishable from genuinely having none.
+  */
   const { data: accounts } = await supabaseAdmin
     .from("student_platform_accounts")
     .select("id, student_id, platform_id, handle")
-    .in("student_id", studentIds);
+    .in("student_id", studentIds)
+    .range(0, MAX_ROWS - 1);
   if (!accounts?.length) return empty;
 
   const [{ data: stats }, { data: platforms }] = await Promise.all([
@@ -47,7 +58,8 @@ export async function loadCohortPlatformStats(studentIds: string[]): Promise<{
       .in(
         "account_id",
         accounts.map((a) => a.id),
-      ),
+      )
+      .range(0, MAX_ROWS - 1),
     supabaseAdmin
       .from("platforms")
       .select("id, name, rank_metric, sort_order")

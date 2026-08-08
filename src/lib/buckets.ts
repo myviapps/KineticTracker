@@ -73,12 +73,30 @@ export function bucketCounts(rows: StudentRow[]): Record<BucketId, number> {
  * are unique problems SOLVED. The two are not interchangeable, which is why the
  * "Today" figure and the Daily Matrix's newly-solved delta legitimately differ.
  */
+/**
+ * The subset of `student_stats` this module actually reads.
+ *
+ * Structural rather than the full generated Row so callers can pass a partial
+ * projection, and non-`any` so a renamed column is a compile error instead of
+ * silently becoming `undefined ?? 0` on every card in the grid.
+ */
+export type StudentStatsLike = {
+  student_id?: string;
+  submission_calendar?: unknown;
+  total_solved?: number | null;
+  easy_solved?: number | null;
+  medium_solved?: number | null;
+  hard_solved?: number | null;
+  streak?: number | null;
+  ranking?: number | null;
+} | null;
+
 export function toStudentRow(s: {
   id: string;
   name: string;
   roll: string;
   leetcode_id: string;
-  stats: any;
+  stats: StudentStatsLike;
 }): StudentRow {
   const cal = (s.stats?.submission_calendar ?? {}) as Record<string, number>;
   // `month` and `last30` are the same 30-day window; it was being summed twice.

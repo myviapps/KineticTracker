@@ -84,6 +84,17 @@ function AuthenticatedLayout() {
       className="flex-col"
       style={{ "--app-header-h": "3rem" } as CSSProperties}
     >
+      {/*
+        Skip link. The shell is header -> sidebar -> main, so a keyboard or
+        screen-reader user previously had to tab through the entire navigation on
+        every page load before reaching content. Visually hidden until focused.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only z-50 focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+      >
+        Skip to main content
+      </a>
       <header className="sticky top-0 z-40 flex h-(--app-header-h) w-full shrink-0 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur sm:gap-3 sm:px-4">
         {/*
           Mobile only. The sidebar's own toggle lives inside the sidebar, but on
@@ -144,7 +155,11 @@ function AuthenticatedLayout() {
             flicker on static chrome, on the app's most frequent action (switching
             classrooms).
           */}
-          <main className="min-w-0 flex-1 [view-transition-name:main-content]">
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="min-w-0 flex-1 [view-transition-name:main-content] focus:outline-none"
+          >
             <Outlet />
           </main>
         </div>

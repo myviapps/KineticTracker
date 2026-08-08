@@ -16,6 +16,32 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
   const weeks = useMemo(() => buildHeatmapGrid(calendar), [calendar]);
   const total = useMemo(() => Object.values(calendar).reduce((s, n) => s + n, 0), [calendar]);
 
+  /*
+    Accessible summary.
+
+    The grid is 365 bare <div>s whose only text was a `title` attribute, which
+    screen readers do not reliably announce and keyboards cannot reach at all —
+    so the primary visualization on the profile was silent to assistive tech.
+
+    Rendering it as role="img" with one descriptive label is the right shape: the
+    per-cell detail is decorative (nobody navigates 365 squares one at a time),
+    but the SUMMARY is the actual information. A reader now hears the totals, the
+    date range and the busiest day instead of nothing.
+  */
+  const summary = useMemo(() => {
+    const cells = weeks.flat();
+    if (cells.length === 0) return "Submission activity heatmap: no data.";
+    const activeDays = cells.filter((c) => c.count > 0).length;
+    const busiest = cells.reduce((best, c) => (c.count > best.count ? c : best), cells[0]);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const range = `${iso(cells[0].date)} to ${iso(cells[cells.length - 1].date)}`;
+    const peak =
+      busiest.count > 0
+        ? ` Most active day: ${iso(busiest.date)} with ${busiest.count} submissions.`
+        : "";
+    return `Submission activity heatmap, ${range}. ${total} submissions across ${activeDays} active days.${peak}`;
+  }, [weeks, total]);
+
   const monthLabels: { col: number; label: string }[] = [];
   let lastMonth = -1;
   weeks.forEach((col, i) => {
@@ -67,9 +93,9 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
             effect nobody can see on a 12px square. The ring on hover is instant
             by design.
           */}
-          <div className="flex gap-[2px]">
+          <div className="flex gap-[2px]" role="img" aria-label={summary}>
             {weeks.map((col, i) => (
-              <div key={i} className="flex flex-col gap-[2px]">
+              <div key={i} className="flex flex-col gap-[2px]" aria-hidden="true">
                 {col.map((cell, j) => (
                   <div
                     key={j}

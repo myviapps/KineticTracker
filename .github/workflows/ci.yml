@@ -1,0 +1,79 @@
+name: CI
+
+# Runs on every push and PR. Before this existed nothing ran typecheck, lint or
+# the test suite automatically — vitest.config.ts was present and unused, which
+# is how a period of failing adapter tests went unnoticed.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # ────────────────────────────────────────────────────────────────────
+      # The service-role key must never reach a client asset.
+      #
+      # src/lib/cohort-platforms.server.ts documents a REAL past regression of
+      # exactly this kind: an exported plain function in a *.functions.ts file
+      # is not tree-shaken, so `/dashboard` pulled client.server — and with it
+      # the admin Supabase client — into the browser bundle.
+      #
+      # Today that guarantee is a property of the bundler plus a manual audit.
+      # This step makes it an enforced invariant instead.
+      # ────────────────────────────────────────────────────────────────────
+      - name: Build
+        run: npm run build
+        env:
+          # Build-time only. Real values are not needed to check what gets
+          # inlined — only that these names never appear in client output.
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          VITE_SITE_URL: https://example.com
+
+      - name: Assert no service-role reference in client bundle
+        run: |
+          set -euo pipefail
+          target=.vercel/output/static
+          if [ ! -d "$target" ]; then
+            echo "::error::$target not found — build layout changed, update this check"
+            exit 1
+          fi
+          if grep -rIl -e 'SUPABASE_SERVICE_ROLE_KEY' -e 'supabaseAdmin' "$target"; then
+            echo "::error::Service-role client reached the browser bundle (files listed above)"
+            exit 1
+          fi
+          echo "OK: no service-role reference in $target"
+
+      - name: Audit dependencies
+        # Advisory: reports known vulnerabilities without failing the build on a
+        # transitive dev-only advisory. Review the output rather than ignoring it.
+        run: npm audit --omit=dev || true

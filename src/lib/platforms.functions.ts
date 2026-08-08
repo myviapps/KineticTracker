@@ -3,6 +3,16 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { requireRole } from "@/lib/authz";
 
+/** Matches the ceiling used by the other cohort-wide server functions. */
+const MAX_ROWS = 50_000;
+
+/**
+ * Newest-first job window for the health page. Only the most recent job per
+ * platform is rendered, and there are ~10 platforms, so a few hundred rows is
+ * far more than enough to find each one.
+ */
+const RECENT_JOBS = 500;
+
 export type PlatformHealth = {
   id: string;
   name: string;
@@ -55,15 +65,27 @@ export const listPlatformHealth = createServerFn({ method: "GET" })
     const [{ data: platforms }, { data: accounts }, { data: stats }, { data: jobs }] =
       await Promise.all([
         supabaseAdmin.from("platforms").select("*").order("sort_order"),
+        // These two are whole-table scans that grow as students × platforms, and
+        // everything below only aggregates them into per-platform counters. Left
+        // open-ended they would eventually be cut off by PostgREST's db-max-rows,
+        // which is silent — the health page would under-report failures and look
+        // healthier than it is. Ranged so the ceiling is ours and explicit.
         supabaseAdmin
           .from("student_platform_accounts")
-          .select("platform_id, status, last_fetched_at, fetch_error"),
-        supabaseAdmin.from("platform_stats").select("platform_id, fetch_status, error_msg"),
+          .select("platform_id, status, last_fetched_at, fetch_error")
+          .range(0, MAX_ROWS - 1),
+        supabaseAdmin
+          .from("platform_stats")
+          .select("platform_id, fetch_status, error_msg")
+          .range(0, MAX_ROWS - 1),
+        // Only the newest job per platform is used, so a bounded window is
+        // sufficient as well as safer.
         supabaseAdmin
           .from("refresh_jobs")
           .select("platform_id, status, processed, total, resume_after, last_error, created_at")
           .not("platform_id", "is", null)
-          .order("created_at", { ascending: false }),
+          .order("created_at", { ascending: false })
+          .limit(RECENT_JOBS),
       ]);
 
     // Newest job per platform; the list above is already newest-first.

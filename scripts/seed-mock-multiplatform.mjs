@@ -24,7 +24,13 @@ const env = Object.fromEntries(
     .filter((l) => l.trim() && !l.trim().startsWith("#"))
     .map((l) => {
       const i = l.indexOf("=");
-      return [l.slice(0, i).trim(), l.slice(i + 1).trim().replace(/^["']|["']$/g, "")];
+      return [
+        l.slice(0, i).trim(),
+        l
+          .slice(i + 1)
+          .trim()
+          .replace(/^["']|["']$/g, ""),
+      ];
     }),
 );
 
@@ -37,7 +43,10 @@ if (!URL_ || !KEY) {
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
 
 async function rest(path, init = {}) {
-  const r = await fetch(`${URL_}/rest/v1/${path}`, { ...init, headers: { ...H, ...(init.headers ?? {}) } });
+  const r = await fetch(`${URL_}/rest/v1/${path}`, {
+    ...init,
+    headers: { ...H, ...(init.headers ?? {}) },
+  });
   const t = await r.text();
   if (!r.ok) throw new Error(`${init.method ?? "GET"} ${path} -> ${r.status} ${t.slice(0, 300)}`);
   return t ? JSON.parse(t) : null;
@@ -61,18 +70,70 @@ const CLASSROOM = "Demo Cohort — Multi-Platform";
  * invalid_handle account actually looks like.
  */
 const ROSTER = [
-  ["Aarav Sharma",  "DEMO001", { leetcode: "votrubac",       codeforces: "tourist",   codechef: "gennady.korotkevich", hackerrank: "tourist" }],
-  ["Diya Patel",    "DEMO002", { leetcode: "lee215",         codeforces: "Petr",      codechef: "uwi",                 geeksforgeeks: "codewithsathya" }],
-  ["Rohan Verma",   "DEMO003", { leetcode: "StefanPochmann", codeforces: "Benq",      codechef: "anton_lunyov",        hackerrank: "abhiranjan" }],
-  ["Ananya Reddy",  "DEMO004", { leetcode: "wisdompeak",     codeforces: "Um_nik",    codechef: "kevinsogo",           hackerrank: "kevinsogo" }],
-  ["Vihaan Nair",   "DEMO005", { leetcode: "cuiaoxiang",     codeforces: "ecnerwala", codechef: "rajarshi_basu" }],
-  ["Ishita Rao",    "DEMO006", { leetcode: "hiepit",         codeforces: "jiangly",   hackerrank: "dheeraj_2016",      geeksforgeeks: "sandeepjain2" }],
-  ["Arjun Menon",   "DEMO007", { leetcode: "awice",          codeforces: "Radewoosh", hackerrank: "shashank21j" }],
-  ["Saanvi Iyer",   "DEMO008", { leetcode: "tiantian1412",   codeforces: "ksun48",    geeksforgeeks: "harshitkant" }],
-  ["Kabir Singh",   "DEMO009", { leetcode: "mhmdsalah",      codeforces: "maroonrk" }],
-  ["Myra Gupta",    "DEMO010", { leetcode: "neal_wu",        codeforces: "Errichto" }],
-  ["Advait Joshi",  "DEMO011", { leetcode: "demo_typo_no_such_user_1", codeforces: "scott_wu" }],
-  ["Kiara Desai",   "DEMO012", { leetcode: "demo_typo_no_such_user_2", codeforces: "mnbvmar" }],
+  [
+    "Aarav Sharma",
+    "DEMO001",
+    {
+      leetcode: "votrubac",
+      codeforces: "tourist",
+      codechef: "gennady.korotkevich",
+      hackerrank: "tourist",
+    },
+  ],
+  [
+    "Diya Patel",
+    "DEMO002",
+    { leetcode: "lee215", codeforces: "Petr", codechef: "uwi", geeksforgeeks: "codewithsathya" },
+  ],
+  [
+    "Rohan Verma",
+    "DEMO003",
+    {
+      leetcode: "StefanPochmann",
+      codeforces: "Benq",
+      codechef: "anton_lunyov",
+      hackerrank: "abhiranjan",
+    },
+  ],
+  [
+    "Ananya Reddy",
+    "DEMO004",
+    {
+      leetcode: "wisdompeak",
+      codeforces: "Um_nik",
+      codechef: "kevinsogo",
+      hackerrank: "kevinsogo",
+    },
+  ],
+  [
+    "Vihaan Nair",
+    "DEMO005",
+    { leetcode: "cuiaoxiang", codeforces: "ecnerwala", codechef: "rajarshi_basu" },
+  ],
+  [
+    "Ishita Rao",
+    "DEMO006",
+    {
+      leetcode: "hiepit",
+      codeforces: "jiangly",
+      hackerrank: "dheeraj_2016",
+      geeksforgeeks: "sandeepjain2",
+    },
+  ],
+  [
+    "Arjun Menon",
+    "DEMO007",
+    { leetcode: "awice", codeforces: "Radewoosh", hackerrank: "shashank21j" },
+  ],
+  [
+    "Saanvi Iyer",
+    "DEMO008",
+    { leetcode: "tiantian1412", codeforces: "ksun48", geeksforgeeks: "harshitkant" },
+  ],
+  ["Kabir Singh", "DEMO009", { leetcode: "mhmdsalah", codeforces: "maroonrk" }],
+  ["Myra Gupta", "DEMO010", { leetcode: "neal_wu", codeforces: "Errichto" }],
+  ["Advait Joshi", "DEMO011", { leetcode: "demo_typo_no_such_user_1", codeforces: "scott_wu" }],
+  ["Kiara Desai", "DEMO012", { leetcode: "demo_typo_no_such_user_2", codeforces: "mnbvmar" }],
 ];
 
 const PLATFORMS_USED = ["leetcode", "codeforces", "codechef", "hackerrank", "geeksforgeeks"];
@@ -140,7 +201,9 @@ async function seed() {
     }
   }
   await upsert("student_platform_accounts", accounts, "student_id,platform_id");
-  console.log(`accounts ${accounts.length + students.length} across ${PLATFORMS_USED.length} platforms`);
+  console.log(
+    `accounts ${accounts.length + students.length} across ${PLATFORMS_USED.length} platforms`,
+  );
 
   // student_scores only counts enabled platforms, so the demo data cannot score
   // until these are on.

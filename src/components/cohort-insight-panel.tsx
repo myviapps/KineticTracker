@@ -17,6 +17,7 @@ import {
 import { useCssVars } from "@/hooks/use-css-vars";
 import { LeaderboardBars } from "@/components/leaderboard-bars";
 import { TopNControl } from "@/components/top-n-control";
+import { TrendWindowControl } from "@/components/trend-window-control";
 import { cn } from "@/lib/utils";
 
 /**
@@ -39,6 +40,8 @@ export function CohortInsightPanel({
   title,
   trend,
   trendEmptyNote,
+  trendWindowDays = 30,
+  onTrendWindowDays,
   difficulty,
   bands,
   board,
@@ -52,6 +55,10 @@ export function CohortInsightPanel({
   trend: TrendPoint[];
   /** Shown instead of the chart when there is no history — never a flat zero. */
   trendEmptyNote?: string;
+  /** The window the series was QUERIED over, which is not the same as what it covers. */
+  trendWindowDays?: number;
+  /** Omit to render the window as fixed — the control only appears when it can act. */
+  onTrendWindowDays?: (days: number) => void;
   /** Easy/Medium/Hard, or null when the platform publishes no split. */
   difficulty?: { easy: number; medium: number; hard: number } | null;
   bands: BandPoint[];
@@ -125,6 +132,9 @@ export function CohortInsightPanel({
             {title}
           </span>
           {tab === "leaderboard" && <TopNControl value={topN} max={boardMax} onChange={onTopN} />}
+          {tab === "trend" && onTrendWindowDays && (
+            <TrendWindowControl value={trendWindowDays} onChange={onTrendWindowDays} />
+          )}
         </div>
       </div>
 
@@ -159,9 +169,16 @@ export function CohortInsightPanel({
                 "Totals per snapshot date", never "per day". solved_that_day
                 differences against the most recent EARLIER snapshot, so a
                 platform refreshed weekly lands seven days of gain on one date.
+
+                The caption counts the dates actually PLOTTED rather than
+                asserting the window. It read "last 30 days" unconditionally,
+                which is how a truncated five-point series went unnoticed — the
+                label vouched for coverage the chart never had. A cohort three
+                days into collecting now says so, and so does a query that came
+                back short.
               */}
               <p className="mt-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                solved per snapshot date · last 30 days
+                solved per snapshot date · {trend.length}/{trendWindowDays} days with data
               </p>
             </>
           ))}

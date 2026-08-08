@@ -67,7 +67,9 @@ function SettingsPage() {
                 <Chrome className="size-5 text-muted-foreground" />
               </div>
               <div>
-                <div className="text-sm font-semibold">Google Sign-In</div>
+                <div id="google-auth-label" className="text-sm font-semibold">
+                  Google Sign-In
+                </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">
                   Show "Sign in with Google" button on the login page.
                   <br />
@@ -79,9 +81,14 @@ function SettingsPage() {
             </div>
             <button
               id="google-auth-toggle"
+              type="button"
               role="switch"
               disabled={toggleGoogle.isPending}
               aria-checked={googleEnabled}
+              // The switch has no text of its own, so without this a screen
+              // reader announced only "switch, checked" — no indication of WHAT
+              // was being toggled. Points at the heading beside it.
+              aria-labelledby="google-auth-label"
               onClick={() => toggleGoogle.mutate(!googleEnabled)}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 ${
                 googleEnabled ? "bg-primary" : "bg-muted"

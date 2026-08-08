@@ -1173,7 +1173,12 @@ export const refreshStudent = createServerFn({ method: "POST" })
         started_at: startedAt,
         total_students: 1,
       });
-    } catch {}
+    } catch (e) {
+      // Bookkeeping only — a failure here must not block the refresh itself.
+      // Logged rather than swallowed: the silent version of this catch is what
+      // hid the 42703 described above.
+      console.warn("[refresh] could not open scrape_runs row:", e);
+    }
     try {
       const { scrapeStudentById } = await import("./scrape.server");
       await scrapeStudentById(data.id);
@@ -1182,7 +1187,9 @@ export const refreshStudent = createServerFn({ method: "POST" })
           .from("scrape_runs")
           .update({ completed_at: new Date().toISOString(), success_count: 1, failed_count: 0 })
           .eq("id", runId);
-      } catch {}
+      } catch (e) {
+        console.warn("[refresh] could not close scrape_runs row (success):", e);
+      }
       return { ok: true };
     } catch (e) {
       try {
@@ -1195,7 +1202,9 @@ export const refreshStudent = createServerFn({ method: "POST" })
             errors: JSON.stringify([String(e)]),
           })
           .eq("id", runId);
-      } catch {}
+      } catch (bookkeepingError) {
+        console.warn("[refresh] could not close scrape_runs row (failure):", bookkeepingError);
+      }
       throw e;
     }
   });

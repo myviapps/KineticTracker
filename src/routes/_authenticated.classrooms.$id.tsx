@@ -76,6 +76,7 @@ import { CohortFilterBar } from "@/components/cohort-filter-bar";
 import { CohortToolbar } from "@/components/cohort-toolbar";
 import { LensStatRow } from "@/components/lens-stat-row";
 import { CohortInsightPanel } from "@/components/cohort-insight-panel";
+import { clampTrendDays } from "@/components/trend-window-control";
 import { ScrapeStatusBadge } from "@/components/scrape-status-badge";
 import { getPerformanceWindows } from "@/lib/performance.functions";
 import {
@@ -136,6 +137,9 @@ export type ClassroomSearch = {
   v?: "report" | "matrix";
   sort?: SortKey;
   dir?: "asc" | "desc";
+  /** Trend lookback in days. In the URL like every other filter, so a "last 90
+   *  days" view is a link rather than a setting the next reload discards. */
+  d?: number;
 };
 
 const SORT_KEYS: SortKey[] = [
@@ -176,6 +180,10 @@ export const Route = createFileRoute("/_authenticated/classrooms/$id")({
       // An unknown key would silently sort by nothing; fall back instead.
       sort: SORT_KEYS.includes(sort) ? sort : "total",
       dir: search.dir === "asc" ? "asc" : "desc",
+      // Clamped here as well as in the control: this value reaches a server
+      // function that rejects anything outside 1..365, and a hand-edited URL
+      // must degrade to the default view rather than to an error.
+      d: clampTrendDays(search.d, 30),
     };
   },
   loader: ({ params, context }) => {
@@ -399,10 +407,18 @@ function ClassroomDetail() {
     is the difference between "nobody did anything" and "we only started
     collecting yesterday" — see the header comment in performance.functions.ts.
   */
+  const trendDays = sp.d ?? 30;
+  const setTrendDays = (d: number) => setSearchParams({ d: clampTrendDays(d) });
+
   const perfQuery = useQuery({
-    queryKey: ["cohort-performance", id],
-    queryFn: () => getPerformanceWindows({ data: { windows: [30], classroomId: id } }),
+    // trendDays is part of the key: without it, widening the window would serve
+    // the cached 30-day answer and the chart would not move.
+    queryKey: ["cohort-performance", id, trendDays],
+    queryFn: () => getPerformanceWindows({ data: { windows: [trendDays], classroomId: id } }),
     staleTime: 60_000,
+    // The previous window stays on screen while the new one loads, instead of
+    // the panel dropping to its "No history yet" empty state mid-switch.
+    placeholderData: (prev) => prev,
   });
   // Memoised: `?? []` allocates a new array each render, which would make every
   // downstream useMemo that depends on it recompute on every render.
@@ -932,6 +948,8 @@ function ClassroomDetail() {
                 })}`
               : "starts after the first refresh"
           }
+          trendWindowDays={trendDays}
+          onTrendWindowDays={setTrendDays}
           difficulty={showDifficulty ? difficultyValues : null}
           bands={bandHistogram}
           board={ranked.map((r) => ({ id: r.id, name: r.name, roll: r.roll, total: r.total }))}
