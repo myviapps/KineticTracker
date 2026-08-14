@@ -2,10 +2,16 @@ name: Refresh Job Pump
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    # 17:30 UTC = 23:00 IST (UTC+5:30). GitHub Actions cron is always UTC and
+    # has no timezone field, so the offset is baked in here — India does not
+    # observe DST, so this stays 11 PM IST year-round with no maintenance.
+    #
+    # Note GitHub deprioritises scheduled workflows under load: observed firing
+    # has run 30-150 minutes late. Treat 23:00 IST as "not before", not "at".
+    - cron: '30 17 * * *'
   workflow_dispatch:
 
-# Runs overlap when a chunk is slow and the next schedule fires. Queue them
+# Runs overlap when a drain is slow and the next schedule fires. Queue them
 # instead of stacking parallel pumps that fight over the same job lease.
 concurrency:
   group: refresh-pump
@@ -14,9 +20,13 @@ concurrency:
 jobs:
   pump:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # A full-cohort refresh is ~42 minutes of actual scraping (484 LeetCode
+    # accounts at 5-per-batch with a 3s cooldown). The old 5-minute cap was
+    # sized for a single 50s chunk back when this fired every 10 minutes; once
+    # daily, the run has to stay alive long enough to drain the whole queue.
+    timeout-minutes: 150
     steps:
-      - name: Pump refresh jobs
+      - name: Enqueue and drain refresh jobs
         # Secrets and repo variables are passed through `env:` rather than
         # interpolated into the script with ${{ }}. Interpolation splices the
         # value into the shell source before it runs, so anyone able to set the
@@ -24,12 +34,14 @@ jobs:
         # could inject shell or redirect the authenticated request elsewhere.
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          # Fallback must match the real deployment. It was
-          # kinetic-tracker.vercel.app, which is not where this app is deployed —
-          # so with no DEPLOY_URL repository variable set, every pump POSTed to
-          # the wrong host. Set the `DEPLOY_URL` repo variable to override this
-          # for a custom domain rather than editing it here.
+          # Verified host — note the doubled 'a'. The Vercel PROJECT is named
+          # `almanac`, so `almanac.vercel.app` looks right and is wrong: it
+          # returns Vercel's own 404. Do not "correct" this. Set the DEPLOY_URL
+          # repo variable to override for a custom domain.
           DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://almaanac.vercel.app' }}
+          # Stop starting new chunks after this long. Below the job timeout so
+          # the run ends on its own terms with a summary rather than being cut.
+          DRAIN_MINUTES: '120'
         run: |
           set -uo pipefail
 
@@ -40,50 +52,132 @@ jobs:
             exit 1
           fi
 
-          # --max-time must exceed the Vercel ceiling, not the chunk budget.
-          # It was 55s against a function that budgets 50s of work plus a 6s
-          # tail and is allowed 60s by maxDuration, so curl aborted with exit
-          # 28 on perfectly healthy chunks and the workflow went red.
           body=$(mktemp)
           trap 'rm -f "$body"' EXIT
 
+          # POST $1, leaving the response in $body and echoing the status code.
           # `|| true` so a curl transport failure (timeout, DNS, TLS) falls
           # through to the diagnostics below instead of aborting the step under
           # the runner's default `bash -e` with no explanation.
-          code=$(curl -sS -X POST "$DEPLOY_URL/api/public/jobs/pump" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            --max-time 90 \
-            -o "$body" -w '%{http_code}') || true
+          #
+          # --max-time must exceed the Vercel ceiling, not the chunk budget: the
+          # function budgets 50s of work plus a tail and is allowed 60s by
+          # maxDuration, so a 55s client timeout aborted healthy chunks.
+          call() {
+            curl -sS -X POST "$DEPLOY_URL$1" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H "Content-Type: application/json" \
+              --max-time 90 \
+              -o "$body" -w '%{http_code}' || true
+          }
 
-          echo "HTTP ${code:-<no response>}"
+          # Shared handling for the auth/transport failures that mean "stop
+          # entirely" rather than "try the next chunk". Returns 1 to abort.
+          fatal_check() {
+            case "$1" in
+              401)
+                echo "::error::401 Unauthorized — CRON_SECRET here does not match the one in Vercel."
+                cat "$body" 2>/dev/null || true
+                return 1 ;;
+              500)
+                # cronGuard() reports 500 ONLY for an unconfigured secret, which
+                # is our misconfiguration and cannot be retried into working.
+                echo "::error::500 — check whether CRON_SECRET is set on the Vercel deployment."
+                cat "$body" 2>/dev/null || true
+                return 1 ;;
+              200|504|408) return 0 ;;
+              *)
+                echo "::error::Unexpected HTTP ${1:-<no response>}"
+                cat "$body" 2>/dev/null || true
+                return 1 ;;
+            esac
+          }
 
-          case "$code" in
-            200)
-              # Body withheld on success: it carries job ids and platform names,
-              # and workflow logs are readable by anyone on a public repo.
-              exit 0
-              ;;
-            504|408)
+          # ── 1. Enqueue ────────────────────────────────────────────────────
+          # The pump only DRAINS existing jobs; something has to create them.
+          # Vercel's own daily cron enqueues at 18:30 UTC — after this run — so
+          # pumping alone at 23:00 IST would find an empty queue every night.
+          # This endpoint enqueues one job per enabled platform and runs the
+          # first chunk itself. Platforms refreshed inside their TTL are
+          # skipped server-side, so a same-day manual refresh is not redone.
+          echo "── Enqueue ──"
+          code=$(call "/api/public/cron/refresh")
+          echo "HTTP $code"
+          fatal_check "$code" || exit 1
+          # Body withheld on success: it carries student ids and platform names,
+          # and workflow logs are readable by anyone on a public repo.
+          grep -o '"queued":\[[^]]*\]' "$body" 2>/dev/null | head -c 200 || true
+          echo
+
+          # ── 2. Drain ──────────────────────────────────────────────────────
+          # Keep pumping until the queue reports nothing eligible. Each call
+          # does up to ~50s of work server-side, so a full cohort needs dozens
+          # of iterations — which is the whole reason this loops instead of
+          # firing once and trusting a 10-minute schedule that no longer exists.
+          deadline=$(( SECONDS + DRAIN_MINUTES * 60 ))
+          iterations=0
+          timeouts=0
+          stalls=0
+
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            code=$(call "/api/public/jobs/pump")
+            iterations=$(( iterations + 1 ))
+
+            if ! fatal_check "$code"; then exit 1; fi
+
+            if [ "$code" = "504" ] || [ "$code" = "408" ]; then
               # The chunk outlived the platform limit. The job keeps its lease
               # until it expires and the next pump resumes from the cursor, so
-              # this is recoverable on its own — surface it without failing the
-              # run, or a transient slow chunk permanently reds the workflow.
-              echo "::warning::Gateway timeout ($code) — job resumes on the next pump."
+              # this is recoverable — but a persistent stream of them means
+              # something is wedged, so give up rather than loop for two hours.
+              timeouts=$(( timeouts + 1 ))
+              echo "::warning::Gateway timeout ($code) #$timeouts — resuming."
+              if [ "$timeouts" -ge 5 ]; then
+                echo "::error::5 consecutive-ish gateway timeouts; stopping."
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+
+            # drainJobs() reports {"pumped":false,...} once next_platform_job()
+            # finds nothing eligible — that is the drained signal.
+            if grep -q '"pumped":false' "$body" 2>/dev/null; then
+              echo "Queue drained after $iterations pump call(s)."
               exit 0
-              ;;
-            401)
-              echo "::error::401 Unauthorized — CRON_SECRET here does not match the one in Vercel."
-              echo "Response body:"
-              cat "$body" 2>/dev/null || true
-              exit 1
-              ;;
-            *)
-              # On a real failure the body IS the diagnostic. Withholding it here
-              # left nothing to debug from but a bare status code.
-              echo "::error::Pump failed with HTTP ${code:-<no response>}"
-              echo "Response body:"
-              cat "$body" 2>/dev/null || true
-              exit 1
-              ;;
-          esac
+            fi
+
+            # A deliberately paused job is not ours to resume.
+            if grep -q '"stopped":"paused"' "$body" 2>/dev/null; then
+              echo "Job is paused — leaving it alone."
+              exit 0
+            fi
+
+            # "no progress" means the chunk claimed nothing or advanced nothing.
+            # Usually that is CONTENTION, not breakage: the client-side pump runs
+            # in any open browser tab, and Vercel's own cron fires at 18:30 UTC,
+            # mid-window. Both hold a real lease, and claim_refresh_job correctly
+            # refuses ours. So back off and retry rather than quitting — bailing
+            # on the first few would hand the whole night's queue to whoever
+            # happened to have a tab open, and the drain would not resume for
+            # another 24 hours. Only a sustained stall is treated as wedged.
+            if grep -q '"stopped":"no progress"' "$body" 2>/dev/null; then
+              stalls=$(( stalls + 1 ))
+              if [ "$stalls" -ge 6 ]; then
+                echo "::warning::No progress across 6 calls (~2m) — another worker may hold the lease, or the job is wedged. Stopping; cursors are preserved."
+                exit 0
+              fi
+              echo "no progress (attempt $stalls/6) — backing off"
+              sleep 20
+              continue
+            fi
+            stalls=0
+
+            # Progress line only — counts are safe, ids are not.
+            grep -o '"jobs":[0-9]*,"stopped":"[^"]*","processed":[0-9]*,"succeeded":[0-9]*,"failed":[0-9]*' "$body" \
+              2>/dev/null || echo "pumped (details withheld)"
+
+            sleep 2
+          done
+
+          echo "::warning::Drain window of ${DRAIN_MINUTES}m elapsed after $iterations call(s); remaining jobs resume on the next run."

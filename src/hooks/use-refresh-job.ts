@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
@@ -10,6 +10,41 @@ import {
 import type { Database } from "@/integrations/supabase/types";
 
 export const REFRESH_JOB_KEY = ["refresh-job"] as const;
+
+/**
+ * Every cached query a completed scrape can invalidate.
+ *
+ * This is one list rather than an inline trio at each call site because the
+ * inline version silently went stale as the app grew: only `classroom`,
+ * `classrooms` and `overview` were ever invalidated, so after a refresh the
+ * cohort tables updated while an OPEN STUDENT PROFILE kept rendering
+ * pre-refresh numbers until a hard reload — the page looked wrong next to a
+ * platform tab that had just refetched. The rankings page, daily matrix and
+ * both performance panels had the same gap.
+ *
+ * These are PREFIX keys: TanStack matches by prefix, so ["student"] covers
+ * ["student", roll] for every student, and ["matrix-breakdown"] covers every
+ * classroom/platform/date-range permutation.
+ *
+ * Anything added here that reads scraped numbers should be added to this list;
+ * a query that doesn't read them (settings, staff, search) must not be, or a
+ * long refresh turns into a refetch storm.
+ */
+const SCRAPE_TOUCHED_KEYS: readonly (readonly string[])[] = [
+  ["classroom"],
+  ["classrooms"],
+  ["overview"],
+  ["student"],
+  ["rankings"],
+  ["matrix-breakdown"],
+  ["cohort-performance"],
+  ["performance-windows"],
+  ["colleges"],
+];
+
+function invalidateScrapedData(qc: QueryClient) {
+  for (const queryKey of SCRAPE_TOUCHED_KEYS) qc.invalidateQueries({ queryKey });
+}
 
 type JobRow = Database["public"]["Tables"]["refresh_jobs"]["Row"];
 
@@ -153,9 +188,7 @@ export function useRefreshJobPump() {
     const now = Date.now();
     if (now - lastInvalidate.current < 5000) return;
     lastInvalidate.current = now;
-    qc.invalidateQueries({ queryKey: ["classroom"] });
-    qc.invalidateQueries({ queryKey: ["classrooms"] });
-    qc.invalidateQueries({ queryKey: ["overview"] });
+    invalidateScrapedData(qc);
   }, [processed, qc]);
 
   /*
@@ -270,9 +303,7 @@ export function useRefreshJobPump() {
         if (finished) {
           if (res.done || res.jobStatus === "completed") {
             toast.success(`${platform} refreshed — ${res.succeeded} updated, ${res.failed} failed`);
-            qc.invalidateQueries({ queryKey: ["classroom"] });
-            qc.invalidateQueries({ queryKey: ["classrooms"] });
-            qc.invalidateQueries({ queryKey: ["overview"] });
+            invalidateScrapedData(qc);
           }
           // Straight on to the next platform rather than returning — that is the
           // whole point of not being bound to one job id.

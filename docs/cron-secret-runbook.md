@@ -5,6 +5,21 @@ the job pump, the chunk runner and the demo seeder. It must be the **same value
 in three places**, and a mismatch in any one of them shows up as a `401` on the
 GitHub Actions pump.
 
+## Schedule
+
+| Trigger | When | Does |
+|---|---|---|
+| `.github/workflows/pump.yml` | `30 17 * * *` UTC = **23:00 IST** | Enqueues (`/cron/refresh`), then loops `/jobs/pump` until the queue drains — up to 120 min |
+| `vercel.json` cron | `30 18 * * *` UTC = 00:00 IST | Backstop. Enqueues + one drain; usually TTL-skipped because the nightly run just went |
+
+GitHub Actions cron is **always UTC** and has no timezone field, so the +5:30
+offset is baked into the expression. India has no DST, so this needs no seasonal
+maintenance. GitHub also deprioritises scheduled workflows under load — observed
+firing has been 30–150 minutes late, so treat 23:00 IST as *not before*, not *at*.
+
+The nightly run must enqueue as well as pump: the pump only drains jobs that
+already exist, and Vercel's cron does not enqueue until an hour later.
+
 There is deliberately **no `x-vercel-cron` fallback**. That header is
 client-suppliable — Vercel sets it on its own cron invocations but does not strip
 one sent by a caller — so trusting it left every endpoint under `/api/public`,
@@ -16,7 +31,7 @@ the header. The secret is the only accepted credential.
 | Where | What it authenticates | How to set |
 |---|---|---|
 | **Vercel** project env | The deployed app. Also what Vercel Cron sends. | Settings → Environment Variables → `CRON_SECRET`, **Production** checked |
-| **GitHub** repo secret | The 10-minute pump workflow | Settings → Secrets and variables → Actions → Secrets → `CRON_SECRET` |
+| **GitHub** repo secret | The nightly pump workflow (23:00 IST) | Settings → Secrets and variables → Actions → Secrets → `CRON_SECRET` |
 | Local `.env` | `scripts/*.mjs` and local testing | edit `.env` |
 
 The Vercel one is load-bearing twice over: when a project has an env var named
@@ -30,6 +45,27 @@ variables → Actions → *Variables* tab) to the deployment origin, e.g.
 `https://almaanac.vercel.app`, with no trailing slash. `pump.yml` falls back to a
 hardcoded default, and a wrong default means every pump POSTs to the wrong host —
 which fails no matter how correct the secret is.
+
+> **Verified host.** The origin is `https://almaanac.vercel.app` — note the
+> doubled `a`. The Vercel *project* is named `almanac`, so `almanac.vercel.app`
+> looks right and is wrong: it returns Vercel's own `404 NOT_FOUND`, not this
+> app. Both the `pump.yml` fallback and the runbook examples use the doubled-`a`
+> host deliberately; don't "correct" it.
+
+## Which side is broken?
+
+One unauthenticated probe tells you whether the deployment or GitHub is at
+fault, without needing the real secret:
+
+```powershell
+curl.exe -i -X POST https://almaanac.vercel.app/api/public/jobs/pump -H "Authorization: Bearer definitely-wrong" --max-time 30
+```
+
+| You get | Deployment | Next step |
+|---|---|---|
+| `401 {"error":"Unauthorized"}` | `CRON_SECRET` **is** set in Vercel and the endpoint is live | The fault is on the GitHub side — the repo secret is missing or does not match. Re-set it (step 5 below). |
+| `500 CRON_SECRET is not configured…` | Not set on this deployment, or set but not redeployed | Fix Vercel first (steps 2–3). |
+| `404` / DNS failure | Wrong host | Check `DEPLOY_URL` against the verified host above. |
 
 ## Rotation
 
