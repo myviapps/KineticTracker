@@ -40,6 +40,7 @@ import {
   lensFilters,
   applyLensFilter,
   lensStatCards,
+  lensMetric,
 } from "@/lib/platform-lens";
 
 const qo = queryOptions({ queryKey: ["overview"], queryFn: () => getOverview() });
@@ -124,6 +125,22 @@ function OverviewPage() {
   const trendDays = sp.d ?? 30;
   const setTrendDays = (d: number) => setSearchParams({ d: clampTrendDays(d) });
 
+  /*
+    `StudentRow.total` is LeetCode-only (see buckets.ts) — fine for the LeetCode
+    behavioral buckets it was built for, wrong for a leaderboard/rank that's
+    supposed to reflect whichever platform lens is active. This is the same
+    metric `lensStatCards` already uses per-lens; the leaderboard and classroom
+    rollup below now follow it instead of always reading `r.total`.
+  */
+  const almanacById = useMemo(
+    () => new Map(data.students.map((s) => [s.id, s.ranks?.almanac_score ?? null])),
+    [data.students],
+  );
+  const metricOf = (r: StudentRow): number =>
+    lens.isAll
+      ? (almanacById.get(r.id) ?? 0)
+      : (lensMetric(statsByStudent.get(r.id)?.[lens.id], lens.rank_metric) ?? 0);
+
   // Counts stay cohort-wide so the chips keep their meaning while a filter is
   // applied — otherwise every chip but the active one reads 0.
   const lensFilterSet = useMemo(
@@ -183,14 +200,15 @@ function OverviewPage() {
   const perClassroom = data.classrooms
     .map((c) => {
       const cRows = rows.filter((r) => classroomIdsOf.get(r.id)?.includes(c.id));
+      const total = cRows.reduce((s, r) => s + metricOf(r), 0);
       return {
         id: c.id,
         name: c.name,
         students: cRows.length,
-        total: cRows.reduce((s, r) => s + r.total, 0),
+        total,
         today: cRows.reduce((s, r) => s + r.today, 0),
         week: cRows.reduce((s, r) => s + r.week, 0),
-        avg: cRows.length ? Math.round(cRows.reduce((s, r) => s + r.total, 0) / cRows.length) : 0,
+        avg: cRows.length ? Math.round(total / cRows.length) : 0,
       };
     })
     .sort((a, b) => b.total - a.total);
@@ -200,7 +218,7 @@ function OverviewPage() {
   const sharedStudents = perClassroom.reduce((s, c) => s + c.students, 0) > rows.length;
 
   const ranked = [...rows]
-    .sort((a, b) => b.total - a.total)
+    .sort((a, b) => metricOf(b) - metricOf(a))
     .slice(0, topN)
     .map((r) => ({ ...r, classrooms: namesFor(r.id) }));
 
@@ -382,7 +400,7 @@ function OverviewPage() {
               : null
           }
           bands={bandHistogram}
-          board={ranked.map((r) => ({ id: r.id, name: r.name, roll: r.roll, total: r.total }))}
+          board={ranked.map((r) => ({ id: r.id, name: r.name, roll: r.roll, total: metricOf(r) }))}
           boardMax={rows.length}
           topN={topN}
           onTopN={setTopN}
@@ -420,7 +438,12 @@ function OverviewPage() {
                   </div>
                   <div className="text-right font-mono">
                     <div className="text-lg font-bold">{c.total.toLocaleString()}</div>
-                    <div className="text-[10px] text-primary">+{c.today} today</div>
+                    {/* "today" is a LeetCode submission-calendar count — showing it under
+                        another platform's total would be the same mislabeling this fix
+                        is for. */}
+                    {lens.id === "leetcode" && (
+                      <div className="text-[10px] text-primary">+{c.today} today</div>
+                    )}
                   </div>
                 </Link>
               ))}

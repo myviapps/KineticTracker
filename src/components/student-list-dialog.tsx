@@ -25,12 +25,22 @@ export function StudentListDialog({
   title,
   students,
   showClassroom = true,
+  metricColumn,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   students: ListedStudent[];
   showClassroom?: boolean;
+  /**
+   * Overrides the LeetCode-shaped columns (Total/E/M/H/Today/7d/30d/Streak)
+   * with a single metric column. Every one of those defaults is a LeetCode
+   * field on `StudentRow` — fine when this roster came from a LeetCode bucket,
+   * misleading when it came from another platform's band filter (e.g. a
+   * "Codeforces 1900+" list would otherwise show unrelated LeetCode numbers
+   * under a bare "Total" header with no Codeforces figure anywhere).
+   */
+  metricColumn?: { label: string; valueOf: (s: ListedStudent) => number | null };
 }) {
   function exportCsv() {
     const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
@@ -39,14 +49,9 @@ export function StudentListDialog({
       "Roll",
       ...(showClassroom ? ["Classroom"] : []),
       "LeetCode ID",
-      "Total",
-      "Easy",
-      "Medium",
-      "Hard",
-      "Today",
-      "This week",
-      "Last 30d",
-      "Streak",
+      ...(metricColumn
+        ? [metricColumn.label]
+        : ["Total", "Easy", "Medium", "Hard", "Today", "This week", "Last 30d", "Streak"]),
     ];
     const lines = students.map((s) =>
       [
@@ -54,14 +59,9 @@ export function StudentListDialog({
         s.roll,
         ...(showClassroom ? [(s.classrooms ?? []).join(" | ")] : []),
         s.leetcode_id,
-        s.total,
-        s.easy,
-        s.medium,
-        s.hard,
-        s.today,
-        s.week,
-        s.last30,
-        s.streak,
+        ...(metricColumn
+          ? [metricColumn.valueOf(s) ?? ""]
+          : [s.total, s.easy, s.medium, s.hard, s.today, s.week, s.last30, s.streak]),
       ]
         .map(escape)
         .join(","),
@@ -92,21 +92,27 @@ export function StudentListDialog({
               <tr>
                 <th className="px-3 py-2">Student</th>
                 {showClassroom && <th className="px-3 py-2">Classroom</th>}
-                <th className="px-3 py-2 text-right">Total</th>
-                <th className="px-3 py-2 text-right text-easy">E</th>
-                <th className="px-3 py-2 text-right text-medium">M</th>
-                <th className="px-3 py-2 text-right text-hard">H</th>
-                <th className="px-3 py-2 text-right">Today</th>
-                <th className="px-3 py-2 text-right">7d</th>
-                <th className="px-3 py-2 text-right">30d</th>
-                <th className="px-3 py-2 text-right">Streak</th>
+                {metricColumn ? (
+                  <th className="px-3 py-2 text-right">{metricColumn.label}</th>
+                ) : (
+                  <>
+                    <th className="px-3 py-2 text-right">Total</th>
+                    <th className="px-3 py-2 text-right text-easy">E</th>
+                    <th className="px-3 py-2 text-right text-medium">M</th>
+                    <th className="px-3 py-2 text-right text-hard">H</th>
+                    <th className="px-3 py-2 text-right">Today</th>
+                    <th className="px-3 py-2 text-right">7d</th>
+                    <th className="px-3 py-2 text-right">30d</th>
+                    <th className="px-3 py-2 text-right">Streak</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-border font-mono tabular-nums">
               {students.length === 0 && (
                 <tr>
                   <td
-                    colSpan={showClassroom ? 10 : 9}
+                    colSpan={(showClassroom ? 2 : 1) + (metricColumn ? 1 : 8)}
                     className="px-3 py-12 text-center text-muted-foreground"
                   >
                     No students in this group.
@@ -130,20 +136,32 @@ export function StudentListDialog({
                       {s.classrooms && s.classrooms.length > 0 ? s.classrooms.join(" · ") : "—"}
                     </td>
                   )}
-                  <td className="px-3 py-2 text-right text-xs font-bold">{s.total}</td>
-                  <td className="px-3 py-2 text-right text-xs text-easy">{s.easy}</td>
-                  <td className="px-3 py-2 text-right text-xs text-medium">{s.medium}</td>
-                  <td className="px-3 py-2 text-right text-xs text-hard">{s.hard}</td>
-                  <td className="px-3 py-2 text-right text-xs">
-                    {s.today > 0 ? (
-                      <span className="text-primary">{s.today}</span>
-                    ) : (
-                      <span className="text-muted-foreground/50">0</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right text-xs text-muted-foreground">{s.week}</td>
-                  <td className="px-3 py-2 text-right text-xs text-muted-foreground">{s.last30}</td>
-                  <td className="px-3 py-2 text-right text-xs">{s.streak}</td>
+                  {metricColumn ? (
+                    <td className="px-3 py-2 text-right text-xs font-bold">
+                      {metricColumn.valueOf(s) ?? "—"}
+                    </td>
+                  ) : (
+                    <>
+                      <td className="px-3 py-2 text-right text-xs font-bold">{s.total}</td>
+                      <td className="px-3 py-2 text-right text-xs text-easy">{s.easy}</td>
+                      <td className="px-3 py-2 text-right text-xs text-medium">{s.medium}</td>
+                      <td className="px-3 py-2 text-right text-xs text-hard">{s.hard}</td>
+                      <td className="px-3 py-2 text-right text-xs">
+                        {s.today > 0 ? (
+                          <span className="text-primary">{s.today}</span>
+                        ) : (
+                          <span className="text-muted-foreground/50">0</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs text-muted-foreground">
+                        {s.week}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs text-muted-foreground">
+                        {s.last30}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs">{s.streak}</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>

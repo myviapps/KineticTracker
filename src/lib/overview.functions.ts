@@ -9,8 +9,16 @@ type StudentStatsRow = Database["public"]["Tables"]["student_stats"]["Row"];
 /** PostgREST's default db-max-rows silently truncates; ask for more explicitly. */
 const MAX_ROWS = 50_000;
 
-/** `.in()` with thousands of uuids blows the request URL length limit. */
-const CHUNK = 500;
+/**
+ * `.in()` with many uuids blows the request URL length limit.
+ *
+ * 100, not 500: a uuid plus its comma is 37 chars, so 500 of them is an ~18KB
+ * query string — past the point where the request fails outright as an opaque
+ * `TypeError: fetch failed` rather than a PostgREST error. Because `chunked`
+ * below drops a failed batch instead of throwing, that failure showed up as
+ * silently missing students rather than an error.
+ */
+const CHUNK = 100;
 
 async function chunked<T>(
   ids: string[],
@@ -94,6 +102,12 @@ export const getOverview = createServerFn({ method: "GET" })
     const { loadCohortPlatformStats } = await import("./cohort-platforms.server");
     const { cohortPlatforms, platformStatsById } = await loadCohortPlatformStats(studentIds);
 
+    // Cross-platform standing (Almanac Score), same source the classroom page
+    // already uses — without it the "all platforms" lens has no honest metric
+    // to rank or sum by and falls back to LeetCode-only totals.
+    const { fetchStudentRanks } = await import("@/lib/ranks.server");
+    const ranksById = await fetchStudentRanks(studentIds);
+
     return {
       // Surfaced so the page can title itself honestly: faculty see this data
       // scoped to their own classrooms, not "cross-classroom" analytics.
@@ -105,6 +119,7 @@ export const getOverview = createServerFn({ method: "GET" })
         ...s,
         classroom_ids: classroomIdsByStudent.get(s.id) ?? [],
         platformStats: platformStatsById.get(s.id) ?? {},
+        ranks: ranksById.get(s.id) ?? null,
       })),
       stats,
     };

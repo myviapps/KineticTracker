@@ -145,7 +145,7 @@ export function IdentityBanner({
               <span className="text-sm text-muted-foreground">/{p.rank.college_total}</span>
             </div>
             <div className="font-mono text-[10px] text-muted-foreground">
-              #{p.rank.overall_rank} of {p.rank.overall_total} overall
+              #{p.rank.overall_rank} of {p.rank.overall_total} on {p.name}
             </div>
           </div>
         )}
