@@ -52,8 +52,28 @@ export function useTheme(): [Theme, (t: Theme) => void] {
  */
 export function ThemeToggle({ variant = "icon" }: { variant?: "icon" | "menu" }) {
   const [theme, setTheme] = useTheme();
-  const next: Theme = theme === "dark" ? "light" : "dark";
-  const Icon = theme === "dark" ? Sun : Moon;
+
+  /*
+    The server has no access to localStorage, so it can only ever render as if
+    theme is "dark" — but `useTheme`'s own initial state deliberately reads the
+    real client theme synchronously (see its comment) to avoid a flash for
+    consumers like Toaster. That's correct for them and wrong for THIS
+    component: it makes this toggle's own first client render (icon,
+    aria-label, title) disagree with what the server sent whenever the real
+    theme is "light", which is a genuine hydration mismatch, not a suppressible
+    one-level attribute like the <html> class already handles.
+
+    Gating on `mounted` makes this component's first client render match the
+    server exactly (both "dark"), then correct to the real theme in a normal
+    post-hydration re-render — one frame of the wrong icon here, in exchange
+    for never triggering React's hydration-mismatch tree-discard.
+  */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const effectiveTheme: Theme = mounted ? theme : "dark";
+
+  const next: Theme = effectiveTheme === "dark" ? "light" : "dark";
+  const Icon = effectiveTheme === "dark" ? Sun : Moon;
 
   if (variant === "menu") {
     return (

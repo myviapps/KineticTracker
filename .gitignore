@@ -49,3 +49,6 @@ supabase/.temp/
 *.sln
 *.sw?
 .gstack/
+
+.vercel
+.env*.local
