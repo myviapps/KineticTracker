@@ -41,18 +41,24 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 
-import { getClassroom, deleteClassroom, updateClassroom } from "@/lib/classrooms.functions";
+import {
+  getClassroom,
+  deleteClassroom,
+  updateClassroom,
+  listClassrooms,
+} from "@/lib/classrooms.functions";
 import {
   updateStudent,
   removeStudentFromClassroom,
   getStudentHandles,
+  moveStudentToClassroom,
 } from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CohortPlatformReport } from "@/components/cohort-platform-report";
 import { CohortOverall } from "@/components/cohort-overall";
 import { ReportExportDialog } from "@/components/report-export-dialog";
-import { toStudentRow } from "@/lib/buckets";
+import { toStudentRow, type StudentRow } from "@/lib/buckets";
 import { DailyMatrix } from "@/components/daily-matrix";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
@@ -87,6 +93,7 @@ import {
   lensStatCards,
   hasDifficultySplit,
   metricLabel,
+  lensMetric,
 } from "@/lib/platform-lens";
 
 /**
@@ -326,6 +333,52 @@ function ClassroomDetail() {
     onError: (e) => toast.error(String(e)),
   });
 
+  /*
+    Cohorts to move into. Shares the sidebar's ["classrooms"] cache, so this is
+    usually already resolved and costs nothing. Admin-only, matching the server
+    gate on moveStudentToClassroom — no point fetching a picker faculty cannot
+    act on.
+  */
+  const listCls = useServerFn(listClassrooms);
+  const { data: classroomList } = useQuery({
+    queryKey: ["classrooms"],
+    queryFn: () => listCls(),
+    enabled: canAdminister,
+    staleTime: 60_000,
+  });
+  const allClassrooms = useMemo(
+    () =>
+      (classroomList?.classrooms ?? [])
+        .filter((c) => c.id !== id)
+        .map((c) => ({ id: c.id, name: c.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [classroomList, id],
+  );
+
+  const moveStu = useServerFn(moveStudentToClassroom);
+  const moveM = useMutation({
+    mutationFn: (v: { studentId: string; toClassroomId: string; mode: "move" | "add" }) =>
+      moveStu({
+        data: {
+          studentId: v.studentId,
+          toClassroomId: v.toClassroomId,
+          // Only a move needs the origin; an add leaves this cohort alone.
+          ...(v.mode === "move" ? { fromClassroomId: id } : {}),
+          mode: v.mode,
+        },
+      }),
+    onSuccess: (_r, v) => {
+      const target = allClassrooms.find((c) => c.id === v.toClassroomId)?.name ?? "the cohort";
+      toast.success(v.mode === "move" ? `Moved to ${target}` : `Also added to ${target}`);
+      setEditingStudent(null);
+      qc.invalidateQueries({ queryKey: ["classroom"] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      qc.invalidateQueries({ queryKey: ["rankings"] });
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
   const qc = useQueryClient();
   const del = useServerFn(deleteClassroom);
   const delM = useMutation({
@@ -391,6 +444,22 @@ function ClassroomDetail() {
     () => new Map(data.students.map((s) => [s.id, s.platformStats ?? {}])),
     [data.students],
   );
+
+  /*
+    `StudentRow.total` is LeetCode-only (see buckets.ts). The roster table's
+    `classRank` further down is intentionally LeetCode-only too and is hidden
+    outside that lens — but the Leaderboard tab of the insight panel isn't
+    lens-gated, so it needs the active lens's own metric instead of always
+    falling back to LeetCode's total.
+  */
+  const almanacById = useMemo(
+    () => new Map(data.students.map((s) => [s.id, s.ranks?.almanac_score ?? null])),
+    [data.students],
+  );
+  const metricOf = (r: StudentRow): number =>
+    lens.isAll
+      ? (almanacById.get(r.id) ?? 0)
+      : (lensMetric(statsByStudent.get(r.id)?.[lens.id], lens.rank_metric) ?? 0);
 
   // Whatever chips this lens offers: the nine behavioural buckets on LeetCode
   // and "all", metric bands on every other platform.
@@ -615,8 +684,9 @@ function ClassroomDetail() {
     [lens, rows, statsByStudent, filterId],
   );
   const ranked = useMemo(
-    () => [...bucketRows].sort((a, b) => b.total - a.total).slice(0, topN),
-    [bucketRows, topN],
+    () => [...bucketRows].sort((a, b) => metricOf(b) - metricOf(a)).slice(0, topN),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bucketRows, topN, lens, almanacById, statsByStudent],
   );
 
   /*
@@ -952,7 +1022,7 @@ function ClassroomDetail() {
           onTrendWindowDays={setTrendDays}
           difficulty={showDifficulty ? difficultyValues : null}
           bands={bandHistogram}
-          board={ranked.map((r) => ({ id: r.id, name: r.name, roll: r.roll, total: r.total }))}
+          board={ranked.map((r) => ({ id: r.id, name: r.name, roll: r.roll, total: metricOf(r) }))}
           boardMax={bucketRows.length}
           topN={topN}
           onTopN={setTopN}
@@ -1412,6 +1482,12 @@ function ClassroomDetail() {
           <EditStudentModal
             student={editingStudent}
             shared={sharedIds.has(editingStudent.id)}
+            canAdminister={canAdminister}
+            otherClassrooms={allClassrooms}
+            onMove={(toClassroomId, mode) =>
+              moveM.mutate({ studentId: editingStudent.id, toClassroomId, mode })
+            }
+            isMoving={moveM.isPending}
             onChange={setEditingStudent}
             onSave={(handles) => editM.mutate({ ...editingStudent, handles })}
             onClose={() => setEditingStudent(null)}
@@ -1431,6 +1507,10 @@ function ClassroomDetail() {
 function EditStudentModal({
   student,
   shared,
+  canAdminister,
+  otherClassrooms,
+  onMove,
+  isMoving,
   onChange,
   onSave,
   onClose,
@@ -1439,6 +1519,12 @@ function EditStudentModal({
   student: { id: string; name: string; roll: string; email: string; leetcode_id: string };
   /** True when this student belongs to more than one cohort. */
   shared: boolean;
+  /** Roll number stays admin-only for shared students; LeetCode ID doesn't. */
+  canAdminister: boolean;
+  /** Every cohort except this one. Empty for non-admins — the picker is hidden. */
+  otherClassrooms: { id: string; name: string }[];
+  onMove: (toClassroomId: string, mode: "move" | "add") => void;
+  isMoving: boolean;
   onChange: (s: typeof student) => void;
   onSave: (handles?: Record<string, string>) => void;
   onClose: () => void;
@@ -1463,6 +1549,9 @@ function EditStudentModal({
   // untouched platform is never written and cannot have its fetch state reset.
   const [edited, setEdited] = useState<Record<string, string>>({});
 
+  /** Cohort chosen in the transfer picker below. "" = nothing selected yet. */
+  const [moveTarget, setMoveTarget] = useState("");
+
   const rows = (handleData?.handles ?? []).filter((h) => h.platform_id !== "leetcode");
   const valueFor = (platformId: string, original: string) => edited[platformId] ?? original;
 
@@ -1482,8 +1571,8 @@ function EditStudentModal({
             <p className="flex items-start gap-1.5 rounded-md bg-medium/10 px-2 py-1.5 text-left text-[11px] text-muted-foreground">
               <Users2 className="mt-px size-3.5 shrink-0 text-medium" />
               <span>
-                Also in other cohorts — changes apply everywhere. Roll number and LeetCode ID are
-                admin-only for shared students.
+                Also in other cohorts — changes apply everywhere. Roll number is admin-only for
+                shared students.
               </span>
             </p>
           )}
@@ -1515,6 +1604,12 @@ function EditStudentModal({
               onChange={set("roll")}
               className="mt-1"
               required
+              disabled={shared && !canAdminister}
+              title={
+                shared && !canAdminister
+                  ? "Admin-only: this student is in more than one cohort"
+                  : undefined
+              }
             />
           </div>
           <div>
@@ -1614,6 +1709,57 @@ function EditStudentModal({
             </div>
           </div>
         </form>
+
+        {/*
+          Cohort transfer. Outside the form on purpose: it is its own mutation
+          that commits immediately, and nesting it would make "Save changes"
+          look like it also applied the move.
+
+          Admin-only, mirroring the server gate — this reaches into cohorts the
+          caller may be the only one able to see.
+        */}
+        {canAdminister && otherClassrooms.length > 0 && (
+          <div className="border-t border-border pt-3">
+            <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Cohort
+            </Label>
+            <p className="mb-2 mt-1 text-[11px] text-muted-foreground">
+              Move takes them out of this cohort. Add keeps both — a student can belong to several.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={moveTarget}
+                onChange={(e) => setMoveTarget(e.target.value)}
+                disabled={isMoving}
+                className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm"
+              >
+                <option value="">Select a cohort…</option>
+                {otherClassrooms.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!moveTarget || isMoving}
+                onClick={() => onMove(moveTarget, "add")}
+              >
+                Add
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!moveTarget || isMoving}
+                onClick={() => onMove(moveTarget, "move")}
+              >
+                {isMoving ? "Working…" : "Move"}
+              </Button>
+            </div>
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={isPending}>

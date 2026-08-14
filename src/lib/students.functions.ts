@@ -434,6 +434,83 @@ export const removeStudentFromClassroom = createServerFn({ method: "POST" })
   });
 
 /**
+ * Move a student into another cohort, or add them to a second one.
+ *
+ * Admin-only. Faculty can already add and remove within their own classrooms;
+ * this reaches ACROSS cohorts — including into ones the caller may be the only
+ * person who can see — so it sits behind `canAdminister` alongside the other
+ * cross-cohort operations (roll edits on shared students, hard delete, merge).
+ *
+ * ── Ordering is load-bearing ───────────────────────────────────────────────
+ * The add happens BEFORE the remove, and that is not stylistic.
+ * `remove_student_from_classroom` deletes the student outright when the
+ * membership it drops was their last one — see its note. Removing first would
+ * therefore destroy the student and their entire scrape history mid-move, and
+ * the subsequent insert would resurrect a bare row with no stats. Adding first
+ * means the student always belongs to at least two cohorts at the moment of
+ * removal, so the RPC can only ever drop the membership.
+ */
+export const moveStudentToClassroom = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, withRole])
+  .validator((d: unknown) =>
+    z
+      .object({
+        studentId: z.string().uuid(),
+        toClassroomId: z.string().uuid(),
+        /** Omit for a pure add; supply to also drop this membership. */
+        fromClassroomId: z.string().uuid().optional(),
+        /** "move" drops `fromClassroomId`; "add" keeps both memberships. */
+        mode: z.enum(["move", "add"]),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { userId, role } = authContext(context);
+
+    if (!canAdminister(role)) throw new Error("Only an admin can move students between cohorts");
+    if (data.mode === "move" && !data.fromClassroomId) {
+      throw new Error("A move needs the cohort to move out of");
+    }
+    if (data.fromClassroomId === data.toClassroomId) {
+      throw new Error("That student is already in this cohort");
+    }
+
+    await assertClassroomAccess(userId, role, data.toClassroomId);
+    if (data.fromClassroomId) await assertClassroomAccess(userId, role, data.fromClassroomId);
+    await assertStudentAccess(userId, role, data.studentId);
+
+    // Upsert, not insert: re-adding someone already in the target cohort is a
+    // no-op rather than a duplicate-key error the caller has to interpret.
+    const { error: addErr } = await supabaseAdmin.from("classroom_students").upsert(
+      { student_id: data.studentId, classroom_id: data.toClassroomId },
+      // Same conflict target and ignoreDuplicates as the bulk-add path above,
+      // so both routes into a membership behave identically.
+      { onConflict: "classroom_id,student_id", ignoreDuplicates: true },
+    );
+    if (addErr) throw new Error(addErr.message);
+
+    if (data.mode === "add" || !data.fromClassroomId) {
+      return { moved: false, added: true, studentDeleted: false };
+    }
+
+    const { data: rows, error: rmErr } = await supabaseAdmin.rpc("remove_student_from_classroom", {
+      p_student: data.studentId,
+      p_classroom: data.fromClassroomId,
+    });
+    if (rmErr) throw new Error(rmErr.message);
+
+    const result = Array.isArray(rows) ? rows[0] : rows;
+    return {
+      moved: true,
+      added: true,
+      // Should always be false given the add above; surfaced so a regression in
+      // the RPC's "last cohort" logic is visible rather than silent data loss.
+      studentDeleted: result?.student_deleted ?? false,
+    };
+  });
+
+/**
  * Delete a student outright — every membership, and all their history.
  *
  * Distinct from `removeStudentFromClassroom`, which drops ONE membership and only
@@ -579,14 +656,17 @@ export const updateStudent = createServerFn({ method: "POST" })
     const handle = normalizeHandle(data.leetcode_id);
 
     /*
-      `roll` is now the global student identity (it drives the public lookup and
-      the import) and `leetcode_id` is what the scraper points at. Changing either
-      on a student who belongs to several cohorts affects cohorts the caller may
-      not be responsible for, so those two are admin-only in that case. Name and
-      email are cosmetic and stay open to any faculty who can reach the student.
+      `roll` is the global student identity (it drives the public lookup and the
+      import) and touches every cohort a shared student belongs to, so it stays
+      admin-only once a student is in more than one classroom. LeetCode ID used
+      to be gated the same way, but a faculty member who already passed
+      assertStudentAccess above for THIS student should be able to fix a
+      typo'd handle regardless of how many cohorts it's shared across — that's
+      the whole reason a faculty-facing updateStudent exists. Name and email are
+      cosmetic and stay open to any faculty who can reach the student.
     */
-    const identityChanged = roll !== current.roll || handle !== current.leetcode_id;
-    if (identityChanged && !canAdminister(role)) {
+    const rollChanged = roll !== current.roll;
+    if (rollChanged && !canAdminister(role)) {
       const { count } = await supabaseAdmin
         .from("classroom_students")
         .select("*", { count: "exact", head: true })
@@ -595,7 +675,7 @@ export const updateStudent = createServerFn({ method: "POST" })
       if ((count ?? 0) > 1) {
         const names = (await visibleClassroomsForStudent(userId, role, data.id)).map((c) => c.name);
         throw new Error(
-          `This student is in ${count} cohorts${names.length ? ` (${names.join(", ")})` : ""}. Only an admin can change their roll number or LeetCode ID.`,
+          `This student is in ${count} cohorts${names.length ? ` (${names.join(", ")})` : ""}. Only an admin can change their roll number.`,
         );
       }
     }
