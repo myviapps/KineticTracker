@@ -102,11 +102,11 @@ export const searchStudents = createServerFn({ method: "GET" })
     // membership is exactly what masking withholds, and getStudentByRoll already
     // suppresses it for masked viewers (students.functions.ts). The two public
     // endpoints now agree.
-    const classroomsByStudent = new Map<string, string[]>();
+    const classroomsByStudent = new Map<string, { id: string; name: string }[]>();
     if (isStaff) {
       let memQuery = supabaseAdmin
         .from("classroom_students")
-        .select("student_id, classrooms(name)")
+        .select("student_id, classroom_id, classrooms(name)")
         .in(
           "student_id",
           students.map((s) => s.id),
@@ -117,13 +117,24 @@ export const searchStudents = createServerFn({ method: "GET" })
       for (const m of memberships ?? []) {
         const name = (m.classrooms as { name: string } | null)?.name;
         if (!name) continue;
+        const entry = { id: m.classroom_id, name };
         const list = classroomsByStudent.get(m.student_id);
-        if (list) list.push(name);
-        else classroomsByStudent.set(m.student_id, [name]);
+        if (list) list.push(entry);
+        else classroomsByStudent.set(m.student_id, [entry]);
       }
     }
 
     const studentIds = students.map((s) => s.id);
+
+    // Rank, so the header search can answer "where do they stand" without a
+    // second click. Only for staff — same reasoning as classroom membership
+    // above, and `classroom_ranks` off the RPC is unfiltered by caller access
+    // (it's per-classroom for every classroom the student is in, globally), so
+    // it's only ever read below for classroom ids already in the scoped
+    // `classroomsByStudent` list — never for a cohort this viewer can't see.
+    const { fetchStudentRanks } = await import("@/lib/ranks.server");
+    const ranksById = await fetchStudentRanks(isStaff ? studentIds : []);
+
     const { data: stats } = await supabaseAdmin
       .from("student_stats")
       .select("student_id, avatar, total_solved")
@@ -135,14 +146,29 @@ export const searchStudents = createServerFn({ method: "GET" })
       (stats ?? []).map((s) => [s.student_id, s as StatRow]),
     );
 
-    return students.map((s) => ({
-      id: s.id,
-      roll: s.roll,
-      name: masked ? maskName(s.name) : s.name,
-      leetcode_id: masked ? maskHandle(s.leetcode_id) : s.leetcode_id,
-      classroom_names: (classroomsByStudent.get(s.id) ?? []).sort(),
-      avatar: statsMap.get(s.id)?.avatar ?? null,
-      total_solved: statsMap.get(s.id)?.total_solved ?? 0,
-      masked,
-    }));
+    return students.map((s) => {
+      const classrooms = classroomsByStudent.get(s.id) ?? [];
+      const ranks = ranksById.get(s.id);
+      return {
+        id: s.id,
+        roll: s.roll,
+        name: masked ? maskName(s.name) : s.name,
+        leetcode_id: masked ? maskHandle(s.leetcode_id) : s.leetcode_id,
+        classroom_names: classrooms.map((c) => c.name).sort(),
+        // Per-classroom rank, for the classrooms this viewer may already see —
+        // `ranks.classroom_ranks` is intentionally NOT used directly here, only
+        // to look up a rank for a classroom id already present in `classrooms`.
+        classrooms: classrooms
+          .map((c) => {
+            const cr = ranks?.classroom_ranks.find((r) => r.classroom_id === c.id);
+            return { id: c.id, name: c.name, rank: cr?.rank ?? null, total: cr?.total ?? null };
+          })
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        college_rank: ranks?.college_rank ?? null,
+        college_total: ranks?.college_total ?? null,
+        avatar: statsMap.get(s.id)?.avatar ?? null,
+        total_solved: statsMap.get(s.id)?.total_solved ?? 0,
+        masked,
+      };
+    });
   });

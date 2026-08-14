@@ -10,13 +10,18 @@ import { cn } from "@/lib/utils";
 
 /**
  * Header search for signed-in staff: find a student by roll number (or name /
- * LeetCode handle) and jump straight to their profile.
+ * LeetCode handle) and jump straight to their classroom roster, with a
+ * per-classroom rank and total solved shown right in the row so the search
+ * itself answers "where do they stand" before you even click through.
  *
  * Scoping is entirely server-side — `searchStudents` restricts results to the
  * caller's accessible classrooms, so faculty only ever match students in the
  * classrooms they're assigned to, while admins and placement officers match all.
  * There is deliberately no classroom picker here; the answer depends on who is
  * asking, not on what they select.
+ *
+ * A student in more than one classroom shows one pill per classroom, each its
+ * own link — picking the row itself (click/Enter) goes to the first.
  *
  * cmdk provides the combobox semantics and arrow-key handling. `shouldFilter` is
  * off because filtering happens in Postgres, not over a local list.
@@ -68,10 +73,28 @@ export function StudentSearch({ className }: { className?: string }) {
     return () => window.removeEventListener("pointerdown", onPointerDown);
   }, []);
 
-  function go(roll: string) {
+  /** Jump straight to a classroom roster — that's the point of this search now. */
+  function goToClassroom(classroomId: string) {
     setOpen(false);
     setQuery("");
-    navigate({ to: "/students/$roll", params: { roll } });
+    navigate({ to: "/classrooms/$id", params: { id: classroomId } });
+  }
+
+  /**
+   * Whole-row select/Enter with no specific classroom pill clicked: go to the
+   * student's first classroom (alphabetical, matching how classrooms render).
+   * A student with no classroom at all (data anomaly, not the common case)
+   * falls back to their profile — there's nowhere else to send them.
+   */
+  function go(s: { roll: string; classrooms: { id: string; name: string }[] }) {
+    const first = s.classrooms[0];
+    if (first) {
+      goToClassroom(first.id);
+      return;
+    }
+    setOpen(false);
+    setQuery("");
+    navigate({ to: "/students/$roll", params: { roll: s.roll } });
   }
 
   const showPanel = open && debounced.length > 0;
@@ -132,7 +155,7 @@ export function StudentSearch({ className }: { className?: string }) {
                       // cmdk matches on `value`; keep it unique so two students
                       // with the same name stay individually selectable.
                       value={`${s.roll}-${s.id}`}
-                      onSelect={() => go(s.roll)}
+                      onSelect={() => go(s)}
                       className="cursor-pointer gap-3 px-2 py-2"
                     >
                       {s.avatar ? (
@@ -149,14 +172,40 @@ export function StudentSearch({ className }: { className?: string }) {
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{s.name}</div>
-                        <div className="truncate font-mono text-[10px] text-muted-foreground">
-                          {s.roll}
-                          {s.classroom_names.length > 0 && ` · ${s.classroom_names.join(" · ")}`}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                          <span>{s.roll}</span>
+                          {s.classrooms.length > 0 ? (
+                            s.classrooms.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                title={`Open ${c.name}`}
+                                // Its own destination within the row — a student in
+                                // several cohorts needs to pick which one, not just
+                                // land on whichever the row itself defaults to.
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  goToClassroom(c.id);
+                                }}
+                                className="rounded border border-border/60 px-1 py-0.5 hover:border-primary hover:text-primary"
+                              >
+                                {c.name}
+                                {c.rank && <span className="opacity-70"> #{c.rank}</span>}
+                              </button>
+                            ))
+                          ) : (
+                            <span className="opacity-60">no classroom</span>
+                          )}
                         </div>
                       </div>
-                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                        {s.total_solved}
-                      </span>
+                      <div className="shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+                        <div>{s.total_solved} solved</div>
+                        {s.college_rank && (
+                          <div className="opacity-70">
+                            #{s.college_rank}/{s.college_total} college
+                          </div>
+                        )}
+                      </div>
                     </CommandItem>
                   ))}
                   <div className="flex items-center justify-end gap-1 border-t border-border px-2 pb-1 pt-1.5 font-mono text-[9px] text-muted-foreground">
