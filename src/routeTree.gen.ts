@@ -18,6 +18,7 @@ import { Route as AuthenticatedClassroomsRouteImport } from './routes/_authentic
 import { Route as AuthenticatedCollegesRouteImport } from './routes/_authenticated.colleges'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedOverviewRouteImport } from './routes/_authenticated.overview'
+import { Route as AuthenticatedRankingsRouteImport } from './routes/_authenticated.rankings'
 import { Route as AuthenticatedReportsRouteImport } from './routes/_authenticated.reports'
 import { Route as StudentsRollRouteImport } from './routes/students.$roll'
 import { Route as AuthenticatedAdminImportRouteImport } from './routes/_authenticated._admin.import'
@@ -75,6 +76,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
 const AuthenticatedOverviewRoute = AuthenticatedOverviewRouteImport.update({
   id: '/overview',
   path: '/overview',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedRankingsRoute = AuthenticatedRankingsRouteImport.update({
+  id: '/rankings',
+  path: '/rankings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedReportsRoute = AuthenticatedReportsRouteImport.update({
@@ -169,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/colleges': typeof AuthenticatedCollegesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/overview': typeof AuthenticatedOverviewRoute
+  '/rankings': typeof AuthenticatedRankingsRoute
   '/reports': typeof AuthenticatedReportsRoute
   '/students/$roll': typeof StudentsRollRoute
   '/import': typeof AuthenticatedAdminImportRoute
@@ -192,6 +199,7 @@ export interface FileRoutesByTo {
   '/colleges': typeof AuthenticatedCollegesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/overview': typeof AuthenticatedOverviewRoute
+  '/rankings': typeof AuthenticatedRankingsRoute
   '/reports': typeof AuthenticatedReportsRoute
   '/students/$roll': typeof StudentsRollRoute
   '/import': typeof AuthenticatedAdminImportRoute
@@ -219,6 +227,7 @@ export interface FileRoutesById {
   '/_authenticated/colleges': typeof AuthenticatedCollegesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/overview': typeof AuthenticatedOverviewRoute
+  '/_authenticated/rankings': typeof AuthenticatedRankingsRoute
   '/_authenticated/reports': typeof AuthenticatedReportsRoute
   '/students/$roll': typeof StudentsRollRoute
   '/_authenticated/_admin/import': typeof AuthenticatedAdminImportRoute
@@ -245,6 +254,7 @@ export interface FileRouteTypes {
     | '/colleges'
     | '/dashboard'
     | '/overview'
+    | '/rankings'
     | '/reports'
     | '/students/$roll'
     | '/import'
@@ -268,6 +278,7 @@ export interface FileRouteTypes {
     | '/colleges'
     | '/dashboard'
     | '/overview'
+    | '/rankings'
     | '/reports'
     | '/students/$roll'
     | '/import'
@@ -294,6 +305,7 @@ export interface FileRouteTypes {
     | '/_authenticated/colleges'
     | '/_authenticated/dashboard'
     | '/_authenticated/overview'
+    | '/_authenticated/rankings'
     | '/_authenticated/reports'
     | '/students/$roll'
     | '/_authenticated/_admin/import'
@@ -386,6 +398,13 @@ declare module '@tanstack/react-router' {
       path: '/overview'
       fullPath: '/overview'
       preLoaderRoute: typeof AuthenticatedOverviewRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/rankings': {
+      id: '/_authenticated/rankings'
+      path: '/rankings'
+      fullPath: '/rankings'
+      preLoaderRoute: typeof AuthenticatedRankingsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/reports': {
@@ -542,6 +561,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCollegesRoute: typeof AuthenticatedCollegesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedOverviewRoute: typeof AuthenticatedOverviewRoute
+  AuthenticatedRankingsRoute: typeof AuthenticatedRankingsRoute
   AuthenticatedReportsRoute: typeof AuthenticatedReportsRoute
 }
 
@@ -551,6 +571,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCollegesRoute: AuthenticatedCollegesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedOverviewRoute: AuthenticatedOverviewRoute,
+  AuthenticatedRankingsRoute: AuthenticatedRankingsRoute,
   AuthenticatedReportsRoute: AuthenticatedReportsRoute,
 }
 

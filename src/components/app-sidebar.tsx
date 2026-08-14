@@ -14,6 +14,7 @@ import {
   History,
   PanelLeftClose,
   PanelLeftOpen,
+  Trophy,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -222,6 +223,16 @@ export function AppSidebar() {
                   <Link to="/reports" className="flex items-center gap-2">
                     <FileSpreadsheet className="size-4" />
                     {!collapsed && <span>Reports</span>}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              {/* Not role-gated, same rationale as Overview above: the server
+                  already scopes rankings to what the caller can see. */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={currentPath === "/rankings"}>
+                  <Link to="/rankings" className="flex items-center gap-2">
+                    <Trophy className="size-4" />
+                    {!collapsed && <span>Rankings</span>}
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
