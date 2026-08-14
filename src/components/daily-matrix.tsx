@@ -404,52 +404,81 @@ export function DailyMatrix({
       ) : (
         <div
           ref={scrollRef}
-          // Sticky columns are 560px wide (Student 200 + Total 60 + E/M/H/ΔE/ΔM/ΔH
-          // 6×50); capping at 560 + 10×56 keeps at most 10 date columns visible on
-          // any screen — more than that scrolls instead of shrinking or overflowing.
-          className="max-h-[70vh] max-w-[min(100%,1120px)] overflow-auto rounded-lg border border-border bg-surface"
+          /*
+            w-fit so the bordered box hugs the table on a short range instead of
+            stretching it; max-w caps the viewport at the sticky block (640px)
+            plus ten 56px date columns, so an eleventh scrolls rather than
+            squeezing every column past readability.
+          */
+          className="max-h-[70vh] w-fit max-w-[min(100%,1200px)] overflow-auto rounded-lg border border-border bg-surface"
         >
-          <table className="min-w-full border-separate border-spacing-0 text-sm">
+          {/*
+            table-fixed + colgroup, not per-cell min-w.
+
+            The sticky columns pin themselves with hardcoded left-[Npx] offsets,
+            which are only correct if each column is EXACTLY the width those
+            offsets assume. `min-w` is a floor, not a width — "Σ Total" plus
+            px-3 padding rendered wider than its assumed 60px, and a long
+            student name wider than 200px, so every offset after the first was
+            short and the sticky columns overlapped each other as soon as the
+            grid scrolled sideways. Fixed layout makes these widths the single
+            source of truth, and w-max stops the table stretching to fill the
+            container (which would inflate the columns and break them again).
+          */}
+          <table className="w-max table-fixed border-separate border-spacing-0 text-sm">
+            <colgroup>
+              <col className="w-[224px]" />
+              <col className="w-[80px]" />
+              <col className="w-[56px]" />
+              <col className="w-[56px]" />
+              <col className="w-[56px]" />
+              <col className="w-[56px]" />
+              <col className="w-[56px]" />
+              <col className="w-[56px]" />
+              {allDates.map((d) => (
+                <col key={d} className="w-[56px]" />
+              ))}
+            </colgroup>
             <thead>
               <tr className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                 <th className="sticky left-0 top-0 z-30 min-w-[200px] border-b border-r border-border bg-background px-3 py-2 text-left">
                   Student
                 </th>
-                <th className="sticky left-[200px] top-0 z-30 min-w-[60px] border-b border-r border-border bg-background px-3 py-2 text-right">
+                <th className="sticky left-[224px] top-0 z-30 min-w-[60px] border-b border-r border-border bg-background px-3 py-2 text-right">
                   Σ Total
                 </th>
                 <th
-                  className="sticky left-[260px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
+                  className="sticky left-[304px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
                   title="Easy — cumulative solved to date"
                 >
                   E
                 </th>
                 <th
-                  className="sticky left-[310px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
+                  className="sticky left-[360px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
                   title="Medium — cumulative solved to date"
                 >
                   M
                 </th>
                 <th
-                  className="sticky left-[360px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-hard"
+                  className="sticky left-[416px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-hard"
                   title="Hard — cumulative solved to date"
                 >
                   H
                 </th>
                 <th
-                  className="sticky left-[410px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
+                  className="sticky left-[472px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
                   title={`Range gain — Easy solved between ${customStart} and ${customEnd}`}
                 >
                   ΔE
                 </th>
                 <th
-                  className="sticky left-[460px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
+                  className="sticky left-[528px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
                   title={`Range gain — Medium solved between ${customStart} and ${customEnd}`}
                 >
                   ΔM
                 </th>
                 <th
-                  className="sticky left-[510px] top-0 z-30 min-w-[50px] border-b border-r border-border bg-background px-3 py-2 text-right text-hard"
+                  className="sticky left-[584px] top-0 z-30 min-w-[50px] border-b border-r border-border bg-background px-3 py-2 text-right text-hard"
                   title={`Range gain — Hard solved between ${customStart} and ${customEnd}`}
                 >
                   ΔH
@@ -476,39 +505,60 @@ export function DailyMatrix({
                   </td>
                 </tr>
               )}
+              {/*
+                The sticky cells below hover to an OPAQUE colour
+                (color-mix of 5% primary into surface), not `bg-primary/5`.
+
+                A translucent background defeats the entire point of a sticky
+                column: `bg-primary/5` replaces the opaque `bg-surface` with a
+                95%-transparent fill, so on hover the date columns scrolling
+                underneath showed straight through and the row rendered as two
+                sets of numbers on top of each other. color-mix keeps the exact
+                same tint while staying opaque. Do not shorten it back.
+              */}
               {rows.map((r, ri) => {
                 const b = breakdown?.[r.id];
                 const latest = b?.latest;
                 const rangeGain = rangeGainByStudent.get(r.id);
                 return (
                   <tr key={r.id} className="group">
-                    <td className="sticky left-0 z-10 border-b border-r border-border bg-surface px-3 py-2 group-hover:bg-primary/5">
-                      <Link to="/students/$roll" params={{ roll: r.roll }} className="block">
-                        <div className="font-sans text-xs font-semibold hover:text-primary">
+                    <td className="sticky left-0 z-10 border-b border-r border-border bg-surface px-3 py-2 group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
+                      {/* truncate, because the column is now a FIXED 224px: an
+                          unusually long name would otherwise overflow into the
+                          next sticky column rather than widening the cell. */}
+                      <Link
+                        to="/students/$roll"
+                        params={{ roll: r.roll }}
+                        className="block min-w-0"
+                      >
+                        <div
+                          className="truncate font-sans text-xs font-semibold hover:text-primary"
+                          title={r.name}
+                        >
                           {r.name}
                         </div>
-                        <div className="text-[10px] text-muted-foreground">{r.roll}</div>
+                        <div className="truncate text-[10px] text-muted-foreground">{r.roll}</div>
                       </Link>
                     </td>
-                    <td className="sticky left-[200px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold group-hover:bg-primary/5">
+                    <td className="sticky left-[224px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
                       {latest?.total ?? <span className="text-muted-foreground/50">—</span>}
                     </td>
-                    <td className="sticky left-[260px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-easy group-hover:bg-primary/5">
+                    <td className="sticky left-[304px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-easy group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
                       {latest?.easy ?? <span className="opacity-50">—</span>}
                     </td>
-                    <td className="sticky left-[310px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-primary/5">
+                    <td className="sticky left-[360px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
                       {latest?.medium ?? <span className="opacity-50">—</span>}
                     </td>
-                    <td className="sticky left-[360px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-primary/5">
+                    <td className="sticky left-[416px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
                       {latest?.hard ?? <span className="opacity-50">—</span>}
                     </td>
-                    <td className="sticky left-[410px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-easy group-hover:bg-primary/5">
+                    <td className="sticky left-[472px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-easy group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
                       {rangeGain?.easy ?? <span className="opacity-50">—</span>}
                     </td>
-                    <td className="sticky left-[460px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-primary/5">
+                    <td className="sticky left-[528px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
                       {rangeGain?.medium ?? <span className="opacity-50">—</span>}
                     </td>
-                    <td className="sticky left-[510px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-primary/5">
+                    <td className="sticky left-[584px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
                       {rangeGain?.hard ?? <span className="opacity-50">—</span>}
                     </td>
                     {allDates.map((date) => {
@@ -559,26 +609,26 @@ export function DailyMatrix({
                   <td className="sticky left-0 z-10 border-t border-r border-border bg-background px-3 py-2 font-bold">
                     Cohort / day
                   </td>
-                  <td className="sticky left-[200px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-primary">
+                  <td className="sticky left-[224px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-primary">
                     {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.total ?? 0), 0)}
                   </td>
-                  <td className="sticky left-[260px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-easy">
+                  <td className="sticky left-[304px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-easy">
                     {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.easy ?? 0), 0) || "—"}
                   </td>
-                  <td className="sticky left-[310px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
+                  <td className="sticky left-[360px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
                     {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.medium ?? 0), 0) || "—"}
                   </td>
-                  <td className="sticky left-[360px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-hard">
+                  <td className="sticky left-[416px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-hard">
                     {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.hard ?? 0), 0) || "—"}
                   </td>
-                  <td className="sticky left-[410px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-easy">
+                  <td className="sticky left-[472px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-easy">
                     {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.easy ?? 0), 0) || "—"}
                   </td>
-                  <td className="sticky left-[460px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
+                  <td className="sticky left-[528px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
                     {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.medium ?? 0), 0) ||
                       "—"}
                   </td>
-                  <td className="sticky left-[510px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-hard">
+                  <td className="sticky left-[584px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-hard">
                     {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.hard ?? 0), 0) || "—"}
                   </td>
                   {cohort.map((c, i) => (

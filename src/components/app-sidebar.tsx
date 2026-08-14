@@ -205,6 +205,19 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {/* The all-classrooms page: search, sort and jump between cohorts.
+                  It already existed but was only reachable from Colleges, so
+                  faculty with several cohorts had no way to reach it — the
+                  per-classroom list below is fine for three, unwieldy for twenty.
+                  Ungated for the same reason as Overview: the server scopes it. */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={currentPath === "/classrooms"}>
+                  <Link to="/classrooms" className="flex items-center gap-2">
+                    <Layers className="size-4" />
+                    {!collapsed && <span>Classrooms</span>}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               {/* Colleges is deliberately NOT admin-gated. A CEO's entire remit is
                   this page, and the server already scopes it to their assignments —
                   hiding the link would only stop them finding a page they own. */}

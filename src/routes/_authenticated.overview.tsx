@@ -115,8 +115,15 @@ function OverviewPage() {
   // link rather than something you have to describe over a call.
   const sp = Route.useSearch();
   const navigate = Route.useNavigate();
+  // viewTransition: false — these change a filter on the page you are already
+  // on, so the router's default cross-fade reads as a full page reload. See the
+  // longer note on the classroom route.
   const setSearchParams = (patch: Partial<OverviewSearch>) =>
-    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+    navigate({
+      search: (prev) => ({ ...prev, ...patch }),
+      replace: true,
+      viewTransition: false,
+    });
 
   const lens = lensFor(sp.p, data.platforms);
   const setLens = (p: string) => setSearchParams({ p, b: "all" });

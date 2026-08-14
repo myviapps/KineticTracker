@@ -88,8 +88,14 @@ function RankingsPage() {
   const { data } = useSuspenseQuery(qo);
   const sp = Route.useSearch();
   const navigate = Route.useNavigate();
+  // viewTransition: false — filter and sort changes are in-page, and the
+  // router's default cross-fade made every checkbox tick look like a reload.
   const setSearchParams = (patch: Partial<RankingSearch>) =>
-    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+    navigate({
+      search: (prev) => ({ ...prev, ...patch }),
+      replace: true,
+      viewTransition: false,
+    });
 
   // Every college the caller can reach, from their classrooms — not from
   // `students`, so a freshly assigned college with no ranked students yet

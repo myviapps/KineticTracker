@@ -304,7 +304,15 @@ export function lensStatCards(input: LensStatInput): LensStatCards {
         },
       ],
       secondary: [
-        { label: "Solved (all time)", value: fmt(solvedAcross), hint: "every platform combined" },
+        // Accented to match "Avg Score": the cohort's lifetime output is the
+        // other headline number people look for, and rendering it plain made it
+        // read as an afterthought next to the score it is derived from.
+        {
+          label: "Solved (all time)",
+          value: fmt(solvedAcross),
+          hint: "every platform combined",
+          tone: "primary",
+        },
         {
           label: "Platforms tracked",
           value: fmt(platforms.length),
@@ -349,7 +357,14 @@ export function lensStatCards(input: LensStatInput): LensStatCards {
       value: top !== null ? fmt(Math.round(top)) : "—",
       hint: "best in cohort",
     },
-    { label: "Solved (all time)", value: solved ? fmt(solved) : "—", hint: "combined" },
+    // Same accent as the all-platforms lens, so switching platform doesn't
+    // change which cards are emphasised.
+    {
+      label: "Solved (all time)",
+      value: solved ? fmt(solved) : "—",
+      hint: "combined",
+      tone: "primary",
+    },
     {
       label: `Active (${windowDays}d)`,
       value: activeInWindow !== null && activeInWindow !== undefined ? fmt(activeInWindow) : "—",

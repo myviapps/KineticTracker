@@ -3,10 +3,12 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Trophy, EyeOff } from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Trophy, EyeOff, Pencil } from "lucide-react";
 
-import { getStudentByRoll, refreshStudent } from "@/lib/students.functions";
+import { getStudentByRoll, refreshStudent, updateStudent } from "@/lib/students.functions";
 import { Button } from "@/components/ui/button";
+import { EditStudentModal } from "@/components/edit-student-modal";
+import { useRole } from "@/hooks/use-role";
 import { PlatformStrip } from "@/components/platform-strip";
 import { PlatformDetail } from "@/components/platform-detail";
 import { panelFor } from "@/components/platform/registry";
@@ -56,6 +58,51 @@ function StudentPage() {
     onSuccess: () => {
       toast.success("Refreshed");
       router.invalidate();
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
+  /*
+    Editing from the profile, not just from a cohort roster.
+
+    Faculty reach students through search and through this page far more often
+    than through the classroom table, and until now fixing a typo'd handle meant
+    finding the student's cohort first. The server gates this the same way it
+    always did (canManageStudents, plus assertStudentAccess), so the button
+    simply follows the permission rather than adding one.
+
+    Cohort transfer is deliberately not offered here — moving a student needs
+    the cohort you are moving OUT of, which this page has no single answer for.
+  */
+  const { canManageStudents, canAdminister } = useRole();
+  const [editing, setEditing] = useState<{
+    id: string;
+    name: string;
+    roll: string;
+    email: string;
+    leetcode_id: string;
+  } | null>(null);
+
+  const updateStu = useServerFn(updateStudent);
+  const editM = useMutation({
+    mutationFn: (s: NonNullable<typeof editing> & { handles?: Record<string, string> }) =>
+      updateStu({
+        data: {
+          id: s.id,
+          name: s.name,
+          roll: s.roll,
+          email: s.email || null,
+          leetcode_id: s.leetcode_id,
+          handles: s.handles,
+        },
+      }),
+    onSuccess: (_r, s) => {
+      toast.success("Student updated");
+      setEditing(null);
+      // The roll is the route param, so a changed roll has to navigate rather
+      // than refetch — the old URL no longer resolves to anyone.
+      if (s.roll !== roll) router.navigate({ to: "/students/$roll", params: { roll: s.roll } });
+      else router.invalidate();
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -149,14 +196,33 @@ function StudentPage() {
           {/* The Refresh button used to render for anonymous visitors too, where it
               could only ever return Unauthorized. */}
           {!masked && (
-            <Button
-              variant="outline"
-              onClick={() => refreshM.mutate()}
-              disabled={refreshM.isPending}
-            >
-              <RefreshCw className={cn("mr-1 size-4", refreshM.isPending && "animate-spin")} />
-              Refresh
-            </Button>
+            <div className="flex shrink-0 gap-2">
+              {canManageStudents && (
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    setEditing({
+                      id: student.id,
+                      name: student.name,
+                      roll: student.roll,
+                      email: student.email ?? "",
+                      leetcode_id: student.leetcode_id,
+                    })
+                  }
+                >
+                  <Pencil className="mr-1 size-4" />
+                  Edit
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => refreshM.mutate()}
+                disabled={refreshM.isPending}
+              >
+                <RefreshCw className={cn("mr-1 size-4", refreshM.isPending && "animate-spin")} />
+                Refresh
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -296,6 +362,20 @@ function StudentPage() {
         const Panel = panelFor(sel.platform_id);
         return Panel ? <Panel p={sel} stats={stats} /> : <PlatformDetail p={sel} />;
       })()}
+
+      {/* No cohort-transfer props: this page has no single "move out of" cohort,
+          so that section stays hidden here. */}
+      {editing && (
+        <EditStudentModal
+          student={editing}
+          shared={classrooms.length > 1}
+          canAdminister={canAdminister}
+          onChange={setEditing}
+          onSave={(handles) => editM.mutate({ ...editing, handles })}
+          onClose={() => setEditing(null)}
+          isPending={editM.isPending}
+        />
+      )}
     </div>
   );
 }

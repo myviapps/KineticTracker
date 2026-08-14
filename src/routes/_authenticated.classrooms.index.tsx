@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Users, ArrowRight, Search, ArrowUpDown } from "lucide-react";
 
 import { listClassrooms } from "@/lib/classrooms.functions";
@@ -10,6 +10,7 @@ import { CohortFilterBar } from "@/components/cohort-filter-bar";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ALL_LENS, lensFor, metricLabel } from "@/lib/platform-lens";
+import { lastClassroom } from "@/lib/last-classroom";
 
 const classroomsQO = queryOptions({
   queryKey: ["classrooms"],
@@ -56,11 +57,43 @@ function ClassroomsListPage() {
 
   const sp = Route.useSearch();
   const navigate = Route.useNavigate();
+  // viewTransition: false — filtering this list is not a page change, and the
+  // router's default cross-fade fired on every keystroke.
   const set = (patch: Partial<ClassroomsSearch>) =>
-    navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true });
+    navigate({
+      search: (prev) => ({ ...prev, ...patch }),
+      replace: true,
+      viewTransition: false,
+    });
+
+  // Typed value is local; the URL follows on a debounce so the list filters
+  // instantly without a navigation per character.
+  const [searchInput, setSearchInput] = useState(sp.q ?? "");
+  useEffect(() => {
+    if (searchInput === (sp.q ?? "")) return;
+    const t = setTimeout(() => set({ q: searchInput }), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput, sp.q]);
+  useEffect(() => {
+    setSearchInput(sp.q ?? "");
+  }, [sp.q]);
+
+  /*
+    The cohort you were last in, marked so this page answers "where am I?"
+    as well as "where can I go?".
+
+    Read in an effect, never during render: localStorage does not exist on the
+    server, so reading it inline would make the first client paint disagree with
+    the server markup and React would throw the tree away.
+  */
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  useEffect(() => {
+    setCurrentId(lastClassroom());
+  }, []);
 
   const lens = lensFor(sp.p, data.platforms);
-  const query = (sp.q ?? "").toLowerCase().trim();
+  const query = searchInput.toLowerCase().trim();
   const sort = sp.sort ?? "recent";
 
   /** This cohort's rollup for the selected lens, or null when it has none. */
@@ -125,8 +158,8 @@ function ClassroomsListPage() {
           <div className="relative min-w-0 max-w-sm flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              value={sp.q ?? ""}
-              onChange={(e) => set({ q: e.target.value })}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search classrooms…"
               className="pl-9"
             />
@@ -184,6 +217,7 @@ function ClassroomsListPage() {
               roll && c.student_count > 0
                 ? Math.round((roll.tracked / c.student_count) * 100)
                 : null;
+            const isCurrent = c.id === currentId;
 
             return (
               <Link
@@ -194,7 +228,10 @@ function ClassroomsListPage() {
                 // opening a cohort does not silently drop you back on "all".
                 search={{ p: lens.id }}
                 style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
-                className="group animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards rounded-xl border border-border bg-surface p-6 transition-[border-color,box-shadow] hover:border-primary/50 hover:ring-1 hover:ring-primary/25"
+                className={cn(
+                  "group animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards rounded-xl border bg-surface p-6 transition-[border-color,box-shadow] hover:border-primary/50 hover:ring-1 hover:ring-primary/25",
+                  isCurrent ? "border-primary ring-1 ring-primary/30" : "border-border",
+                )}
               >
                 <div className="flex items-start justify-between gap-3">
                   <h3 className="text-lg font-bold leading-snug">{c.name}</h3>
@@ -202,6 +239,11 @@ function ClassroomsListPage() {
                     <Users className="size-4" />
                   </span>
                 </div>
+                {isCurrent && (
+                  <span className="mt-2 inline-block rounded bg-primary/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
+                    Current
+                  </span>
+                )}
                 <p className="mt-1.5 line-clamp-2 text-sm text-muted-foreground">
                   {c.description || "No description"}
                 </p>
