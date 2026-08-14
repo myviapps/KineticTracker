@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { getMatrixBreakdown } from "@/lib/classrooms.functions";
 import { SkeletonTable } from "@/components/skeletons";
-import { eachDayOfInterval } from "date-fns";
 import { ArrowUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +31,9 @@ type Cell = {
   /** Days that gain covers. >1 when a snapshot was missed. */
   span: number;
 };
+
+/** Newly solved across the whole filtered date range, split by difficulty. */
+type RangeGain = { easy: number; medium: number; hard: number; total: number } | null;
 
 function daysBetween(a: string, b: string): number {
   const diff = Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`);
@@ -134,10 +136,26 @@ export function DailyMatrix({
   // so widening the range added no visible columns — the date filter looked dead.
   const allDates = useMemo(() => {
     if (!customStart || !customEnd || customStart > customEnd) return [];
-    return eachDayOfInterval({
-      start: new Date(`${customStart}T00:00:00Z`),
-      end: new Date(`${customEnd}T00:00:00Z`),
-    }).map((d) => d.toISOString().slice(0, 10));
+    /*
+      Stepped in UTC, deliberately not with date-fns `eachDayOfInterval`.
+
+      That helper walks in LOCAL time: given a UTC midnight it returns LOCAL
+      midnights, and `toISOString()` then pushes each one back across the date
+      line for any zone ahead of UTC. In IST (+05:30) a 7 Aug -> 14 Aug filter
+      rendered as 6 Aug -> 13 Aug — every column labelled a day early, and every
+      snapshot looked up against the wrong key.
+
+      Everything else here is already UTC (fmtShort, fmtWeekday, the snapshot
+      dates themselves), so this stays UTC end to end.
+    */
+    const out: string[] = [];
+    const cursor = new Date(`${customStart}T00:00:00Z`);
+    const end = new Date(`${customEnd}T00:00:00Z`);
+    while (cursor.getTime() <= end.getTime()) {
+      out.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return out;
   }, [customStart, customEnd]);
 
   /**
@@ -167,6 +185,33 @@ export function DailyMatrix({
         prev = { total: s.total, date: s.date };
       }
       out.set(studentId, m);
+    }
+    return out;
+  }, [breakdown]);
+
+  /**
+   * Per-student gain across the WHOLE filtered range (first snapshot in range
+   * vs. last), split by difficulty. Distinct from the per-day `Cell.gain` above
+   * — this answers "what did they gain over the range I picked", not "what did
+   * they gain today". Null (not 0) with fewer than two snapshots: there's no
+   * earlier point in range to diff against.
+   */
+  const rangeGainByStudent = useMemo(() => {
+    const out = new Map<string, RangeGain>();
+    for (const [studentId, v] of Object.entries(breakdown ?? {})) {
+      const snaps = [...v.snapshots].sort((a, b) => a.date.localeCompare(b.date));
+      if (snaps.length < 2) {
+        out.set(studentId, null);
+        continue;
+      }
+      const first = snaps[0];
+      const last = snaps[snaps.length - 1];
+      out.set(studentId, {
+        easy: last.easy - first.easy,
+        medium: last.medium - first.medium,
+        hard: last.hard - first.hard,
+        total: last.total - first.total,
+      });
     }
     return out;
   }, [breakdown]);
@@ -218,11 +263,15 @@ export function DailyMatrix({
       "Easy",
       "Medium",
       "Hard",
+      "Range Δ Easy",
+      "Range Δ Medium",
+      "Range Δ Hard",
       ...allDates.flatMap((d) => [fmtShort(d), `${fmtShort(d)} +`]),
     ];
     const lines = rows.map((r) => {
       const b = breakdown?.[r.id];
       const cells = byStudent.get(r.id);
+      const rangeGain = rangeGainByStudent.get(r.id);
       const perDate = allDates.flatMap((d) => {
         const cell = cells?.get(d);
         return [cell?.total ?? "", cell?.gain ?? ""];
@@ -234,6 +283,9 @@ export function DailyMatrix({
         b?.latest?.easy ?? 0,
         b?.latest?.medium ?? 0,
         b?.latest?.hard ?? 0,
+        rangeGain?.easy ?? "",
+        rangeGain?.medium ?? "",
+        rangeGain?.hard ?? "",
         ...perDate,
       ]
         .map(escape)
@@ -288,6 +340,25 @@ export function DailyMatrix({
           Reset
         </button>
         {/*
+          E/M/H are single letters to fit a 50px sticky column — the legend spells
+          them out once instead of relying on color alone.
+        */}
+        <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-easy" />
+            Easy
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-medium" />
+            Medium
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-hard" />
+            Hard
+          </span>
+          <span className="opacity-60">· Δ = gain across the selected range</span>
+        </div>
+        {/*
           The grid used to show only the running total, which answers "how many
           have they solved" but not "did they do anything that day" — the question
           a daily matrix exists to answer.
@@ -333,7 +404,10 @@ export function DailyMatrix({
       ) : (
         <div
           ref={scrollRef}
-          className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-surface"
+          // Sticky columns are 560px wide (Student 200 + Total 60 + E/M/H/ΔE/ΔM/ΔH
+          // 6×50); capping at 560 + 10×56 keeps at most 10 date columns visible on
+          // any screen — more than that scrolls instead of shrinking or overflowing.
+          className="max-h-[70vh] max-w-[min(100%,1120px)] overflow-auto rounded-lg border border-border bg-surface"
         >
           <table className="min-w-full border-separate border-spacing-0 text-sm">
             <thead>
@@ -344,19 +418,46 @@ export function DailyMatrix({
                 <th className="sticky left-[200px] top-0 z-30 min-w-[60px] border-b border-r border-border bg-background px-3 py-2 text-right">
                   Σ Total
                 </th>
-                <th className="sticky left-[260px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy">
+                <th
+                  className="sticky left-[260px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
+                  title="Easy — cumulative solved to date"
+                >
                   E
                 </th>
-                <th className="sticky left-[310px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium">
+                <th
+                  className="sticky left-[310px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
+                  title="Medium — cumulative solved to date"
+                >
                   M
                 </th>
-                <th className="sticky left-[360px] top-0 z-30 min-w-[50px] border-b border-r border-border bg-background px-3 py-2 text-right text-hard">
+                <th
+                  className="sticky left-[360px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-hard"
+                  title="Hard — cumulative solved to date"
+                >
                   H
+                </th>
+                <th
+                  className="sticky left-[410px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
+                  title={`Range gain — Easy solved between ${customStart} and ${customEnd}`}
+                >
+                  ΔE
+                </th>
+                <th
+                  className="sticky left-[460px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
+                  title={`Range gain — Medium solved between ${customStart} and ${customEnd}`}
+                >
+                  ΔM
+                </th>
+                <th
+                  className="sticky left-[510px] top-0 z-30 min-w-[50px] border-b border-r border-border bg-background px-3 py-2 text-right text-hard"
+                  title={`Range gain — Hard solved between ${customStart} and ${customEnd}`}
+                >
+                  ΔH
                 </th>
                 {allDates.map((date) => (
                   <th
                     key={date}
-                    className="sticky top-0 z-20 bg-background border-b border-border px-2 py-1 text-center align-bottom"
+                    className="sticky top-0 z-20 w-[56px] min-w-[56px] max-w-[56px] bg-background border-b border-border px-2 py-1 text-center align-bottom"
                   >
                     <div className="text-[10px] font-bold leading-tight">{fmtShort(date)}</div>
                     <div className="text-[8px] opacity-60">{fmtWeekday(date)}</div>
@@ -368,7 +469,7 @@ export function DailyMatrix({
               {rows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={allDates.length + 5}
+                    colSpan={allDates.length + 8}
                     className="px-4 py-16 text-center text-muted-foreground"
                   >
                     No students in this bucket.
@@ -378,6 +479,7 @@ export function DailyMatrix({
               {rows.map((r, ri) => {
                 const b = breakdown?.[r.id];
                 const latest = b?.latest;
+                const rangeGain = rangeGainByStudent.get(r.id);
                 return (
                   <tr key={r.id} className="group">
                     <td className="sticky left-0 z-10 border-b border-r border-border bg-surface px-3 py-2 group-hover:bg-primary/5">
@@ -397,15 +499,24 @@ export function DailyMatrix({
                     <td className="sticky left-[310px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-primary/5">
                       {latest?.medium ?? <span className="opacity-50">—</span>}
                     </td>
-                    <td className="sticky left-[360px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-primary/5">
+                    <td className="sticky left-[360px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-primary/5">
                       {latest?.hard ?? <span className="opacity-50">—</span>}
+                    </td>
+                    <td className="sticky left-[410px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-easy group-hover:bg-primary/5">
+                      {rangeGain?.easy ?? <span className="opacity-50">—</span>}
+                    </td>
+                    <td className="sticky left-[460px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-primary/5">
+                      {rangeGain?.medium ?? <span className="opacity-50">—</span>}
+                    </td>
+                    <td className="sticky left-[510px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-primary/5">
+                      {rangeGain?.hard ?? <span className="opacity-50">—</span>}
                     </td>
                     {allDates.map((date) => {
                       const cell = byStudent.get(r.id)?.get(date);
                       return (
                         <td
                           key={date}
-                          className="border-b border-border/50 px-2 py-1.5 text-center tabular-nums"
+                          className="w-[56px] min-w-[56px] max-w-[56px] border-b border-border/50 px-2 py-1.5 text-center tabular-nums"
                           title={
                             cell
                               ? `${r.name} · ${fmtShort(date)} · ${cell.total} solved` +
@@ -457,13 +568,23 @@ export function DailyMatrix({
                   <td className="sticky left-[310px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
                     {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.medium ?? 0), 0) || "—"}
                   </td>
-                  <td className="sticky left-[360px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-hard">
+                  <td className="sticky left-[360px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-hard">
                     {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.hard ?? 0), 0) || "—"}
+                  </td>
+                  <td className="sticky left-[410px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-easy">
+                    {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.easy ?? 0), 0) || "—"}
+                  </td>
+                  <td className="sticky left-[460px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
+                    {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.medium ?? 0), 0) ||
+                      "—"}
+                  </td>
+                  <td className="sticky left-[510px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-hard">
+                    {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.hard ?? 0), 0) || "—"}
                   </td>
                   {cohort.map((c, i) => (
                     <td
                       key={i}
-                      className="border-t border-border px-2 py-1.5 text-center tabular-nums"
+                      className="w-[56px] min-w-[56px] max-w-[56px] border-t border-border px-2 py-1.5 text-center tabular-nums"
                       title={`Cohort · ${fmtShort(allDates[i])} · ${c.total} solved · +${c.gain} that day`}
                     >
                       <div className="flex flex-col items-center leading-none">
