@@ -1,26 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import {
-  Trophy,
-  Users,
-  Flame,
-  Target,
-  Filter,
-  X,
-  LayoutGrid,
-  Activity,
-  CalendarDays,
-  Zap,
-  Repeat,
-  TrendingUp,
-  MoonStar,
-  Hammer,
-  TriangleAlert,
-  type LucideIcon,
-} from "lucide-react";
+import { Trophy, Users, Flame, Target, LayoutGrid, Activity, type LucideIcon } from "lucide-react";
 
 import { getOverview } from "@/lib/overview.functions";
+import { getPerformanceWindows } from "@/lib/performance.functions";
 import { toStudentRow, type StudentRow } from "@/lib/buckets";
 import { StudentListDialog } from "@/components/student-list-dialog";
 import { CHART_MOTION, CHART_MOTION_STATIC } from "@/lib/chart-motion";
@@ -66,6 +50,18 @@ const OVERVIEW_ICONS: Record<string, LucideIcon> = {
 
 /** Same shape and rationale as the classroom route — see ClassroomSearch. */
 export type OverviewSearch = { p?: string; b?: string; d?: number };
+
+type ClassroomGains = { today: number; yesterday: number; d7: number; d30: number };
+
+/** Movement windows offered on the classroom leaderboard, in display order. */
+const GAIN_WINDOWS = [
+  { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "d7", label: "1W" },
+  { id: "d30", label: "30D" },
+] as const;
+
+type GainWindow = (typeof GAIN_WINDOWS)[number]["id"];
 
 export const Route = createFileRoute("/_authenticated/overview")({
   head: () => ({ meta: [{ title: "Overview — Almanac" }] }),
@@ -143,6 +139,14 @@ function OverviewPage() {
     () => new Map(data.students.map((s) => [s.id, s.ranks?.almanac_score ?? null])),
     [data.students],
   );
+  /** Newly solved per student across each window, for the classroom leaderboard. */
+  const gainsById = useMemo(
+    () =>
+      new Map(
+        data.students.map((s) => [s.id, s.gains ?? { today: 0, yesterday: 0, d7: 0, d30: 0 }]),
+      ),
+    [data.students],
+  );
   const metricOf = (r: StudentRow): number =>
     lens.isAll
       ? (almanacById.get(r.id) ?? 0)
@@ -161,6 +165,9 @@ function OverviewPage() {
 
   /** Which bucket's roster is open in the dialog, if any. */
   const [roster, setRoster] = useState<string | null>(null);
+
+  /** Movement window shown on the classroom leaderboard. */
+  const [gainWindow, setGainWindow] = useState<GainWindow>("d30");
 
   const [topN, setTopN] = useState(10);
 
@@ -204,17 +211,42 @@ function OverviewPage() {
       .filter((n): n is string => !!n)
       .sort();
 
+  /**
+   * Problems SOLVED by this student, summed across the platforms in view.
+   *
+   * Distinct from `metricOf`, which returns the Almanac Score on the "all"
+   * lens — a difficulty-WEIGHTED number. Summing that into a card labelled only
+   * "Classroom Leaderboard" made every cohort look ~1.5x more productive than
+   * it is, and the figure could not be reconciled against the "Avg solved" card
+   * one screen up. A leaderboard of cohorts wants the plain count.
+   */
+  const solvedOf = (r: StudentRow): number => {
+    const per = statsByStudent.get(r.id) ?? {};
+    return lens.isAll
+      ? Object.values(per).reduce((s, p) => s + (p.total_solved ?? 0), 0)
+      : (per[lens.id]?.total_solved ?? 0);
+  };
+
   const perClassroom = data.classrooms
     .map((c) => {
       const cRows = rows.filter((r) => classroomIdsOf.get(r.id)?.includes(c.id));
-      const total = cRows.reduce((s, r) => s + metricOf(r), 0);
+      const total = cRows.reduce((s, r) => s + solvedOf(r), 0);
+      const g = (pick: (x: ClassroomGains) => number) =>
+        cRows.reduce(
+          (s, r) => s + pick(gainsById.get(r.id) ?? { today: 0, yesterday: 0, d7: 0, d30: 0 }),
+          0,
+        );
       return {
         id: c.id,
         name: c.name,
         students: cRows.length,
         total,
-        today: cRows.reduce((s, r) => s + r.today, 0),
-        week: cRows.reduce((s, r) => s + r.week, 0),
+        // Movement beside size: a large cohort standing still should not read
+        // the same as a small one sprinting.
+        today: g((x) => x.today),
+        yesterday: g((x) => x.yesterday),
+        d7: g((x) => x.d7),
+        d30: g((x) => x.d30),
         avg: cRows.length ? Math.round(total / cRows.length) : 0,
       };
     })
@@ -292,6 +324,28 @@ function OverviewPage() {
     [lensFilterSet],
   );
 
+  /*
+    The same 30-day window the PerformanceWindows panel renders, shared through
+    the query cache rather than fetched twice — identical key and options, so
+    the panel and the stat card can never disagree about the number.
+  */
+  const { data: perf } = useQuery({
+    queryKey: ["performance-windows"],
+    queryFn: () => getPerformanceWindows({ data: { windows: [7, 30] } }),
+    staleTime: 5 * 60_000,
+  });
+  const windowPlatforms = useMemo(
+    () => perf?.windows?.find((w) => w.days === 30)?.platforms ?? [],
+    [perf],
+  );
+  const lensWindow = lens.isAll ? null : windowPlatforms.find((w) => w.platform_id === lens.id);
+  const allWindowSolved = windowPlatforms.length
+    ? windowPlatforms.reduce<number | null>(
+        (a, w) => (w.solved === null ? a : (a ?? 0) + w.solved),
+        null,
+      )
+    : null;
+
   // Cards stay institution-wide while a chip is selected — same rule as before,
   // and the same reason: recomputing them mid-click made the grid jump.
   const lensCards = useMemo(
@@ -300,14 +354,30 @@ function OverviewPage() {
         lens,
         rows: allRows,
         statsByStudent,
+        // Without this, "Avg Score" had no scores to average and rendered "—"
+        // permanently. getOverview already returns ranks; nothing else was
+        // missing.
+        almanacScoreOf: (sid) => almanacById.get(sid) ?? null,
         platforms: data.platforms,
-        // The overview has no per-cohort snapshot query of its own; the
-        // PerformanceWindows panel above already answers the window question at
-        // institution scope, so these stay undefined rather than being faked.
-        windowSolved: undefined,
+        /*
+          The 30-day window now comes from the same PerformanceWindows query the
+          panel above uses. It was left undefined on the grounds that the panel
+          "already answers the window question" — but the card still rendered,
+          as a permanent "—" beside three real numbers, which reads as broken
+          rather than as deliberately deferred.
+        */
+        windowSolved: lens.isAll ? allWindowSolved : (lensWindow?.solved ?? null),
+        windowDays: 30,
         activeInWindow: activeStudents,
+        firstSnapshotDate: lens.isAll
+          ? (windowPlatforms
+              .map((w) => w.first_snapshot_date)
+              .filter(Boolean)
+              .sort()[0] ?? null)
+          : (lensWindow?.first_snapshot_date ?? null),
       }),
-    [lens, allRows, statsByStudent, data.platforms, activeStudents],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lens, allRows, statsByStudent, data.platforms, activeStudents, almanacById, windowPlatforms],
   );
 
   return (
@@ -416,9 +486,30 @@ function OverviewPage() {
 
         <div className="mb-8">
           <div className="rounded-lg border border-border bg-surface p-6">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-sm font-bold uppercase tracking-wider">Classroom Leaderboard</h3>
-              <Users className="size-4 text-primary" />
+              {/* Which movement window sits beside the total. Ranking always
+                  stays on total solved — switching this changes the "+N" only,
+                  so cohorts do not reshuffle under the cursor. */}
+              <div className="flex items-center gap-1">
+                <div className="flex rounded-md border border-border p-0.5" role="group">
+                  {GAIN_WINDOWS.map((w) => (
+                    <button
+                      key={w.id}
+                      onClick={() => setGainWindow(w.id)}
+                      aria-pressed={gainWindow === w.id}
+                      className={
+                        gainWindow === w.id
+                          ? "rounded bg-primary px-2 py-0.5 font-mono text-[10px] font-medium text-primary-foreground"
+                          : "rounded px-2 py-0.5 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                      }
+                    >
+                      {w.label}
+                    </button>
+                  ))}
+                </div>
+                <Users className="ml-1 size-4 text-primary" />
+              </div>
             </div>
             {sharedStudents && (
               <p className="mb-3 text-[11px] text-muted-foreground">
@@ -443,14 +534,18 @@ function OverviewPage() {
                       {c.students} students · avg {c.avg}
                     </div>
                   </div>
+                  {/* The unit is spelled out. Unlabelled, this number was read as
+                      solved when it was in fact the weighted Almanac Score — the
+                      whole reason the card was wrong. */}
                   <div className="text-right font-mono">
                     <div className="text-lg font-bold">{c.total.toLocaleString()}</div>
-                    {/* "today" is a LeetCode submission-calendar count — showing it under
-                        another platform's total would be the same mislabeling this fix
-                        is for. */}
-                    {lens.id === "leetcode" && (
-                      <div className="text-[10px] text-primary">+{c.today} today</div>
-                    )}
+                    <div className="text-[10px] text-muted-foreground">
+                      solved
+                      <span className={c[gainWindow] > 0 ? "ml-1 text-primary" : "ml-1 opacity-60"}>
+                        +{c[gainWindow].toLocaleString()}{" "}
+                        {GAIN_WINDOWS.find((w) => w.id === gainWindow)?.label.toLowerCase()}
+                      </span>
+                    </div>
                   </div>
                 </Link>
               ))}

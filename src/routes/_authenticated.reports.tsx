@@ -71,6 +71,36 @@ function ReportsPage() {
     setSelected(next);
   };
 
+  /** Select or clear a whole college in one action. */
+  const toggleMany = (ids: string[], select: boolean) => {
+    const next = new Set(selected);
+    for (const id of ids) {
+      if (select) next.add(id);
+      else next.delete(id);
+    }
+    setSelected(next);
+  };
+
+  /** Cohorts grouped under their college, both already in the scopes payload. */
+  const collegeGroups = useMemo(() => {
+    const rooms = scopes.data?.classrooms ?? [];
+    const names = new Map((scopes.data?.colleges ?? []).map((c) => [c.id, c.name]));
+    const by = new Map<string, { id: string; name: string; rooms: typeof rooms }>();
+    for (const r of rooms) {
+      const key = r.college_id ?? "__none";
+      const g = by.get(key) ?? {
+        id: key,
+        name: r.college_id ? (names.get(r.college_id) ?? "Unknown college") : "No college",
+        rooms: [] as typeof rooms,
+      };
+      g.rooms.push(r);
+      by.set(key, g);
+    }
+    return [...by.values()]
+      .map((g) => ({ ...g, rooms: [...g.rooms].sort((a, b) => a.name.localeCompare(b.name)) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [scopes.data]);
+
   return (
     <div className="p-6 lg:p-8">
       {/* The picker is chrome, not content — it must not appear in the PDF. */}
@@ -83,20 +113,51 @@ function ReportsPage() {
 
         <div className="mb-5 rounded-lg border border-border bg-surface p-4">
           {scopes.isPending && <p className="text-sm text-muted-foreground">Loading cohorts…</p>}
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {(scopes.data?.classrooms ?? []).map((c) => (
-              <label
-                key={c.id}
-                className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-muted/50"
-              >
-                <Checkbox checked={selected.has(c.id)} onCheckedChange={() => toggle(c.id)} />
-                <span className="truncate text-sm">{c.name}</span>
-              </label>
-            ))}
-          </div>
+          {/*
+            Grouped by college, with a select-all per group.
+
+            listReportScopes already returned a colleges array AND a college_id
+            on every classroom; this page threw both away and rendered one flat
+            grid, so building "a report for CMRTC" meant ticking its cohorts by
+            hand and knowing which ones they were. Purely client-side.
+          */}
+          {collegeGroups.map((g) => {
+            const ids = g.rooms.map((r) => r.id);
+            const allOn = ids.every((id) => selected.has(id));
+            return (
+              <div key={g.id} className="mb-3 last:mb-0">
+                {collegeGroups.length > 1 && (
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      {g.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleMany(ids, !allOn)}
+                      className="text-[11px] font-medium text-primary hover:underline"
+                    >
+                      {allOn ? "Clear" : "Select all"}
+                    </button>
+                  </div>
+                )}
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {g.rooms.map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-muted/50"
+                    >
+                      <Checkbox checked={selected.has(c.id)} onCheckedChange={() => toggle(c.id)} />
+                      <span className="truncate text-sm">{c.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
 
           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-3">
             <select
+              aria-label="Report window in days"
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
               className="rounded border border-border bg-background px-2 py-1 text-xs"
@@ -212,12 +273,24 @@ function ReportDashboard({ data }: { data: ReportData }) {
         <table className="w-full text-left text-sm">
           <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="px-3 py-2">Platform</th>
-              <th className="px-3 py-2 text-right">Students</th>
-              <th className="px-3 py-2 text-right">Coverage</th>
-              <th className="px-3 py-2 text-right">Avg</th>
-              <th className="px-3 py-2 text-right">Solved</th>
-              <th className="px-3 py-2">Top</th>
+              <th scope="col" className="px-3 py-2">
+                Platform
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Students
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Coverage
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Avg
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Solved
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Top
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -256,12 +329,24 @@ function ReportDashboard({ data }: { data: ReportData }) {
         <table className="w-full text-left text-sm">
           <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="px-3 py-2">#</th>
-              <th className="px-3 py-2">Student</th>
-              <th className="px-3 py-2">Roll</th>
-              <th className="px-3 py-2">Classrooms</th>
-              <th className="px-3 py-2 text-right">Score</th>
-              <th className="px-3 py-2 text-right">College Rank</th>
+              <th scope="col" className="px-3 py-2">
+                #
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Student
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Roll
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Classrooms
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Score
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                College Rank
+              </th>
             </tr>
           </thead>
           <tbody>

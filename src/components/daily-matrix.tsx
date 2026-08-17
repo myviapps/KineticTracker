@@ -516,7 +516,7 @@ export function DailyMatrix({
                 sets of numbers on top of each other. color-mix keeps the exact
                 same tint while staying opaque. Do not shorten it back.
               */}
-              {rows.map((r, ri) => {
+              {rows.map((r) => {
                 const b = breakdown?.[r.id];
                 const latest = b?.latest;
                 const rangeGain = rangeGainByStudent.get(r.id);

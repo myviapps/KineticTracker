@@ -36,7 +36,6 @@ export async function runChunk({
   ownerId?: string;
 }): Promise<ChunkResult> {
   const owner = ownerId ?? crypto.randomUUID();
-  const empty = { processed: 0, succeeded: 0, failed: 0, total: 0 };
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
   log.info(

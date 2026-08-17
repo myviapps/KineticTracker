@@ -4,6 +4,8 @@ import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { Building2, Users, Trophy } from "lucide-react";
 
 import { listColleges } from "@/lib/colleges.functions";
+import { CollegeAdmin } from "@/components/college-admin";
+import { useRole } from "@/hooks/use-role";
 import { StatCard, SectionTitle } from "@/components/stat-card";
 import { AnimatedLoader } from "@/components/animated-loader";
 import { ReportExportDialog } from "@/components/report-export-dialog";
@@ -32,14 +34,24 @@ function num(n: number) {
 function CollegesPage() {
   const { colleges, combined, scope } = useSuspenseQuery(collegesQO()).data;
   const [exportOpen, setExportOpen] = useState(false);
+  const { canAdminister } = useRole();
 
   if (colleges.length === 0) {
     return (
       <div className="p-8">
         <SectionTitle>Colleges</SectionTitle>
         <p className="mt-2 text-sm text-muted-foreground">
-          No colleges are assigned to you yet. Ask an admin to add you to one.
+          {canAdminister
+            ? "No colleges yet. Create one before adding classrooms."
+            : "No colleges are assigned to you yet. Ask an admin to add you to one."}
         </p>
+        {/* An admin landing here previously had no way forward — colleges could
+            only be created in SQL, so the empty state was a dead end. */}
+        {canAdminister && (
+          <div className="mt-4">
+            <CollegeAdmin colleges={[]} />
+          </div>
+        )}
       </div>
     );
   }
@@ -61,9 +73,20 @@ function CollegesPage() {
               : `The ${colleges.length} college${colleges.length === 1 ? "" : "s"} assigned to you.`}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
-          Export report
-        </Button>
+        <div className="flex items-center gap-2">
+          {canAdminister && (
+            <CollegeAdmin
+              colleges={colleges.map((c) => ({
+                id: c.college_id,
+                name: c.college_name,
+                classroom_count: c.classroom_count,
+              }))}
+            />
+          )}
+          <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+            Export report
+          </Button>
+        </div>
       </div>
 
       {/* Combined first: the "all my colleges" view. These totals are summed from

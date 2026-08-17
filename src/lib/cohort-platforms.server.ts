@@ -16,9 +16,6 @@
 
 import type { CohortPlatform, CohortPlatformStat } from "./classrooms.functions";
 
-/** Matches the ceiling used by overview/classrooms/performance server functions. */
-const MAX_ROWS = 50_000;
-
 /**
  * Per-platform numbers for a whole roster, in two queries.
  *
@@ -36,37 +33,53 @@ export async function loadCohortPlatformStats(studentIds: string[]): Promise<{
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
   /*
-    Ranged rather than open-ended. Both reads below fan out across the whole
-    roster times every platform, so on an institution-wide cohort they are among
-    the largest queries in the app. Left unbounded they would be truncated by
-    PostgREST's db-max-rows, which is silent — a student would simply show no
-    accounts on some platforms, indistinguishable from genuinely having none.
-  */
-  const { data: accounts } = await supabaseAdmin
-    .from("student_platform_accounts")
-    .select("id, student_id, platform_id, handle")
-    .in("student_id", studentIds)
-    .range(0, MAX_ROWS - 1);
-  if (!accounts?.length) return empty;
+    Chunked and paged, with errors thrown.
 
-  const [{ data: stats }, { data: platforms }] = await Promise.all([
-    supabaseAdmin
-      .from("platform_stats")
-      .select(
-        "account_id, platform_id, total_solved, rating, max_rating, platform_score, global_rank, fetch_status",
-      )
-      .in(
-        "account_id",
-        accounts.map((a) => a.id),
-      )
-      .range(0, MAX_ROWS - 1),
+    Both reads fan out across the whole roster times every platform, so on an
+    institution-wide call they are among the largest queries in the app — and
+    they are exactly the ones the two silent ceilings bite. `.in()` over ~489
+    uuids builds an ~18KB URL and the request FAILS rather than truncating;
+    dropping that error returned `empty`, which is indistinguishable from "no
+    student is on any platform" — and that is precisely how the overview came to
+    report 0% coverage and 0 solved all-time against a full database.
+    `.range()` does not help either: PostgREST caps responses at db-max-rows
+    whatever Range asks for. See supabase-batch.server.ts.
+  */
+  const { fetchAllIn } = await import("./supabase-batch.server");
+
+  const accounts = await fetchAllIn(
+    studentIds,
+    (batch, from, to) =>
+      supabaseAdmin
+        .from("student_platform_accounts")
+        .select("id, student_id, platform_id, handle")
+        .in("student_id", batch)
+        .range(from, to),
+    "cohort platforms: accounts",
+  );
+  if (!accounts.length) return empty;
+
+  const [stats, { data: platforms, error: platErr }] = await Promise.all([
+    fetchAllIn(
+      accounts.map((a) => a.id),
+      (batch, from, to) =>
+        supabaseAdmin
+          .from("platform_stats")
+          .select(
+            "account_id, platform_id, total_solved, rating, max_rating, platform_score, global_rank, fetch_status",
+          )
+          .in("account_id", batch)
+          .range(from, to),
+      "cohort platforms: stats",
+    ),
     supabaseAdmin
       .from("platforms")
       .select("id, name, rank_metric, sort_order")
       .in("id", [...new Set(accounts.map((a) => a.platform_id))]),
   ]);
+  if (platErr) throw new Error(`cohort platforms: platforms: ${platErr.message}`);
 
-  const statByAccount = new Map((stats ?? []).map((s) => [s.account_id, s]));
+  const statByAccount = new Map(stats.map((s) => [s.account_id, s]));
   const byStudent = new Map<string, Record<string, CohortPlatformStat>>();
 
   for (const a of accounts) {

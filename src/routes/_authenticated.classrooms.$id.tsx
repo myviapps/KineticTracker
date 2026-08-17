@@ -13,7 +13,6 @@ import {
   Plus,
   Trash2,
   ExternalLink,
-  Search,
   ArrowUpDown,
   Download,
   Pencil,
@@ -93,7 +92,6 @@ import {
   applyLensFilter,
   lensStatCards,
   hasDifficultySplit,
-  metricLabel,
   lensMetric,
 } from "@/lib/platform-lens";
 

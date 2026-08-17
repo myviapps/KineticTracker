@@ -1,24 +1,9 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import {
-  queryOptions,
-  useSuspenseQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { queryOptions, useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import {
-  Plus,
-  Users,
-  Trash2,
-  ArrowRight,
-  Sparkles,
-  BarChart3,
-  Shield,
-  UserCog,
-} from "lucide-react";
+import { Plus, Users, Trash2, ArrowRight, Sparkles, BarChart3, UserCog } from "lucide-react";
 
 import { listClassrooms, deleteClassroom } from "@/lib/classrooms.functions";
 import { seedMockClassroom } from "@/lib/mock.functions";
@@ -73,7 +58,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 function DashboardPage() {
-  const { role, isAdmin, isPlacementOfficer: isPO, isFaculty } = useRole();
+  const { role, isAdmin, isPlacementOfficer: isPO, isFaculty, isCeo } = useRole();
   const { data: classroomData } = useSuspenseQuery(classroomsQO);
   const classrooms = classroomData.classrooms;
   const router = useRouter();
@@ -92,6 +77,16 @@ function DashboardPage() {
   useEffect(() => {
     if (redirectToOverview) router.navigate({ to: "/overview", replace: true });
   }, [redirectToOverview, router]);
+
+  /*
+    A CEO's remit is colleges, and this page had no branch for the role at all —
+    it fell through to the faculty layout, headed "My Classrooms", listing
+    cohorts they cannot manage and offering no route to the page they exist to
+    use. Send them there instead.
+  */
+  useEffect(() => {
+    if (isCeo) router.navigate({ to: "/colleges", replace: true });
+  }, [isCeo, router]);
   const qc = useQueryClient();
   const del = useServerFn(deleteClassroom);
   const mock = useServerFn(seedMockClassroom);
@@ -118,6 +113,7 @@ function DashboardPage() {
   // Placed after every hook above — an early return before them would make the
   // hook order conditional.
   if (redirectToOverview) return <AnimatedLoader text="Opening overview…" />;
+  if (isCeo) return <AnimatedLoader text="Opening colleges…" />;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -150,10 +146,10 @@ function DashboardPage() {
                   <UserCog className="mr-1 size-4" /> Manage Staff
                 </Link>
               </Button>
-              <Button variant="outline" onClick={() => mockM.mutate()} disabled={mockM.isPending}>
-                <Sparkles className="mr-1 size-4" />
-                {mockM.isPending ? "Seeding…" : "Try Demo Data"}
-              </Button>
+              {/* Only when the instance holds no real cohorts — see SeedDemoButton. */}
+              {classrooms.length === 0 && (
+                <SeedDemoButton onSeed={() => mockM.mutate()} pending={mockM.isPending} />
+              )}
               <Button asChild>
                 <Link to="/classrooms/new">
                   <Plus className="mr-1 size-4" /> New Classroom
@@ -181,9 +177,7 @@ function DashboardPage() {
           </p>
           {isAdmin && (
             <div className="mt-6 flex justify-center gap-2">
-              <Button onClick={() => mockM.mutate()} disabled={mockM.isPending}>
-                <Sparkles className="mr-1 size-4" /> Seed Demo Classroom
-              </Button>
+              <SeedDemoButton onSeed={() => mockM.mutate()} pending={mockM.isPending} />
               <Button asChild variant="outline">
                 <Link to="/classrooms/new">
                   <Plus className="mr-1 size-4" /> Create Manually
@@ -272,5 +266,46 @@ function DashboardPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The demo seeder, behind a confirmation.
+ *
+ * seedMockClassroom writes a real cohort of FABRICATED students, platform stats
+ * and daily snapshots into whatever database it is pointed at. It had two bare
+ * one-click triggers on this page, so a misclick put invented students into
+ * production rankings, reports and Almanac scores — with no undo short of SQL.
+ *
+ * Two guards now. The button only renders when the instance has no cohorts at
+ * all, which is the only situation the feature is for ("spin something up so I
+ * can see the UI"), and it states plainly what it will do before doing it.
+ * Bulk import already follows this shape: parse, show, then commit.
+ */
+function SeedDemoButton({ onSeed, pending }: { onSeed: () => void; pending: boolean }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="outline" disabled={pending}>
+          <Sparkles className="mr-1 size-4" />
+          {pending ? "Seeding…" : "Seed demo data"}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Add a demo cohort to this database?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This creates <b>Demo Cohort — CSE 2026</b> with invented students and fabricated solve
+            history. They are indistinguishable from real students in rankings, reports and Almanac
+            scores, and removing them afterwards means deleting the cohort by hand. Use it on an
+            empty instance to explore the interface — not on live data.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onSeed}>Seed demo cohort</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

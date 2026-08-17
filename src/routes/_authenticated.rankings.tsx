@@ -328,7 +328,9 @@ function RankingsPage() {
               <Th sorted={sort === "name"} dir={dir} onClick={() => toggleSort("name")}>
                 Student
               </Th>
-              <th className="px-3 py-2">{showCollegeColumn ? "College & class" : "Class"}</th>
+              <th scope="col" className="px-3 py-2">
+                {showCollegeColumn ? "College & class" : "Class"}
+              </th>
               <Th
                 right
                 sorted={sort === "almanac"}
@@ -504,7 +506,7 @@ function Th({
   title?: string;
 }) {
   return (
-    <th className={cn("px-3 py-2", right && "text-right")} title={title}>
+    <th scope="col" className={cn("px-3 py-2", right && "text-right")} title={title}>
       <button
         onClick={onClick}
         className={cn(
@@ -564,12 +566,24 @@ function ScoreExplainer({ scoring }: { scoring: ScoringPlatform[] }) {
               <table className="mt-3 w-full text-left text-xs">
                 <thead className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="py-1 pr-3">Platform</th>
-                    <th className="py-1 pr-3 text-right text-easy">Easy</th>
-                    <th className="py-1 pr-3 text-right text-medium">Medium</th>
-                    <th className="py-1 pr-3 text-right text-hard">Hard</th>
-                    <th className="py-1 pr-3 text-right">Unrated</th>
-                    <th className="py-1 text-right">Rating</th>
+                    <th scope="col" className="py-1 pr-3">
+                      Platform
+                    </th>
+                    <th scope="col" className="py-1 pr-3 text-right text-easy">
+                      Easy
+                    </th>
+                    <th scope="col" className="py-1 pr-3 text-right text-medium">
+                      Medium
+                    </th>
+                    <th scope="col" className="py-1 pr-3 text-right text-hard">
+                      Hard
+                    </th>
+                    <th scope="col" className="py-1 pr-3 text-right">
+                      Unrated
+                    </th>
+                    <th scope="col" className="py-1 text-right">
+                      Rating
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="font-mono tabular-nums">

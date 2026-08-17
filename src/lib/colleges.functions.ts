@@ -1,7 +1,23 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { authContext, withRole, canViewAllClassrooms } from "@/lib/authz";
+import { authContext, withRole, requireRole } from "@/lib/authz";
+
+/**
+ * Does this user have any college assignment at all?
+ *
+ * Distinguishes "scoped to these colleges" from "never scoped", which is the
+ * difference between a placement officer who opted into scoping and one who has
+ * simply never been assigned.
+ */
+async function hasCollegeAssignment(userId: string): Promise<boolean> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { count } = await supabaseAdmin
+    .from("college_assignments")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId);
+  return (count ?? 0) > 0;
+}
 
 export type CollegeRollup = {
   college_id: string;
@@ -35,8 +51,19 @@ export const listColleges = createServerFn({ method: "GET" })
 
     let query = supabaseAdmin.from("college_overview").select("*");
 
-    // admin / placement_officer see every college; a CEO sees their assignments.
-    const unrestricted = canViewAllClassrooms(role);
+    /*
+      Admin sees every college. CEO and placement officer see the ones assigned
+      to them — the officer used to be lumped in with admin via
+      canViewAllClassrooms, so assigning one to a college had no effect here
+      either.
+
+      The unassigned case differs by role, matching accessibleClassroomIds: an
+      unassigned CEO sees nothing (the role is meaningless without a college),
+      an unassigned placement officer keeps platform-wide reach so existing
+      accounts are not blanked. Assigning a college is what opts them in.
+    */
+    const unrestricted =
+      role === "admin" || (role === "placement_officer" && !(await hasCollegeAssignment(userId)));
     if (!unrestricted) {
       const { data: assigned } = await supabaseAdmin
         .from("college_assignments")
@@ -151,4 +178,141 @@ export const getCollegeLeaderboard = createServerFn({ method: "GET" })
       .slice(0, data.limit ?? 25);
 
     return { students: rows };
+  });
+
+/**
+ * Turn a display name into a stable URL handle.
+ *
+ * The slug is what imports and links key on, so it is derived once at creation
+ * and never re-derived on rename — renaming "CMRTC" to "CMR Technical Campus"
+ * must not break a bookmarked link or a spreadsheet column.
+ */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+/**
+ * Create a college.
+ *
+ * Admin-only. Colleges were entirely read-only to the application until now —
+ * there was no create, rename or delete anywhere — so the only way to add one
+ * was direct SQL, and the only way to remove a mistake was the same. That is
+ * also how two empty demo colleges ended up permanently stuck in the picker.
+ */
+export const createCollege = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .validator((d: unknown) =>
+    z
+      .object({
+        name: z.string().trim().min(1).max(120),
+        city: z.string().trim().max(120).optional().nullable(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const base = slugify(data.name);
+    if (!base) throw new Error("Name must contain at least one letter or number");
+
+    /*
+      Both name and slug are UNIQUE. A name clash is the user's to fix — they
+      almost certainly mean the college that already exists — but a slug clash
+      can happen between genuinely different names ("St. Mary's" / "St Marys"),
+      so that one is resolved silently with a numeric suffix rather than made
+      the caller's problem.
+    */
+    let slug = base;
+    for (let n = 2; n < 50; n += 1) {
+      const { data: taken } = await supabaseAdmin
+        .from("colleges")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (!taken) break;
+      slug = `${base}-${n}`;
+    }
+
+    const { data: row, error } = await supabaseAdmin
+      .from("colleges")
+      .insert({ name: data.name, slug, city: data.city || null })
+      .select("id, name, slug")
+      .single();
+
+    if (error) {
+      if (error.code === "23505") throw new Error(`A college named "${data.name}" already exists`);
+      throw new Error(error.message);
+    }
+    return row;
+  });
+
+/** Rename a college, or set its city. The slug is deliberately left alone. */
+export const updateCollege = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .validator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        name: z.string().trim().min(1).max(120),
+        city: z.string().trim().max(120).optional().nullable(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("colleges")
+      .update({ name: data.name, city: data.city || null })
+      .eq("id", data.id);
+    if (error) {
+      if (error.code === "23505") throw new Error(`A college named "${data.name}" already exists`);
+      throw new Error(error.message);
+    }
+    return { ok: true };
+  });
+
+/**
+ * Delete a college — only when nothing depends on it.
+ *
+ * Deliberately NOT a cascade. `classrooms.college_id` is NOT NULL and
+ * `college_assignments` cascades on delete, so removing a populated college
+ * would either fail at the constraint or silently strip every CEO's access.
+ * Refusing with a count says what to do instead, which is what the caller needs
+ * — deleting a real institution's cohorts is never the intent behind a tidy-up.
+ */
+export const deleteCollege = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .validator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const [{ count: classrooms }, { count: assignments }] = await Promise.all([
+      supabaseAdmin
+        .from("classrooms")
+        .select("*", { count: "exact", head: true })
+        .eq("college_id", data.id),
+      supabaseAdmin
+        .from("college_assignments")
+        .select("*", { count: "exact", head: true })
+        .eq("college_id", data.id),
+    ]);
+
+    if ((classrooms ?? 0) > 0) {
+      throw new Error(
+        `This college still has ${classrooms} classroom${classrooms === 1 ? "" : "s"}. Move or delete them first.`,
+      );
+    }
+    if ((assignments ?? 0) > 0) {
+      throw new Error(
+        `${assignments} staff member${assignments === 1 ? " is" : "s are"} still assigned to this college. Unassign them first.`,
+      );
+    }
+
+    const { error } = await supabaseAdmin.from("colleges").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });

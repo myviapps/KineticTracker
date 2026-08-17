@@ -18,7 +18,7 @@
 //    typo would block the whole college — so the batch path parses the offender
 //    out, records it as not_found, and retries with the remainder.
 
-import { getJson, sleep, hasBudget, remainingMs } from "./http";
+import { getJson, sleep, hasBudget } from "./http";
 import {
   PlatformError,
   num,

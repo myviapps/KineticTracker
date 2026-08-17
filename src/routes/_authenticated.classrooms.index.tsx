@@ -23,12 +23,13 @@ function PendingClassrooms() {
 
 type SortKey = "recent" | "name" | "students" | "metric";
 
-export type ClassroomsSearch = { p?: string; q?: string; sort?: SortKey };
+export type ClassroomsSearch = { p?: string; q?: string; sort?: SortKey; college?: string };
 
 export const Route = createFileRoute("/_authenticated/classrooms/")({
   head: () => ({ meta: [{ title: "Classrooms — Almanac" }] }),
   validateSearch: (search: Partial<ClassroomsSearch>): ClassroomsSearch => ({
     p: typeof search.p === "string" && search.p.length <= 50 ? search.p : ALL_LENS,
+    college: typeof search.college === "string" ? search.college : undefined,
     q: typeof search.q === "string" && search.q.length <= 100 ? search.q : "",
     sort: (["recent", "name", "students", "metric"] as SortKey[]).includes(search.sort as SortKey)
       ? (search.sort as SortKey)
@@ -96,18 +97,40 @@ function ClassroomsListPage() {
   const query = searchInput.toLowerCase().trim();
   const sort = sp.sort ?? "recent";
 
+  /*
+    College filter. Only rendered when there is more than one to choose between —
+    listClassrooms returns college_id and college_name now, so this needs no
+    extra request. Before that field existed the page could not tell one
+    college's cohorts from another's at all.
+  */
+  const collegeOptions = useMemo(() => {
+    const by = new Map<string, string>();
+    for (const c of data.classrooms) {
+      if (c.college_id) by.set(c.college_id, c.college_name ?? "Unknown college");
+    }
+    return [...by.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [data.classrooms]);
+  const collegeFilter =
+    sp.college && collegeOptions.some((c) => c.id === sp.college) ? sp.college : undefined;
+
   /** This cohort's rollup for the selected lens, or null when it has none. */
   const rollupFor = (c: (typeof data.classrooms)[number]) =>
     lens.isAll ? null : (c.platforms.find((p) => p.platform_id === lens.id) ?? null);
 
   const classrooms = useMemo(() => {
+    const byCollege = collegeFilter
+      ? data.classrooms.filter((c) => c.college_id === collegeFilter)
+      : data.classrooms;
+
     const filtered = query
-      ? data.classrooms.filter(
+      ? byCollege.filter(
           (c) =>
             c.name.toLowerCase().includes(query) ||
             (c.description ?? "").toLowerCase().includes(query),
         )
-      : data.classrooms;
+      : byCollege;
 
     const scored = [...filtered];
     if (sort === "name") scored.sort((a, b) => a.name.localeCompare(b.name));
@@ -124,7 +147,7 @@ function ClassroomsListPage() {
     // "recent" is the server's own created_at ordering; leave it alone.
     return scored;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.classrooms, query, sort, lens.id, lens.isAll]);
+  }, [data.classrooms, query, sort, lens.id, lens.isAll, collegeFilter]);
 
   return (
     <div>
@@ -155,6 +178,21 @@ function ClassroomsListPage() {
 
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <div className="mb-6 flex flex-wrap items-center gap-3">
+          {collegeOptions.length > 1 && (
+            <select
+              value={collegeFilter ?? ""}
+              onChange={(e) => set({ college: e.target.value || undefined })}
+              aria-label="Filter by college"
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            >
+              <option value="">All colleges</option>
+              {collegeOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="relative min-w-0 max-w-sm flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input

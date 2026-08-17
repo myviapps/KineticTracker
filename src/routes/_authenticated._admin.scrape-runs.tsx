@@ -40,7 +40,7 @@ function ScrapeRunsPage() {
 
   // `isPending`, not the `= []` default: this table showed "No scrape runs recorded
   // yet" on the first load, which is a different statement than "loading".
-  const { data: runs = [], isPending } = useQuery({
+  const { data: runsData, isPending } = useQuery({
     queryKey: ["scrape-runs"],
     queryFn: () => listScrapeRuns(),
     refetchInterval: 10_000,
@@ -69,6 +69,9 @@ function ScrapeRunsPage() {
     onError: (e: unknown) => toast.error(String(e)),
   });
 
+  const runs = runsData?.runs ?? [];
+  // Shown when the list is capped, so a partial view never reads as the whole.
+  const runsTruncated = (runsData?.total ?? 0) > runs.length;
   const abandoned = failed.filter((s) => s.abandoned).length;
   const { data: duplicates = [] } = useDuplicates();
 
@@ -129,6 +132,11 @@ function ScrapeRunsPage() {
         </TabsList>
 
         <TabsContent value="runs">
+          {runsTruncated && (
+            <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              Showing the {runs.length} most recent of {runsData?.total} runs
+            </p>
+          )}
           {isPending ? (
             <AnimatedLoader text="Loading runs…" />
           ) : (

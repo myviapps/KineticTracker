@@ -19,6 +19,17 @@ const MAX_ROWS = 50_000;
 const CreateClassroomInput = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(500).optional().nullable(),
+  /*
+    Which college the cohort belongs to.
+
+    Optional, because a single-college install should not have to say — but it
+    HAS to be expressible. Without it, resolveCollegeId had only inference to go
+    on, and inference gives up when several colleges exist and the caller has no
+    single college assignment. On an install with three colleges and no
+    assignments that meant every create threw "Multiple colleges exist", with no
+    way from the UI to supply the answer it was asking for.
+  */
+  college_id: z.string().uuid().optional(),
 });
 
 /**
@@ -44,6 +55,8 @@ export const listClassrooms = createServerFn({ method: "GET" })
           name: string;
           description: string | null;
           created_at: string;
+          college_id: string | null;
+          college_name: string | null;
           student_count: number;
           platforms: ClassroomPlatformRollup[];
         }[],
@@ -54,7 +67,11 @@ export const listClassrooms = createServerFn({ method: "GET" })
 
     let query = supabaseAdmin
       .from("classrooms")
-      .select("id, name, description, created_at")
+      // college_id is selected so callers can group and filter by college.
+      // Without it the staff assignment picker and the classrooms list had no
+      // way to tell one college's cohorts from another's, and both rendered a
+      // single flat list however many colleges existed.
+      .select("id, name, description, created_at, college_id")
       .order("created_at", { ascending: false });
     if (allowed !== null) query = query.in("id", allowed);
 
@@ -153,9 +170,26 @@ export const listClassrooms = createServerFn({ method: "GET" })
       }
     }
 
+    /*
+      College names resolved here rather than by every caller. The staff picker
+      and the classrooms grid both want to GROUP by college, and a name is what
+      a heading needs — making each of them fetch colleges separately is how the
+      two would start disagreeing about what a college is called.
+    */
+    const collegeIds = [...new Set((classrooms ?? []).map((c) => c.college_id).filter(Boolean))];
+    const collegeNames = new Map<string, string>();
+    if (collegeIds.length) {
+      const { data: cols } = await supabaseAdmin
+        .from("colleges")
+        .select("id, name")
+        .in("id", collegeIds as string[]);
+      for (const c of cols ?? []) collegeNames.set(c.id, c.name);
+    }
+
     return {
       classrooms: (classrooms ?? []).map((c) => ({
         ...c,
+        college_name: c.college_id ? (collegeNames.get(c.college_id) ?? null) : null,
         student_count: countMap.get(c.id) ?? 0,
         platforms: [...(byClassroom.get(c.id)?.values() ?? [])],
       })),
@@ -365,7 +399,10 @@ export const createClassroom = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { resolveCollegeId } = await import("./colleges.server");
-    const collegeId = await resolveCollegeId({ userId: context.userId });
+    const collegeId = await resolveCollegeId({
+      explicit: data.college_id,
+      userId: context.userId,
+    });
 
     const { data: row, error } = await supabaseAdmin
       .from("classrooms")

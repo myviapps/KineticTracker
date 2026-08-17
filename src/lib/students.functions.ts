@@ -7,7 +7,6 @@ import {
   requireRole,
   canAdminister,
   canManageStudents,
-  canViewAllClassrooms,
   accessibleClassroomIds,
   assertClassroomAccess,
   assertStudentAccess,
@@ -93,8 +92,16 @@ async function accessibleStudentIds(
   studentIds: string[],
 ): Promise<Set<string>> {
   if (studentIds.length === 0) return new Set();
-  if (canViewAllClassrooms(role)) return new Set(studentIds);
 
+  /*
+    No canViewAllClassrooms short-circuit here.
+
+    It used to return early for placement officers, which bypassed scoping
+    entirely — and now that an ASSIGNED placement officer is restricted to their
+    colleges, that early return would have quietly reinstated the hole this
+    function is supposed to close. accessibleClassroomIds is the single source
+    of truth: null still means unrestricted, so the admin path is unchanged.
+  */
   const allowed = await accessibleClassroomIds(userId, role);
   if (allowed === null) return new Set(studentIds);
   if (allowed.length === 0) return new Set();
@@ -107,6 +114,49 @@ async function accessibleStudentIds(
     .in("classroom_id", allowed);
 
   return new Set((data ?? []).map((r) => r.student_id));
+}
+
+/**
+ * Forget what we knew about a platform account, because it now points at a
+ * different profile.
+ *
+ * The scraper refuses any write that drops total_solved by more than 30%
+ * (isImplausibleRegression) — a good guard, because a broken parser and an
+ * empty profile both say "0 solved" and only the previous row can tell them
+ * apart. But it assumes the row it compares against describes the SAME person.
+ * Changing a handle breaks that assumption: the stored 265 belongs to the old
+ * profile, the new one legitimately has 84, and the guard then rejects every
+ * future fetch forever. Students sat frozen with
+ * "total_solved dropped 265 -> 84 (>30%)" and no way out.
+ *
+ * Deleting the stats row removes the stale baseline, so the next scrape writes
+ * cleanly and the guard resumes protecting real continuity. Snapshots are left
+ * alone deliberately — they are dated history, not a baseline, and the trend
+ * chart should still show what happened before the correction.
+ */
+async function resetPlatformBaseline(studentId: string, platformId: string): Promise<void> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  await supabaseAdmin
+    .from("platform_stats")
+    .delete()
+    .eq("student_id", studentId)
+    .eq("platform_id", platformId);
+
+  // The account keeps its row but loses every judgement made about the old
+  // profile, so a handle that previously 404'd is retried rather than skipped.
+  await supabaseAdmin
+    .from("student_platform_accounts")
+    .update({
+      status: "unverified",
+      verified_at: null,
+      last_fetched_at: null,
+      fetch_error: null,
+      consecutive_failures: 0,
+      sync_cursor: {},
+    })
+    .eq("student_id", studentId)
+    .eq("platform_id", platformId);
 }
 
 /** Throws if this handle already belongs to a different student. */
@@ -692,6 +742,8 @@ export const updateStudent = createServerFn({ method: "POST" })
       throw new Error(error.message);
     }
 
+    if (handle !== current.leetcode_id) await resetPlatformBaseline(data.id, "leetcode");
+
     const handleChanges = data.handles ? await applyHandleEdits(data.id, data.handles) : null;
 
     return { ok: true, handles: handleChanges };
@@ -781,6 +833,10 @@ async function applyHandleEdits(studentId: string, submitted: Record<string, str
         })
         .eq("id", row.id);
       if (error) throw handleAccountError(error, platformId, handle);
+      // ...including the stats row, whose total_solved is the baseline the
+      // scraper's regression guard compares against. Left in place it belongs
+      // to the previous profile and freezes this account permanently.
+      await resetPlatformBaseline(studentId, platformId);
       updated += 1;
       continue;
     }

@@ -296,6 +296,21 @@ function StudentPage() {
           }
         />
         <StatCard
+          label="College"
+          value={
+            ranks?.college_name ? (
+              <span className="text-xl leading-tight">{ranks.college_name}</span>
+            ) : (
+              "—"
+            )
+          }
+          /* A student has no college column — student_colleges resolves it from
+             their EARLIEST classroom membership. That inheritance was invisible,
+             so a student ranked under a college nobody expected had no
+             explanation on the page. */
+          hint="from earliest cohort"
+        />
+        <StatCard
           label="College Rank"
           value={
             ranks?.college_rank ? (

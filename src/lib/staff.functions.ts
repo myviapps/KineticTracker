@@ -66,6 +66,19 @@ export const listStaff = createServerFn({ method: "GET" })
       assignmentsByUser.set(a.faculty_user_id, list);
     }
 
+    // College oversight, for the roles scoped by it. Returned alongside the
+    // classroom assignments so the staff page can show what a CEO or a scoped
+    // placement officer can actually reach.
+    const { data: collegeRows } = await supabaseAdmin
+      .from("college_assignments")
+      .select("user_id, college_id");
+    const collegesByUser = new Map<string, string[]>();
+    for (const a of collegeRows ?? []) {
+      const list = collegesByUser.get(a.user_id) ?? [];
+      list.push(a.college_id);
+      collegesByUser.set(a.user_id, list);
+    }
+
     const staffList = await Promise.all(
       (userRoles ?? []).map(async (ur) => {
         let email = "unknown";
@@ -85,6 +98,7 @@ export const listStaff = createServerFn({ method: "GET" })
           email,
           role: ur.role,
           classroom_ids: assignmentsByUser.get(ur.user_id) ?? [],
+          college_ids: collegesByUser.get(ur.user_id) ?? [],
         };
       }),
     );
@@ -99,8 +113,15 @@ export const createStaffUser = createServerFn({ method: "POST" })
       .object({
         email: z.string().email(),
         name: z.string().min(1),
-        role: z.enum(["admin", "placement_officer", "faculty"]),
+        role: z.enum(["admin", "placement_officer", "faculty", "ceo"]),
         classroom_ids: z.array(z.string().uuid()).optional(),
+        /*
+          Colleges this user oversees. Meaningful for ceo and placement_officer;
+          the CEO role could not be created here at all before, and there was no
+          server function anywhere that wrote college_assignments — so both the
+          role and its scoping were SQL-only operations.
+        */
+        college_ids: z.array(z.string().uuid()).optional(),
       })
       .parse(d),
   )
@@ -122,6 +143,17 @@ export const createStaffUser = createServerFn({ method: "POST" })
       .from("user_roles")
       .insert({ user_id: newUser.user.id, role: data.role });
     if (roleError) throw new Error(roleError.message);
+
+    // Colleges, for the roles that are scoped by them.
+    if ((data.role === "ceo" || data.role === "placement_officer") && data.college_ids?.length) {
+      const { error: collegeError } = await supabaseAdmin.from("college_assignments").insert(
+        data.college_ids.map((cid) => ({
+          user_id: newUser.user.id,
+          college_id: cid,
+        })),
+      );
+      if (collegeError) throw new Error(collegeError.message);
+    }
 
     // If faculty, assign classrooms
     if (data.role === "faculty" && data.classroom_ids?.length) {
@@ -207,11 +239,49 @@ export const assignFacultyToClassroom = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
+    /*
+      Cross-college assignment is allowed, but no longer silent.
+
+      This inserted the pair with no validation at all, so an admin could give a
+      faculty member a cohort in a college they have nothing to do with — and
+      that faculty then saw its students, ranks and reports, because faculty
+      scoping reads faculty_assignments without consulting the college.
+
+      It is not forbidden: co-taught and visiting arrangements are real, and
+      refusing would make them impossible. What was wrong is that it happened
+      invisibly. The result now reports whether the assignment crossed a college
+      boundary so the UI can say so at the moment it is made.
+    */
+    const [{ data: room }, { data: existing }] = await Promise.all([
+      supabaseAdmin
+        .from("classrooms")
+        .select("college_id, name")
+        .eq("id", data.classroom_id)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("faculty_assignments")
+        .select("classroom_id")
+        .eq("faculty_user_id", data.faculty_user_id),
+    ]);
+    if (!room) throw new Error("Classroom not found");
+
+    let crossCollege = false;
+    const otherIds = (existing ?? []).map((a) => a.classroom_id);
+    if (otherIds.length > 0 && room.college_id) {
+      const { data: theirRooms } = await supabaseAdmin
+        .from("classrooms")
+        .select("college_id")
+        .in("id", otherIds);
+      // Only a boundary if they already hold cohorts and none share this college.
+      const colleges = new Set((theirRooms ?? []).map((r) => r.college_id).filter(Boolean));
+      crossCollege = colleges.size > 0 && !colleges.has(room.college_id);
+    }
+
     const { error } = await supabaseAdmin
       .from("faculty_assignments")
       .insert({ faculty_user_id: data.faculty_user_id, classroom_id: data.classroom_id });
     if (error) throw new Error(error.message);
-    return { ok: true };
+    return { ok: true, crossCollege, classroomName: room.name };
   });
 
 export const unassignFaculty = createServerFn({ method: "POST" })
@@ -261,5 +331,52 @@ export const forceReleaseRefreshLock = createServerFn({ method: "POST" })
         .eq("id", active.id);
     }
 
+    return { ok: true };
+  });
+
+/**
+ * Grant or revoke a user's oversight of a college.
+ *
+ * `college_assignments` had two read sites and no write site anywhere in the
+ * application, so a CEO could only be scoped in SQL — and for a placement
+ * officer the row was silently inert until scoping was implemented. This is the
+ * missing half.
+ *
+ * Deliberately not restricted to one role. The table is keyed on user_id and
+ * both CEO and placement officer are scoped by it; refusing other roles here
+ * would only mean the check has to be repeated wherever the table is read.
+ */
+export const setCollegeAssignment = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .validator((d: unknown) =>
+    z
+      .object({
+        user_id: z.string().uuid(),
+        college_id: z.string().uuid(),
+        assigned: z.boolean(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    if (data.assigned) {
+      // Upsert, not insert: re-granting an existing assignment is a no-op
+      // rather than a duplicate-key error the caller has to interpret.
+      const { error } = await supabaseAdmin
+        .from("college_assignments")
+        .upsert(
+          { user_id: data.user_id, college_id: data.college_id },
+          { onConflict: "user_id,college_id", ignoreDuplicates: true },
+        );
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabaseAdmin
+        .from("college_assignments")
+        .delete()
+        .eq("user_id", data.user_id)
+        .eq("college_id", data.college_id);
+      if (error) throw new Error(error.message);
+    }
     return { ok: true };
   });

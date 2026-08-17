@@ -12,7 +12,7 @@ import { AlmanacLogo } from "@/components/almanac-logo";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
-import { ThemeToggle, useTheme } from "@/components/theme-toggle";
+import { useTheme } from "@/components/theme-toggle";
 import { useAuthCacheSync } from "@/hooks/use-auth-cache-sync";
 
 const THEME_INIT = `

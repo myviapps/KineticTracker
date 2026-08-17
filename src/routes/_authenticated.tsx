@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect, useState, type CSSProperties } from "react";
-import { LayoutDashboard, MoreVertical } from "lucide-react";
+import { Layers, LayoutDashboard, MoreVertical } from "lucide-react";
+import { ClassroomJump } from "@/components/classroom-jump";
 import { AlmanacLogo } from "@/components/almanac-logo";
 import {
   DropdownMenu,
@@ -110,6 +111,11 @@ function AuthenticatedLayout() {
         <StudentSearch className="ml-auto w-full min-w-0 max-w-[180px] sm:max-w-[220px] lg:max-w-[320px]" />
 
         {/* Inline actions once there's room for them. */}
+        {/*
+          A menu, not a link: this exists to get you INTO a cohort, and routing
+          through the classrooms page first is the step it removes.
+        */}
+        <ClassroomJump className="hidden sm:inline-flex" />
         <Button asChild variant="ghost" size="sm" className="hidden shrink-0 px-2 sm:inline-flex">
           <Link to="/dashboard" title="Dashboard">
             <LayoutDashboard className="size-4" />
@@ -131,6 +137,12 @@ function AuthenticatedLayout() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem asChild>
+              <Link to="/classrooms">
+                <Layers className="size-4" />
+                Classrooms
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to="/dashboard">
                 <LayoutDashboard className="size-4" />

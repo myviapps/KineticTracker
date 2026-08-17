@@ -11,14 +11,26 @@ export const listScrapeRuns = createServerFn({ method: "GET" })
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const { data, error } = await supabaseAdmin
-      .from("scrape_runs")
-      .select("*")
-      .order("started_at", { ascending: false })
-      .limit(100);
+    /*
+      Capped at 100, and the caller is TOLD so.
+
+      A silent cap on the page you use to diagnose scraping is the same failure
+      mode as the row ceilings this file exists to surface — the list simply
+      stops, and a partial view of the problem reads as the whole of it. The
+      exact count comes back alongside the rows so the UI can say "100 of 342".
+    */
+    const LIMIT = 100;
+    const [{ data, error }, { count }] = await Promise.all([
+      supabaseAdmin
+        .from("scrape_runs")
+        .select("*")
+        .order("started_at", { ascending: false })
+        .limit(LIMIT),
+      supabaseAdmin.from("scrape_runs").select("*", { count: "exact", head: true }),
+    ]);
 
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return { runs: data ?? [], total: count ?? data?.length ?? 0, limit: LIMIT };
   });
 
 export type FailedStudent = {

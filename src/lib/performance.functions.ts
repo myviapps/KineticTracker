@@ -31,18 +31,18 @@ import { authContext, withRole, accessibleClassroomIds } from "@/lib/authz";
  */
 
 /**
- * PostgREST's default db-max-rows silently truncates; ask for more explicitly.
- * Same constant and same reason as overview.functions.ts and landing.functions.ts.
+ * ── On row limits ──────────────────────────────────────────────────────────
+ * daily_snapshots holds one row per (student, platform, date), so a few hundred
+ * students across several platforms writes thousands of rows a week. This file
+ * used to ask for them with a single `.range(0, 49_999)` and a comment claiming
+ * that defeated truncation. It does not: PostgREST caps every response at
+ * `db-max-rows` — 1000 on this project — whatever Range asks for. The query
+ * orders by snapshot_date ascending, so the rows that survived were the OLDEST,
+ * and the chart plotted the start of the window as though it were all of it.
  *
- * This is the bug that made the trend chart draw five days under a "last 30
- * days" caption. daily_snapshots holds one row per (student, platform, date), so
- * a cohort of 30 students across 6 platforms writes ~180 rows a DAY — the
- * default 1000-row ceiling is reached in under six days. The query orders by
- * snapshot_date ascending, so the rows that survived were the OLDEST ones, and
- * the chart confidently plotted the beginning of the window as though it were
- * the whole of it. No error, no empty state: just a short line.
+ * Reads now go through fetchAllIn / fetchAllPaged, which page until a short
+ * page proves exhaustion and throw on error rather than returning a short list.
  */
-const MAX_ROWS = 50_000;
 
 const Input = z.object({
   windows: z.array(z.number().int().min(1).max(365)).min(1).max(4).default([7, 30]),
@@ -101,73 +101,118 @@ export const getPerformanceWindows = createServerFn({ method: "GET" })
       await assertClassroomAccess(userId, role, data.classroomId);
     }
 
-    // Ranged like the rest: this is the SCOPING query, so truncating it drops
-    // students from every number below at once — and the institution-wide call
-    // (no classroomId) is exactly the one that selects the most memberships.
-    let roomQuery = supabaseAdmin
-      .from("classroom_students")
-      .select("student_id")
-      .range(0, MAX_ROWS - 1);
-    if (data.classroomId) roomQuery = roomQuery.eq("classroom_id", data.classroomId);
-    else if (allowed !== null) roomQuery = roomQuery.in("classroom_id", allowed);
-    const { data: memberships } = await roomQuery;
+    /*
+      Paged, not `.range(0, MAX_ROWS)`. This is the SCOPING query, so losing
+      rows drops students from every number below at once — and PostgREST caps
+      each response at db-max-rows (1000 here) whatever Range asks for, so the
+      old single-shot range silently kept only the first 1000 memberships.
+    */
+    const { fetchAllPaged } = await import("./supabase-batch.server");
+    const memberships = await fetchAllPaged((from, to) => {
+      let q = supabaseAdmin.from("classroom_students").select("student_id").range(from, to);
+      if (data.classroomId) q = q.eq("classroom_id", data.classroomId);
+      else if (allowed !== null) q = q.in("classroom_id", allowed);
+      return q;
+    }, "performance: memberships");
 
-    const studentIds = [...new Set((memberships ?? []).map((m) => m.student_id))];
+    const studentIds = [...new Set(memberships.map((m) => m.student_id))];
     if (studentIds.length === 0) return { windows: [] as WindowResult[] };
 
     const maxDays = Math.max(...data.windows);
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - maxDays);
 
-    const [{ data: snaps }, { data: accounts }, { data: platformRows }, { data: firstDates }] =
-      await Promise.all([
-        supabaseAdmin
-          .from("daily_snapshots")
-          // One string literal, not a concatenation: supabase-js infers the row
-          // type from the literal, and `a + b` collapses it to `string`, which
-          // degrades every field to GenericStringError.
-          .select(
-            "student_id, platform_id, snapshot_date, solved_that_day, easy_solved, medium_solved, hard_solved, unrated_solved",
-          )
-          .in("student_id", studentIds)
-          .gte("snapshot_date", since.toISOString().slice(0, 10))
-          .order("snapshot_date", { ascending: true })
-          .range(0, MAX_ROWS - 1),
+    /*
+      Chunked AND paged, and every error is thrown.
+
+      Both reads below filter by `.in("student_id", …)`. At institution scope
+      that is ~489 uuids, an ~18KB query string, and the request does not
+      truncate — it fails with an opaque `TypeError: fetch failed`. The previous
+      code destructured `{ data }` and dropped `error` on the floor, so the
+      failure became an empty array: no snapshots, no accounts, no platforms in
+      `meta`, and the panel rendered "0 solved over 7d" against a table holding
+      549. Silent zeros are worse than an error page, because they look like an
+      answer. See supabase-batch.server.ts.
+    */
+    const { fetchAllIn } = await import("./supabase-batch.server");
+    const fromDate = since.toISOString().slice(0, 10);
+
+    const [snaps, accounts, { data: platformRows, error: platErr }, firstDates] = await Promise.all(
+      [
+        fetchAllIn(
+          studentIds,
+          (batch, from, to) =>
+            supabaseAdmin
+              .from("daily_snapshots")
+              // One string literal, not a concatenation: supabase-js infers the row
+              // type from the literal, and `a + b` collapses it to `string`, which
+              // degrades every field to GenericStringError.
+              .select(
+                "student_id, platform_id, snapshot_date, solved_that_day, easy_solved, medium_solved, hard_solved, unrated_solved",
+              )
+              .in("student_id", batch)
+              .gte("snapshot_date", fromDate)
+              .order("snapshot_date", { ascending: true })
+              .range(from, to),
+          "performance: snapshots",
+        ),
         // Drives trackedByPlatform, which decides WHICH PLATFORMS the panel
-        // renders at all — a truncation here does not shrink a number, it makes
+        // renders at all — losing rows here does not shrink a number, it makes
         // a whole platform disappear from the report.
-        supabaseAdmin
-          .from("student_platform_accounts")
-          .select("student_id, platform_id")
-          .in("student_id", studentIds)
-          .range(0, MAX_ROWS - 1),
+        fetchAllIn(
+          studentIds,
+          (batch, from, to) =>
+            supabaseAdmin
+              .from("student_platform_accounts")
+              .select("student_id, platform_id")
+              .in("student_id", batch)
+              .range(from, to),
+          "performance: accounts",
+        ),
         supabaseAdmin
           .from("platforms")
           .select("id, name, rank_metric, sort_order")
           .order("sort_order"),
         /*
-          Earliest snapshot per platform, across all history rather than the
-          window — that is what tells us whether a zero means "no history".
+        Earliest snapshot per platform, across all history rather than the
+        window — that is what tells us whether a zero means "no history".
 
-          An AGGREGATE, not a scan. This used to select every snapshot row ever
-          recorded for these students and keep the first date per platform while
-          walking them in JS: O(all history) to produce one row per platform,
-          and truncated by the row ceiling exactly like the query above. When it
-          truncated, a later-onboarded platform lost its rows off the end,
-          returned null here, and the overview reported "no history yet" for a
-          platform that had weeks of data. Raising the cap only delays that;
-          grouping in Postgres removes it.
-        */
+        An AGGREGATE, not a scan, and an RPC rather than a filtered select: the
+        id list goes in the POST body, so it is immune to the URL ceiling that
+        breaks the two reads above.
+      */
         supabaseAdmin.rpc("first_snapshot_per_platform", { p_student_ids: studentIds }),
-      ]);
-
-    // One row per platform now, already minimised — no first-wins scan needed.
-    const firstByPlatform = new Map<string, string>(
-      (firstDates ?? []).map((r) => [r.platform_id, r.first_date]),
+      ],
     );
+    if (platErr) throw new Error(`performance: platforms: ${platErr.message}`);
+
+    /*
+      One row per platform, already minimised — no first-wins scan needed.
+
+      With a FALLBACK, because a missing RPC must not read as "no history".
+      first_snapshot_per_platform ships in migration 20260809000004, and a
+      deployment that has not applied it gets an error here rather than rows.
+      Treating that as null made the panel print "no history yet · 489 tracked"
+      directly beside "7,028 solved over 7d" — two statements that cannot both
+      be true, and the more alarming one was the lie.
+
+      The fallback is the earliest date we actually observed in the window. That
+      is a LOWER BOUND on history, not the true start, so the caption may say
+      "collecting since" a later date than reality — but it can only understate
+      history, never deny it.
+    */
+    const firstByPlatform = new Map<string, string>();
+    if (firstDates.error) {
+      for (const s of snaps) {
+        const seen = firstByPlatform.get(s.platform_id);
+        if (!seen || s.snapshot_date < seen) firstByPlatform.set(s.platform_id, s.snapshot_date);
+      }
+    } else {
+      for (const r of firstDates.data ?? []) firstByPlatform.set(r.platform_id, r.first_date);
+    }
 
     const trackedByPlatform = new Map<string, Set<string>>();
-    for (const a of accounts ?? []) {
+    for (const a of accounts) {
       const set = trackedByPlatform.get(a.platform_id) ?? new Set<string>();
       set.add(a.student_id);
       trackedByPlatform.set(a.platform_id, set);
@@ -184,7 +229,7 @@ export const getPerformanceWindows = createServerFn({ method: "GET" })
       const cutoff = new Date();
       cutoff.setUTCDate(cutoff.getUTCDate() - days);
       const from = cutoff.toISOString().slice(0, 10);
-      const inWindow = (snaps ?? []).filter((s) => s.snapshot_date >= from);
+      const inWindow = snaps.filter((s) => s.snapshot_date >= from);
 
       const platforms: PlatformWindow[] = [...meta.entries()].map(([pid, m]) => {
         const rows = inWindow.filter((s) => s.platform_id === pid);

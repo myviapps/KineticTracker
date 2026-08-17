@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Settings2, Chrome, Check, X } from "lucide-react";
 import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 
 import { getSiteSettings, updateGoogleAuth } from "@/lib/settings.functions";

@@ -97,20 +97,38 @@ export async function accessibleClassroomIds(
   userId: string,
   role: AppRole | null,
 ): Promise<string[] | null> {
-  if (canViewAllClassrooms(role)) return null;
+  if (role === "admin") return null;
 
   const supabaseAdmin = await admin();
 
-  // A CEO sees every classroom of every college assigned to them — broader than
-  // faculty, narrower than admin. Returning [] rather than null when they have no
-  // assignment is deliberate: an unassigned CEO must see nothing, not everything.
-  if (role === "ceo") {
+  /*
+    College-scoped roles: CEO and placement officer.
+
+    A CEO sees every classroom of every college assigned to them — broader than
+    faculty, narrower than admin. Returning [] rather than null when they have
+    no assignment is deliberate: an unassigned CEO must see nothing.
+
+    A placement officer used to short-circuit on canViewAllClassrooms and see
+    EVERY college unconditionally, ignoring college_assignments entirely — so a
+    row assigning one to a college was silently inert, and the moment a second
+    college held data, an officer for one could read the other's students,
+    rolls, handles, ranks and reports. They now scope exactly like a CEO.
+
+    The one asymmetry is the unassigned case, and it is deliberate. An
+    unassigned CEO is a misconfiguration — the role exists to oversee named
+    colleges. An unassigned placement officer is the CURRENT state of every such
+    account here, and narrowing them to [] would silently blank the pages they
+    use today. Unassigned therefore keeps the old platform-wide reach; assigning
+    a college is what opts an officer into scoping. Assign one to make it bite.
+  */
+  if (role === "ceo" || role === "placement_officer") {
     const { data: colleges } = await supabaseAdmin
       .from("college_assignments")
       .select("college_id")
       .eq("user_id", userId);
     const collegeIds = (colleges ?? []).map((c) => c.college_id);
-    if (collegeIds.length === 0) return [];
+
+    if (collegeIds.length === 0) return role === "ceo" ? [] : null;
 
     const { data } = await supabaseAdmin
       .from("classrooms")
