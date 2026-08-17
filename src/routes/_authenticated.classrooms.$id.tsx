@@ -281,24 +281,19 @@ function ClassroomDetail() {
     });
 
   /*
-    The input is local state, mirrored into the URL on a debounce.
+    Roster search is LOCAL state and never touches the URL.
 
-    Filtering reads `search` (local) so typing feels instant, while `q` keeps
-    the view shareable. Writing the URL per keystroke meant a navigation, a
-    loader run and a re-render of every memo on this page for each character.
+    It used to write `?q=` on a debounce, which kept the view shareable but cost
+    a navigation for every pause in typing — the loader re-ran, every memo on
+    this page recomputed, and the whole thing read as a page reload while you
+    were still typing. Filtering a table you are already looking at is not a
+    navigation, and the other filters on this page (lens, bucket, sort) are the
+    ones worth putting in a link.
+
+    An incoming `?q=` still seeds the box, so existing links keep working; it
+    simply stops being written back.
   */
   const [search, setSearch] = useState(sp.q ?? "");
-  useEffect(() => {
-    if (search === (sp.q ?? "")) return;
-    const t = setTimeout(() => setSearchParams({ q: search }), 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, sp.q]);
-  // Keep the box in step when the URL moves on its own — Back, or a link that
-  // arrives carrying its own ?q=.
-  useEffect(() => {
-    setSearch(sp.q ?? "");
-  }, [sp.q]);
   // The lens: "all" or a platform id. Resolved against the platforms this cohort
   // actually uses, so a stale id degrades to "all" rather than an empty page.
   // Recorded so the Classrooms jump page can mark this cohort as the one you

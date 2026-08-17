@@ -81,6 +81,46 @@ function GainBadge({
   );
 }
 
+/**
+ * A cumulative figure with its movement underneath.
+ *
+ * The range gain used to occupy three sticky columns of its own (ΔE/ΔM/ΔH),
+ * which meant eight frozen columns before the first date and forced the reader
+ * to match "E" against "ΔE" several columns away. Pairing each total with its
+ * own delta says the same thing in half the width, and matches how the date
+ * cells already stack a total over its daily gain.
+ *
+ * Null and zero read differently on purpose: nothing at all means we have no
+ * earlier snapshot to measure from, "–" means measured and flat.
+ */
+function StackedCell({
+  total,
+  gain,
+  tone,
+}: {
+  total: number | null;
+  gain: number | null;
+  tone: string;
+}) {
+  return (
+    <div className="flex flex-col items-end leading-none">
+      <span className={cn("text-sm font-bold tabular-nums", tone)}>
+        {total ?? <span className="text-muted-foreground/50">—</span>}
+      </span>
+      {gain === null ? (
+        <span className="mt-1 text-[9px] text-muted-foreground/40">·</span>
+      ) : gain <= 0 ? (
+        <span className="mt-1 text-[9px] text-muted-foreground/40">–</span>
+      ) : (
+        <span className={cn("mt-1 inline-flex items-center gap-px text-[10px] font-bold", tone)}>
+          <ArrowUp className="size-2.5" strokeWidth={3} />
+          {gain}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function DailyMatrix({
   classroomId,
   rows,
@@ -157,6 +197,19 @@ export function DailyMatrix({
     }
     return out;
   }, [customStart, customEnd]);
+
+  /*
+    Short ranges stretch to fill the width; long ones keep a fixed column and
+    scroll.
+
+    Fixed 56px columns stop a wide range from squeezing every day past
+    readability — but on a short range they left the table ending well short of
+    the card, with dead space beside it. Below the threshold the date columns
+    take no explicit width, so table-fixed divides the remaining space between
+    them and the grid meets the right edge; above it they go back to 56px and
+    the overflow scrolls.
+  */
+  const flexDates = allDates.length > 0 && allDates.length <= 14;
 
   /**
    * Per-student `date -> { total, gain }`.
@@ -263,9 +316,11 @@ export function DailyMatrix({
       "Easy",
       "Medium",
       "Hard",
-      "Range Δ Easy",
-      "Range Δ Medium",
-      "Range Δ Hard",
+      // Plain words, not "Δ": a spreadsheet that guesses the wrong encoding
+      // renders the glyph as mojibake in the header row.
+      "New Easy",
+      "New Medium",
+      "New Hard",
       ...allDates.flatMap((d) => [fmtShort(d), `${fmtShort(d)} +`]),
     ];
     const lines = rows.map((r) => {
@@ -356,7 +411,10 @@ export function DailyMatrix({
             <span className="size-2 rounded-full bg-hard" />
             Hard
           </span>
-          <span className="opacity-60">· Δ = gain across the selected range</span>
+          <span className="inline-flex items-center gap-1 opacity-60">
+            ·
+            <ArrowUp className="size-2.5" strokeWidth={3} />= newly solved in the selected range
+          </span>
         </div>
         {/*
           The grid used to show only the running total, which answers "how many
@@ -400,17 +458,22 @@ export function DailyMatrix({
       </div>
 
       {isPending ? (
-        <SkeletonTable rows={Math.min(Math.max(rows.length, 4), 10)} columns={8} />
+        <SkeletonTable rows={Math.min(Math.max(rows.length, 4), 10)} columns={5} />
       ) : (
         <div
           ref={scrollRef}
           /*
-            w-fit so the bordered box hugs the table on a short range instead of
-            stretching it; max-w caps the viewport at the sticky block (640px)
-            plus ten 56px date columns, so an eleventh scrolls rather than
-            squeezing every column past readability.
+            Full width, like every other card on the page.
+
+            This was `w-fit max-w-[1200px]`, which shrank the bordered box to the
+            table and capped it — so on a wide screen the matrix sat in a narrow
+            column with dead space beside it, out of line with everything above.
+            The date columns are a fixed 56px (see the colgroup), so filling the
+            width cannot squeeze them: a wider screen simply shows more days, and
+            anything that does not fit scrolls. That is the behaviour the fixed
+            widths were for; the extra cap was doing a second, conflicting job.
           */
-          className="max-h-[70vh] w-fit max-w-[min(100%,1200px)] overflow-auto rounded-lg border border-border bg-surface"
+          className="max-h-[70vh] w-full overflow-auto rounded-lg border border-border bg-surface"
         >
           {/*
             table-fixed + colgroup, not per-cell min-w.
@@ -425,68 +488,58 @@ export function DailyMatrix({
             source of truth, and w-max stops the table stretching to fill the
             container (which would inflate the columns and break them again).
           */}
-          <table className="w-max table-fixed border-separate border-spacing-0 text-sm">
+          <table
+            className={cn(
+              "table-fixed border-separate border-spacing-0 text-sm",
+              flexDates ? "w-full" : "w-max",
+            )}
+          >
             <colgroup>
               <col className="w-[224px]" />
-              <col className="w-[80px]" />
-              <col className="w-[56px]" />
-              <col className="w-[56px]" />
-              <col className="w-[56px]" />
-              <col className="w-[56px]" />
-              <col className="w-[56px]" />
-              <col className="w-[56px]" />
+              <col className="w-[84px]" />
+              <col className="w-[72px]" />
+              <col className="w-[72px]" />
+              <col className="w-[72px]" />
               {allDates.map((d) => (
-                <col key={d} className="w-[56px]" />
+                <col key={d} className={flexDates ? undefined : "w-[56px]"} />
               ))}
             </colgroup>
             <thead>
-              <tr className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr className="font-mono text-[10px] font-bold uppercase tracking-wider text-foreground">
                 <th className="sticky left-0 top-0 z-30 min-w-[200px] border-b border-r border-border bg-background px-3 py-2 text-left">
                   Student
                 </th>
-                <th className="sticky left-[224px] top-0 z-30 min-w-[60px] border-b border-r border-border bg-background px-3 py-2 text-right">
+                <th
+                  className="sticky left-[224px] top-0 z-30 border-b border-border bg-background px-3 py-2 text-right"
+                  title="Total solved to date, and how many of them are new in this range"
+                >
                   Σ Total
                 </th>
                 <th
-                  className="sticky left-[304px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
-                  title="Easy — cumulative solved to date"
+                  className="sticky left-[308px] top-0 z-30 border-b border-border bg-background px-3 py-2 text-right text-easy"
+                  title="Easy — solved to date, and new in this range"
                 >
                   E
                 </th>
                 <th
-                  className="sticky left-[360px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
-                  title="Medium — cumulative solved to date"
+                  className="sticky left-[380px] top-0 z-30 border-b border-border bg-background px-3 py-2 text-right text-medium"
+                  title="Medium — solved to date, and new in this range"
                 >
                   M
                 </th>
                 <th
-                  className="sticky left-[416px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-hard"
-                  title="Hard — cumulative solved to date"
+                  className="sticky left-[452px] top-0 z-30 border-b border-r border-border bg-background px-3 py-2 text-right text-hard"
+                  title="Hard — solved to date, and new in this range"
                 >
                   H
-                </th>
-                <th
-                  className="sticky left-[472px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-easy"
-                  title={`Range gain — Easy solved between ${customStart} and ${customEnd}`}
-                >
-                  ΔE
-                </th>
-                <th
-                  className="sticky left-[528px] top-0 z-30 min-w-[50px] border-b border-border bg-background px-3 py-2 text-right text-medium"
-                  title={`Range gain — Medium solved between ${customStart} and ${customEnd}`}
-                >
-                  ΔM
-                </th>
-                <th
-                  className="sticky left-[584px] top-0 z-30 min-w-[50px] border-b border-r border-border bg-background px-3 py-2 text-right text-hard"
-                  title={`Range gain — Hard solved between ${customStart} and ${customEnd}`}
-                >
-                  ΔH
                 </th>
                 {allDates.map((date) => (
                   <th
                     key={date}
-                    className="sticky top-0 z-20 w-[56px] min-w-[56px] max-w-[56px] bg-background border-b border-border px-2 py-1 text-center align-bottom"
+                    className={cn(
+                      "sticky top-0 z-20 border-b border-border bg-background px-2 py-1 text-center align-bottom",
+                      flexDates ? "min-w-[44px]" : "w-[56px] min-w-[56px] max-w-[56px]",
+                    )}
                   >
                     <div className="text-[10px] font-bold leading-tight">{fmtShort(date)}</div>
                     <div className="text-[8px] opacity-60">{fmtWeekday(date)}</div>
@@ -498,7 +551,7 @@ export function DailyMatrix({
               {rows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={allDates.length + 8}
+                    colSpan={allDates.length + 5}
                     className="px-4 py-16 text-center text-muted-foreground"
                   >
                     No students in this bucket.
@@ -540,33 +593,43 @@ export function DailyMatrix({
                         <div className="truncate text-[10px] text-muted-foreground">{r.roll}</div>
                       </Link>
                     </td>
-                    <td className="sticky left-[224px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
-                      {latest?.total ?? <span className="text-muted-foreground/50">—</span>}
+                    <td className="sticky left-[224px] z-10 border-b border-border bg-surface px-3 py-2 text-right group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
+                      <StackedCell
+                        total={latest?.total ?? null}
+                        gain={rangeGain?.total ?? null}
+                        tone="text-foreground"
+                      />
                     </td>
-                    <td className="sticky left-[304px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-easy group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
-                      {latest?.easy ?? <span className="opacity-50">—</span>}
+                    <td className="sticky left-[308px] z-10 border-b border-border bg-surface px-3 py-2 text-right group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
+                      <StackedCell
+                        total={latest?.easy ?? null}
+                        gain={rangeGain?.easy ?? null}
+                        tone="text-easy"
+                      />
                     </td>
-                    <td className="sticky left-[360px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
-                      {latest?.medium ?? <span className="opacity-50">—</span>}
+                    <td className="sticky left-[380px] z-10 border-b border-border bg-surface px-3 py-2 text-right group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
+                      <StackedCell
+                        total={latest?.medium ?? null}
+                        gain={rangeGain?.medium ?? null}
+                        tone="text-medium"
+                      />
                     </td>
-                    <td className="sticky left-[416px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
-                      {latest?.hard ?? <span className="opacity-50">—</span>}
-                    </td>
-                    <td className="sticky left-[472px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-easy group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
-                      {rangeGain?.easy ?? <span className="opacity-50">—</span>}
-                    </td>
-                    <td className="sticky left-[528px] z-10 border-b border-border bg-surface px-3 py-2 text-right font-bold text-medium group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
-                      {rangeGain?.medium ?? <span className="opacity-50">—</span>}
-                    </td>
-                    <td className="sticky left-[584px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right font-bold text-hard group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
-                      {rangeGain?.hard ?? <span className="opacity-50">—</span>}
+                    <td className="sticky left-[452px] z-10 border-b border-r border-border bg-surface px-3 py-2 text-right group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
+                      <StackedCell
+                        total={latest?.hard ?? null}
+                        gain={rangeGain?.hard ?? null}
+                        tone="text-hard"
+                      />
                     </td>
                     {allDates.map((date) => {
                       const cell = byStudent.get(r.id)?.get(date);
                       return (
                         <td
                           key={date}
-                          className="w-[56px] min-w-[56px] max-w-[56px] border-b border-border/50 px-2 py-1.5 text-center tabular-nums"
+                          className={cn(
+                            "border-b border-border/50 px-2 py-1.5 text-center tabular-nums",
+                            flexDates ? "min-w-[44px]" : "w-[56px] min-w-[56px] max-w-[56px]",
+                          )}
                           title={
                             cell
                               ? `${r.name} · ${fmtShort(date)} · ${cell.total} solved` +
@@ -609,32 +672,47 @@ export function DailyMatrix({
                   <td className="sticky left-0 z-10 border-t border-r border-border bg-background px-3 py-2 font-bold">
                     Cohort / day
                   </td>
-                  <td className="sticky left-[224px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-primary">
-                    {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.total ?? 0), 0)}
+                  <td className="sticky left-[224px] z-10 border-t border-border bg-background px-3 py-2 text-right">
+                    <StackedCell
+                      total={rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.total ?? 0), 0)}
+                      gain={rows.reduce(
+                        (s, r) => s + (rangeGainByStudent.get(r.id)?.total ?? 0),
+                        0,
+                      )}
+                      tone="text-primary"
+                    />
                   </td>
-                  <td className="sticky left-[304px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-easy">
-                    {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.easy ?? 0), 0) || "—"}
+                  <td className="sticky left-[308px] z-10 border-t border-border bg-background px-3 py-2 text-right">
+                    <StackedCell
+                      total={rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.easy ?? 0), 0)}
+                      gain={rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.easy ?? 0), 0)}
+                      tone="text-easy"
+                    />
                   </td>
-                  <td className="sticky left-[360px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
-                    {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.medium ?? 0), 0) || "—"}
+                  <td className="sticky left-[380px] z-10 border-t border-border bg-background px-3 py-2 text-right">
+                    <StackedCell
+                      total={rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.medium ?? 0), 0)}
+                      gain={rows.reduce(
+                        (s, r) => s + (rangeGainByStudent.get(r.id)?.medium ?? 0),
+                        0,
+                      )}
+                      tone="text-medium"
+                    />
                   </td>
-                  <td className="sticky left-[416px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-hard">
-                    {rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.hard ?? 0), 0) || "—"}
-                  </td>
-                  <td className="sticky left-[472px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-easy">
-                    {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.easy ?? 0), 0) || "—"}
-                  </td>
-                  <td className="sticky left-[528px] z-10 border-t border-border bg-background px-3 py-2 text-right font-bold text-medium">
-                    {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.medium ?? 0), 0) ||
-                      "—"}
-                  </td>
-                  <td className="sticky left-[584px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right font-bold text-hard">
-                    {rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.hard ?? 0), 0) || "—"}
+                  <td className="sticky left-[452px] z-10 border-t border-r border-border bg-background px-3 py-2 text-right">
+                    <StackedCell
+                      total={rows.reduce((s, r) => s + (breakdown?.[r.id]?.latest?.hard ?? 0), 0)}
+                      gain={rows.reduce((s, r) => s + (rangeGainByStudent.get(r.id)?.hard ?? 0), 0)}
+                      tone="text-hard"
+                    />
                   </td>
                   {cohort.map((c, i) => (
                     <td
                       key={i}
-                      className="w-[56px] min-w-[56px] max-w-[56px] border-t border-border px-2 py-1.5 text-center tabular-nums"
+                      className={cn(
+                        "border-t border-border px-2 py-1.5 text-center tabular-nums",
+                        flexDates ? "min-w-[44px]" : "w-[56px] min-w-[56px] max-w-[56px]",
+                      )}
                       title={`Cohort · ${fmtShort(allDates[i])} · ${c.total} solved · +${c.gain} that day`}
                     >
                       <div className="flex flex-col items-center leading-none">
