@@ -231,3 +231,39 @@ export const refreshPlatform = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { jobId };
   });
+
+/** Update batch size, max concurrency, cooldown and refresh TTL for a platform. */
+export const updatePlatformTuning = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth, requireRole("admin")])
+  .validator(
+    (d: {
+      id: string;
+      batch_size: number;
+      max_concurrency: number;
+      base_cooldown_ms: number;
+      refresh_ttl_hours: number;
+    }) =>
+      z
+        .object({
+          id: z.string().min(1).max(50),
+          batch_size: z.number().int().min(1).max(100),
+          max_concurrency: z.number().int().min(1).max(20),
+          base_cooldown_ms: z.number().int().min(0).max(60_000),
+          refresh_ttl_hours: z.number().int().min(1).max(720),
+        })
+        .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("platforms")
+      .update({
+        batch_size: data.batch_size,
+        max_concurrency: data.max_concurrency,
+        base_cooldown_ms: data.base_cooldown_ms,
+        refresh_ttl_hours: data.refresh_ttl_hours,
+      })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });

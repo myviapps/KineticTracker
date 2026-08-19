@@ -323,6 +323,11 @@ function ClassroomDetail() {
     leetcode_id: string;
   } | null>(null);
 
+  // The roll the student had when the edit modal OPENED — before onChange
+  // rewrites editingStudent. Without this, a roll change invalidates only the
+  // new query key and the old one shows stale data until a hard reload.
+  const [originalEditRoll, setOriginalEditRoll] = useState<string | null>(null);
+
   const updateStu = useServerFn(updateStudent);
   const editM = useMutation({
     mutationFn: (s: {
@@ -354,9 +359,26 @@ function ClassroomDetail() {
         changed > 0 ? { description: "New handles are fetched on the next refresh." } : undefined,
       );
       setEditingStudent(null);
-      qc.invalidateQueries({ queryKey: ["classroom", id] });
-      qc.invalidateQueries({ queryKey: ["student", s.roll] });
+
+      // Broad invalidation so the edit propagates across the entire platform —
+      // not just this classroom. A shared student appears in multiple cohorts,
+      // the overview, rankings, and search.
+      qc.invalidateQueries({ queryKey: ["classroom"] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      qc.invalidateQueries({ queryKey: ["rankings"] });
+      qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["colleges"] });
       qc.invalidateQueries({ queryKey: ["student-handles", s.id] });
+
+      // Invalidate the student profile for the NEW roll…
+      qc.invalidateQueries({ queryKey: ["student", s.roll] });
+      // …and the OLD roll if it changed, so an open tab on the old URL refetches
+      // rather than showing the now-stale record.
+      if (originalEditRoll && originalEditRoll !== s.roll) {
+        qc.invalidateQueries({ queryKey: ["student", originalEditRoll] });
+      }
+      setOriginalEditRoll(null);
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -1317,6 +1339,7 @@ function ClassroomDetail() {
                               title="Edit student"
                               onClick={(e) => {
                                 e.stopPropagation();
+                                setOriginalEditRoll(s.roll);
                                 setEditingStudent({
                                   id: s.id,
                                   name: s.name,

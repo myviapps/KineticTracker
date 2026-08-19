@@ -174,7 +174,7 @@ export async function runPlatformChunk({
   }
 
   let cursor: string | null = job.cursor_account_id ?? null;
-  const batchSize = job.batch_size ?? platform.batch_size ?? 5;
+  const batchSize = platform.batch_size ?? job.batch_size ?? 5;
   const baseCooldown = platform.base_cooldown_ms ?? 3000;
   let cooldownMs = job.cooldown_ms ?? baseCooldown;
   let cleanStreak = job.clean_streak ?? 0;

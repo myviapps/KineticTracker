@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery, useMutation } from "@tanstack/react-query";
+import { queryOptions, useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ArrowLeft, ExternalLink, RefreshCw, MapPin, Trophy, EyeOff, Pencil } from "lucide-react";
@@ -51,12 +51,25 @@ function StudentPage() {
   const [tab, setTab] = useState<string>("leetcode");
   const { student, stats, classrooms, ranks, masked, platforms } = data;
   const router = useRouter();
+  const qc = useQueryClient();
 
   const refresh = useServerFn(refreshStudent);
   const refreshM = useMutation({
     mutationFn: () => refresh({ data: { id: student.id } }),
     onSuccess: () => {
       toast.success("Refreshed");
+      // Invalidate every cache that renders scraped data so the fresh numbers
+      // propagate to classroom tables, overview, rankings, etc. — not just the
+      // current route's loader.
+      qc.invalidateQueries({ queryKey: ["classroom"] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      qc.invalidateQueries({ queryKey: ["student", roll] });
+      qc.invalidateQueries({ queryKey: ["rankings"] });
+      qc.invalidateQueries({ queryKey: ["colleges"] });
+      qc.invalidateQueries({ queryKey: ["cohort-performance"] });
+      qc.invalidateQueries({ queryKey: ["performance-windows"] });
+      qc.invalidateQueries({ queryKey: ["matrix-breakdown"] });
       router.invalidate();
     },
     onError: (e) => toast.error(String(e)),
@@ -99,10 +112,26 @@ function StudentPage() {
     onSuccess: (_r, s) => {
       toast.success("Student updated");
       setEditing(null);
+
+      // Propagate the edit to every cache that could show this student's data.
+      qc.invalidateQueries({ queryKey: ["classroom"] });
+      qc.invalidateQueries({ queryKey: ["classrooms"] });
+      qc.invalidateQueries({ queryKey: ["overview"] });
+      qc.invalidateQueries({ queryKey: ["rankings"] });
+      qc.invalidateQueries({ queryKey: ["search"] });
+      qc.invalidateQueries({ queryKey: ["colleges"] });
+      qc.invalidateQueries({ queryKey: ["student-handles", s.id] });
+
       // The roll is the route param, so a changed roll has to navigate rather
       // than refetch — the old URL no longer resolves to anyone.
-      if (s.roll !== roll) router.navigate({ to: "/students/$roll", params: { roll: s.roll } });
-      else router.invalidate();
+      // Invalidate BOTH old and new roll queries so neither shows stale data.
+      qc.invalidateQueries({ queryKey: ["student", roll] });
+      if (s.roll !== roll) {
+        qc.invalidateQueries({ queryKey: ["student", s.roll] });
+        router.navigate({ to: "/students/$roll", params: { roll: s.roll } });
+      } else {
+        router.invalidate();
+      }
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -195,25 +224,23 @@ function StudentPage() {
           </div>
           {/* The Refresh button used to render for anonymous visitors too, where it
               could only ever return Unauthorized. */}
-          {!masked && (
+          {!masked && canManageStudents && (
             <div className="flex shrink-0 gap-2">
-              {canManageStudents && (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    setEditing({
-                      id: student.id,
-                      name: student.name,
-                      roll: student.roll,
-                      email: student.email ?? "",
-                      leetcode_id: student.leetcode_id,
-                    })
-                  }
-                >
-                  <Pencil className="mr-1 size-4" />
-                  Edit
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setEditing({
+                    id: student.id,
+                    name: student.name,
+                    roll: student.roll,
+                    email: student.email ?? "",
+                    leetcode_id: student.leetcode_id,
+                  })
+                }
+              >
+                <Pencil className="mr-1 size-4" />
+                Edit
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => refreshM.mutate()}

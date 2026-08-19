@@ -1,20 +1,32 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { queryOptions, useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { AlertTriangle, Pause, Play, RefreshCw } from "lucide-react";
+import { AlertTriangle, Pause, Play, RefreshCw, SlidersHorizontal } from "lucide-react";
 
 import {
   listPlatformHealth,
   setPlatformEnabled,
   resetPlatformBreaker,
   refreshPlatform,
+  updatePlatformTuning,
   type PlatformHealth,
 } from "@/lib/platforms.functions";
 import { SectionTitle } from "@/components/stat-card";
 import { AnimatedLoader } from "@/components/animated-loader";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const healthQO = () =>
   queryOptions({
@@ -54,10 +66,12 @@ function ago(iso: string | null): string {
 function PlatformsPage() {
   const { platforms } = useSuspenseQuery(healthQO()).data;
   const qc = useQueryClient();
+  const [tuningPlatform, setTuningPlatform] = useState<PlatformHealth | null>(null);
 
   const toggle = useServerFn(setPlatformEnabled);
   const reset = useServerFn(resetPlatformBreaker);
   const refresh = useServerFn(refreshPlatform);
+  const saveTuning = useServerFn(updatePlatformTuning);
   const invalidate = () => qc.invalidateQueries({ queryKey: ["platform-health"] });
 
   const mToggle = useMutation({
@@ -68,6 +82,7 @@ function PlatformsPage() {
     },
     onError: (e) => toast.error(String(e)),
   });
+
   const mReset = useMutation({
     mutationFn: (id: string) => reset({ data: { id } }),
     onSuccess: () => {
@@ -76,6 +91,7 @@ function PlatformsPage() {
     },
     onError: (e) => toast.error(String(e)),
   });
+
   const mRefresh = useMutation({
     mutationFn: (id: string) => refresh({ data: { id } }),
     onSuccess: () => {
@@ -85,11 +101,30 @@ function PlatformsPage() {
     onError: (e) => toast.error(String(e)),
   });
 
+  const mTuning = useMutation({
+    mutationFn: (v: {
+      id: string;
+      batch_size: number;
+      max_concurrency: number;
+      base_cooldown_ms: number;
+      refresh_ttl_hours: number;
+    }) => saveTuning({ data: v }),
+    onSuccess: (_d, v) => {
+      toast.success(`Tuning updated for ${v.id}`, {
+        description: `Batch size: ${v.batch_size} students · Concurrency: ${v.max_concurrency} concurrent workers`,
+      });
+      setTuningPlatform(null);
+      invalidate();
+    },
+    onError: (e) => toast.error(String(e)),
+  });
+
   return (
     <div className="p-6 lg:p-8">
       <SectionTitle>Platforms</SectionTitle>
       <p className="mb-6 mt-1 text-sm text-muted-foreground">
-        Each platform refreshes independently — one being rate-limited never stalls the others.
+        Each platform refreshes independently — customize batch size and concurrency to speed up
+        scraping without hitting rate limits.
       </p>
 
       <div className="space-y-3">
@@ -97,13 +132,23 @@ function PlatformsPage() {
           <PlatformRow
             key={p.id}
             p={p}
-            busy={mToggle.isPending || mReset.isPending || mRefresh.isPending}
+            busy={mToggle.isPending || mReset.isPending || mRefresh.isPending || mTuning.isPending}
             onToggle={(enabled) => mToggle.mutate({ id: p.id, enabled })}
             onReset={() => mReset.mutate(p.id)}
             onRefresh={() => mRefresh.mutate(p.id)}
+            onConfigure={() => setTuningPlatform(p)}
           />
         ))}
       </div>
+
+      {tuningPlatform && (
+        <PlatformTuningModal
+          platform={tuningPlatform}
+          isPending={mTuning.isPending}
+          onSave={(values) => mTuning.mutate({ id: tuningPlatform.id, ...values })}
+          onClose={() => setTuningPlatform(null)}
+        />
+      )}
     </div>
   );
 }
@@ -114,12 +159,14 @@ function PlatformRow({
   onToggle,
   onReset,
   onRefresh,
+  onConfigure,
 }: {
   p: PlatformHealth;
   busy: boolean;
   onToggle: (enabled: boolean) => void;
   onReset: () => void;
   onRefresh: () => void;
+  onConfigure: () => void;
 }) {
   const parked = p.job_status === "paused";
   const coverage = p.accounts > 0 ? Math.round((p.fresh / p.accounts) * 100) : 0;
@@ -165,12 +212,21 @@ function PlatformRow({
             )}
           </div>
           <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-            batch {p.batch_size} · cooldown {p.base_cooldown_ms}ms · ttl {p.refresh_ttl_hours}h ·
-            concurrency {p.max_concurrency}
+            batch {p.batch_size} students · concurrency {p.max_concurrency} parallel · cooldown{" "}
+            {p.base_cooldown_ms}ms · ttl {p.refresh_ttl_hours}h
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={onConfigure}
+            title="Configure batch size, concurrency, and cooldown"
+          >
+            <SlidersHorizontal className="mr-1 size-3.5" /> Tuning
+          </Button>
           {parked && (
             <Button size="sm" variant="outline" disabled={busy} onClick={onReset}>
               Clear breaker
@@ -229,6 +285,152 @@ function PlatformRow({
         </details>
       )}
     </div>
+  );
+}
+
+function PlatformTuningModal({
+  platform,
+  isPending,
+  onSave,
+  onClose,
+}: {
+  platform: PlatformHealth;
+  isPending: boolean;
+  onSave: (values: {
+    batch_size: number;
+    max_concurrency: number;
+    base_cooldown_ms: number;
+    refresh_ttl_hours: number;
+  }) => void;
+  onClose: () => void;
+}) {
+  const [batchSize, setBatchSize] = useState(platform.batch_size);
+  const [concurrency, setConcurrency] = useState(platform.max_concurrency);
+  const [cooldownMs, setCooldownMs] = useState(platform.base_cooldown_ms);
+  const [ttlHours, setTtlHours] = useState(platform.refresh_ttl_hours);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({
+      batch_size: Math.max(1, Math.min(100, Math.round(Number(batchSize) || 5))),
+      max_concurrency: Math.max(1, Math.min(20, Math.round(Number(concurrency) || 3))),
+      base_cooldown_ms: Math.max(0, Math.min(60_000, Math.round(Number(cooldownMs) || 0))),
+      refresh_ttl_hours: Math.max(1, Math.min(720, Math.round(Number(ttlHours) || 24))),
+    });
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <SlidersHorizontal className="size-4 text-primary" />
+            <span>Tune {platform.name} Scraping</span>
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            Configure how many students to batch and how many concurrent requests/batches run in
+            parallel to maximize speed.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form id="tuning-form" onSubmit={handleSubmit} className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="batch-size" className="text-xs font-semibold">
+                Students per Batch (`batch_size`)
+              </Label>
+              <span className="font-mono text-[10px] text-muted-foreground">1 – 100</span>
+            </div>
+            <Input
+              id="batch-size"
+              type="number"
+              min={1}
+              max={100}
+              value={batchSize}
+              onChange={(e) => setBatchSize(Number(e.target.value))}
+              required
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Number of students fetched per batch chunk (e.g. 5, 10, 15).
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="max-concurrency" className="text-xs font-semibold">
+                Concurrent Batches / Workers (`max_concurrency`)
+              </Label>
+              <span className="font-mono text-[10px] text-muted-foreground">1 – 20</span>
+            </div>
+            <Input
+              id="max-concurrency"
+              type="number"
+              min={1}
+              max={20}
+              value={concurrency}
+              onChange={(e) => setConcurrency(Number(e.target.value))}
+              required
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Number of parallel requests running simultaneously (e.g. 3 = Batch A, B, C running
+              concurrently).
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="cooldown-ms" className="text-xs font-semibold">
+                Cooldown between Batches (ms)
+              </Label>
+              <span className="font-mono text-[10px] text-muted-foreground">0 – 60,000 ms</span>
+            </div>
+            <Input
+              id="cooldown-ms"
+              type="number"
+              min={0}
+              max={60000}
+              step={500}
+              value={cooldownMs}
+              onChange={(e) => setCooldownMs(Number(e.target.value))}
+              required
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Base pause between batches. Adaptive cooldown automatically scales up if rate-limited.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="refresh-ttl" className="text-xs font-semibold">
+                Refresh TTL (hours)
+              </Label>
+              <span className="font-mono text-[10px] text-muted-foreground">1 – 720 h</span>
+            </div>
+            <Input
+              id="refresh-ttl"
+              type="number"
+              min={1}
+              max={720}
+              value={ttlHours}
+              onChange={(e) => setTtlHours(Number(e.target.value))}
+              required
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Data fresher than this cutoff is skipped during routine refreshes.
+            </p>
+          </div>
+        </form>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={onClose} disabled={isPending}>
+            Cancel
+          </Button>
+          <Button type="submit" form="tuning-form" disabled={isPending}>
+            {isPending ? "Saving…" : "Save Tuning"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
