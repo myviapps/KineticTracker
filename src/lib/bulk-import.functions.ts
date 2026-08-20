@@ -172,16 +172,13 @@ export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
       the worst possible import outcome. An EXISTING student has no such
       constraint: their other-platform handles import fine.
     */
-    const lcHandles = newRolls
-      .map((r) => byRoll.get(r)!.handles.leetcode?.trim().toLowerCase())
-      .filter((h): h is string => !!h);
-    const { data: handleRows } = lcHandles.length
-      ? await supabaseAdmin
-          .from("students")
-          .select("roll, leetcode_id")
-          .in("leetcode_id", lcHandles)
-      : { data: [] as { roll: string; leetcode_id: string }[] };
-    const takenHandle = new Map((handleRows ?? []).map((s) => [s.leetcode_id, s.roll]));
+    const { handleKey, ownersByHandleKey } = await import("./students.functions");
+    const takenHandle = await ownersByHandleKey(
+      newRolls
+        .map((r) => byRoll.get(r)!.handles.leetcode)
+        .filter((h): h is string => !!h && !!h.trim())
+        .map(handleKey),
+    );
 
     const skipped: { roll: string; reason: string }[] = [];
     const toInsert: { name: string; roll: string; email: string | null; leetcode_id: string }[] =
@@ -190,7 +187,15 @@ export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
 
     for (const roll of newRolls) {
       const r = byRoll.get(roll)!;
-      const handle = r.handles.leetcode?.trim().toLowerCase();
+      /*
+        Trimmed, NOT lower-cased. This import is where most of the mangled
+        handles came from: LeetCode's lookup is case-sensitive, so folding the
+        case here wrote in a username that does not exist and every later
+        scrape failed on it. Uniqueness is enforced on `handleKey` below and by
+        a case-insensitive index, not by flattening what the file said.
+      */
+      const handle = r.handles.leetcode?.trim();
+      const key = handle ? handleKey(handle) : undefined;
       if (!handle) {
         skipped.push({
           roll,
@@ -199,16 +204,18 @@ export const bulkImportWithClassrooms = createServerFn({ method: "POST" })
         });
         continue;
       }
-      const owner = takenHandle.get(handle);
+      const owner = takenHandle.get(key!);
       if (owner) {
         skipped.push({ roll, reason: `LeetCode ID "${handle}" already belongs to ${owner}` });
         continue;
       }
-      if (seenHandle.has(handle)) {
+      // Keyed case-folded, so `Priya_N` and `priya_n` in one file are caught as
+      // the duplicate they are rather than colliding at insert time.
+      if (seenHandle.has(key!)) {
         skipped.push({ roll, reason: `LeetCode ID "${handle}" is used twice in this file` });
         continue;
       }
-      seenHandle.add(handle);
+      seenHandle.add(key!);
       toInsert.push({
         name: r.name,
         roll,

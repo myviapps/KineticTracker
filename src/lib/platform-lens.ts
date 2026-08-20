@@ -285,16 +285,32 @@ export function lensStatCards(input: LensStatInput): LensStatCards {
       : [];
     const onAny = rows.filter((r) => Object.keys(statsByStudent.get(r.id) ?? {}).length > 0).length;
 
+    /*
+      The headline average is problems SOLVED, not Almanac Score.
+
+      Avg Score held this slot and could not be reconciled with anything else on
+      the page: the cohort leaderboard directly below averages plain solved
+      counts, so a difficulty-weighted 66 sat above a row of 27-58 and read as a
+      contradiction rather than as a different question. Score is still here —
+      one card down, and now labelled as weighted so the gap explains itself.
+
+      Divided by students WITH data, not by headcount: a student with no handle
+      has not solved zero, they are unmeasured, and averaging them in as zero
+      understates every cohort by its own coverage gap.
+    */
+    const avgSolved = onAny ? Math.round(solvedAcross / onAny) : null;
+    const avgScore = scores.length
+      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+      : null;
+
     return {
       primary: [
         { label: "Students", value: fmt(n), hint: `${onAny} on a platform` },
         { label: "Coverage", value: pct(onAny), hint: `${n - onAny} not tracked` },
         {
-          label: "Avg Score",
-          value: scores.length
-            ? fmt(Math.round(scores.reduce((a, b) => a + b, 0) / scores.length))
-            : "—",
-          hint: scores.length ? `across ${scores.length} ranked` : "not ranked yet",
+          label: "Avg Solved",
+          value: avgSolved !== null ? fmt(avgSolved) : "—",
+          hint: onAny ? `across ${onAny} tracked` : "nobody tracked yet",
           tone: "primary",
         },
         {
@@ -304,13 +320,21 @@ export function lensStatCards(input: LensStatInput): LensStatCards {
         },
       ],
       secondary: [
-        // Accented to match "Avg Score": the cohort's lifetime output is the
+        // Accented to match "Avg Solved": the cohort's lifetime output is the
         // other headline number people look for, and rendering it plain made it
-        // read as an afterthought next to the score it is derived from.
+        // read as an afterthought next to the average it is derived from.
         {
           label: "Solved (all time)",
           value: fmt(solvedAcross),
           hint: "every platform combined",
+          tone: "primary",
+        },
+        {
+          label: "Avg Score",
+          value: avgScore !== null ? fmt(avgScore) : "—",
+          // Says WHY it outruns Avg Solved. Without this the two averages look
+          // like the same measurement disagreeing with itself.
+          hint: scores.length ? `difficulty-weighted · ${scores.length} ranked` : "not ranked yet",
           tone: "primary",
         },
         {

@@ -16,8 +16,13 @@ import { AnimatedLoader } from "@/components/animated-loader";
 import { CohortFilterBar } from "@/components/cohort-filter-bar";
 import { CohortToolbar } from "@/components/cohort-toolbar";
 import { LensStatRow } from "@/components/lens-stat-row";
-import { CohortInsightPanel } from "@/components/cohort-insight-panel";
+import {
+  CohortInsightPanel,
+  parseInsightTab,
+  type Tab as InsightTab,
+} from "@/components/cohort-insight-panel";
 import { clampTrendDays } from "@/components/trend-window-control";
+import { parseTopN, serializeTopN } from "@/components/top-n-control";
 import {
   ALL_LENS,
   lensFor,
@@ -49,7 +54,14 @@ const OVERVIEW_ICONS: Record<string, LucideIcon> = {
 };
 
 /** Same shape and rationale as the classroom route — see ClassroomSearch. */
-export type OverviewSearch = { p?: string; b?: string; d?: number };
+export type OverviewSearch = {
+  p?: string;
+  b?: string;
+  /** Leaderboard size. String because "All" is Infinity, which JSON cannot carry. */
+  n?: string;
+  /** Which insight-panel tab is open. */
+  t?: string;
+};
 
 type ClassroomGains = { today: number; yesterday: number; d7: number; d30: number };
 
@@ -68,7 +80,10 @@ export const Route = createFileRoute("/_authenticated/overview")({
   validateSearch: (search: Partial<OverviewSearch>): OverviewSearch => ({
     p: typeof search.p === "string" && search.p.length <= 50 ? search.p : ALL_LENS,
     b: typeof search.b === "string" && search.b.length <= 50 ? search.b : "all",
-    d: clampTrendDays(search.d, 30),
+    // Normalised on the way IN, like every other param here, so a typo in the
+    // address bar renders the default view instead of an empty leaderboard.
+    n: serializeTopN(parseTopN(search.n)),
+    t: parseInsightTab(search.t),
   }),
   loader: ({ context }) => {
     if (typeof window !== "undefined") {
@@ -125,8 +140,10 @@ function OverviewPage() {
   const setLens = (p: string) => setSearchParams({ p, b: "all" });
   const bucket = sp.b ?? "all";
   const setBucket = (b: string) => setSearchParams({ b });
-  const trendDays = sp.d ?? 30;
-  const setTrendDays = (d: number) => setSearchParams({ d: clampTrendDays(d) });
+  const topN = parseTopN(sp.n);
+  const setTopN = (n: number) => setSearchParams({ n: serializeTopN(n) });
+  const insightTab = parseInsightTab(sp.t);
+  const setInsightTab = (t: InsightTab) => setSearchParams({ t });
 
   /*
     `StudentRow.total` is LeetCode-only (see buckets.ts) — fine for the LeetCode
@@ -166,10 +183,25 @@ function OverviewPage() {
   /** Which bucket's roster is open in the dialog, if any. */
   const [roster, setRoster] = useState<string | null>(null);
 
-  /** Movement window shown on the classroom leaderboard. */
+  /*
+    Movement window on the Classroom Leaderboard — deliberately LOCAL, unlike the
+    lens, bucket, trend window, top-N and panel tab above it. Those describe
+    which slice of the institution you are looking at, which is what makes a
+    filtered view worth sending to someone. This one just re-labels the "+N"
+    column on a leaderboard that is already fully determined by the URL, so
+    putting it in the address bar adds a param to every link without changing
+    what the link shows anyone.
+  */
   const [gainWindow, setGainWindow] = useState<GainWindow>("d30");
 
-  const [topN, setTopN] = useState(10);
+  /*
+    Trend lookback — LOCAL, like the Classroom Leaderboard's movement window.
+    It changes how far back one chart looks, not which students the page is
+    about, so it does not survive in a shared link and does not need to: the
+    recipient opens the same cohort and slides it themselves.
+  */
+  const [trendDays, setTrendDaysState] = useState(30);
+  const setTrendDays = (d: number) => setTrendDaysState(clampTrendDays(d));
 
   const sumRows = (list: StudentRow[]) =>
     list.reduce(
@@ -481,6 +513,8 @@ function OverviewPage() {
           boardMax={rows.length}
           topN={topN}
           onTopN={setTopN}
+          tab={insightTab}
+          onTab={setInsightTab}
           animate={chartMotion !== CHART_MOTION_STATIC}
         />
 

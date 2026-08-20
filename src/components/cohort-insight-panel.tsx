@@ -34,7 +34,14 @@ export type TrendPoint = { day: string; solved: number };
 export type BandPoint = { label: string; count: number };
 export type BoardEntry = { id: string; name: string; roll: string; total: number };
 
-type Tab = "trend" | "distribution" | "leaderboard";
+export type Tab = "trend" | "distribution" | "leaderboard";
+
+const TABS: Tab[] = ["trend", "distribution", "leaderboard"];
+
+/** Read a panel tab out of a search param; anything unknown falls back. */
+export function parseInsightTab(v: unknown, fallback: Tab = "trend"): Tab {
+  return TABS.includes(v as Tab) ? (v as Tab) : fallback;
+}
 
 export function CohortInsightPanel({
   title,
@@ -48,6 +55,8 @@ export function CohortInsightPanel({
   boardMax,
   topN,
   onTopN,
+  tab: controlledTab,
+  onTab,
   animate = true,
 }: {
   /** What the lens is called, for the panel heading. */
@@ -66,9 +75,18 @@ export function CohortInsightPanel({
   boardMax: number;
   topN: number;
   onTopN: (n: number) => void;
+  /**
+   * Controlled tab. Supply both to keep the open tab in the URL — a link to a
+   * leaderboard with `topN` set is useless if it opens on the trend chart.
+   * Omit both and the panel keeps its own state, as before.
+   */
+  tab?: Tab;
+  onTab?: (t: Tab) => void;
   animate?: boolean;
 }) {
-  const [tab, setTab] = useState<Tab>("trend");
+  const [ownTab, setOwnTab] = useState<Tab>("trend");
+  const tab = controlledTab ?? ownTab;
+  const setTab = onTab ?? setOwnTab;
   const [activeSlice, setActiveSlice] = useState<number | null>(null);
 
   const [cEasy, cMedium, cHard, cSurface, cBorder, cMutedFg, cPrimary] = useCssVars(

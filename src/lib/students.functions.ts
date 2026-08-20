@@ -66,15 +66,70 @@ const BulkInput = z.object({
 });
 
 /**
- * One student, one LeetCode profile.
+ * A LeetCode handle as it will be STORED: exactly what was typed, trimmed.
  *
- * The DB constraint (migration 20260807000001) is case-SENSITIVE — PostgREST can
- * only infer an on_conflict target against an index on the bare column — so every
- * write path normalizes here instead. Without this, `Priya_N` and `priya_n` are two
- * students pointing at one profile, which the scraper then fetches twice.
+ * This used to lower-case, to make `Priya_N` and `priya_n` collide under a
+ * case-SENSITIVE unique index. It bought that uniqueness by corrupting the data:
+ * LeetCode's `matchedUser` lookup is case-SENSITIVE, so a handle with a capital
+ * in it was rewritten into one that does not exist, every scrape failed with
+ * "That user does not exist", and the edit form could not fix it — retyping the
+ * correct casing normalized straight back to the broken value, the server saw no
+ * change, and reported success. Ten students were stuck that way.
+ *
+ * Uniqueness now comes from `handleKey` below plus a case-insensitive unique
+ * index (migration 20260819000001), which is where it always belonged — and it
+ * matches how every OTHER platform's handle has always been stored.
  */
 export function normalizeHandle(handle: string): string {
+  return handle.trim();
+}
+
+/**
+ * The same handle as a COMPARISON key. Storage preserves case; identity ignores
+ * it, so `Priya_N` and `priya_n` are still one profile and cannot be claimed by
+ * two students. Mirrors `student_platform_accounts.handle_normalized`, which is
+ * a generated column computing exactly this.
+ */
+export function handleKey(handle: string): string {
   return handle.trim().toLowerCase();
+}
+
+/**
+ * Who already holds each of these LeetCode handles, compared case-insensitively.
+ *
+ * Reads `student_platform_accounts` rather than `students`: `handle_normalized`
+ * is the only case-folded, INDEXED copy of a handle in the schema, so this stays
+ * an exact `eq`/`in` lookup. Matching `students.leetcode_id` case-insensitively
+ * would need `ilike`, whose `_` wildcard is a literal character in half these
+ * handles — `suryateja_79` would match `suryateja179`.
+ */
+export async function ownersByHandleKey(keys: string[]): Promise<Map<string, string>> {
+  if (keys.length === 0) return new Map();
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: accounts } = await supabaseAdmin
+    .from("student_platform_accounts")
+    .select("student_id, handle_normalized")
+    .eq("platform_id", "leetcode")
+    .in("handle_normalized", keys);
+  const rows = accounts ?? [];
+  if (rows.length === 0) return new Map();
+
+  const { data: owners } = await supabaseAdmin
+    .from("students")
+    .select("id, roll, name")
+    .in(
+      "id",
+      rows.map((a) => a.student_id),
+    );
+  const byId = new Map((owners ?? []).map((s) => [s.id, s]));
+
+  const out = new Map<string, string>();
+  for (const a of rows) {
+    const owner = byId.get(a.student_id);
+    if (a.handle_normalized && owner) out.set(a.handle_normalized, owner.roll);
+  }
+  return out;
 }
 
 /** Same treatment for roll, which is the global student identity. */
@@ -159,21 +214,39 @@ async function resetPlatformBaseline(studentId: string, platformId: string): Pro
     .eq("platform_id", platformId);
 }
 
-/** Throws if this handle already belongs to a different student. */
+/**
+ * Throws if this handle already belongs to a different student.
+ *
+ * Case-INSENSITIVE, even though the handle is stored with its case intact:
+ * `Priya_N` and `priya_n` are the same LeetCode profile, and letting two
+ * students claim one profile is what the old lower-casing was really guarding
+ * against. See `normalizeHandle`.
+ */
 async function assertHandleFree(handle: string, exceptStudentId?: string): Promise<void> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data } = await supabaseAdmin
-    .from("students")
-    .select("id, roll, name")
-    .eq("leetcode_id", normalizeHandle(handle))
+  const key = handleKey(handle);
+
+  const { data: accounts } = await supabaseAdmin
+    .from("student_platform_accounts")
+    .select("student_id")
+    .eq("platform_id", "leetcode")
+    .eq("handle_normalized", key)
     .limit(2);
 
-  const clash = (data ?? []).find((s) => s.id !== exceptStudentId);
-  if (clash) {
-    throw new Error(
-      `LeetCode ID "${normalizeHandle(handle)}" already belongs to ${clash.roll} (${clash.name}). One student, one profile.`,
-    );
-  }
+  const clashId = (accounts ?? []).map((a) => a.student_id).find((id) => id !== exceptStudentId);
+  if (!clashId) return;
+
+  const { data: clash } = await supabaseAdmin
+    .from("students")
+    .select("roll, name")
+    .eq("id", clashId)
+    .maybeSingle();
+
+  throw new Error(
+    `LeetCode ID "${normalizeHandle(handle)}" already belongs to ${clash?.roll ?? "another student"}${
+      clash?.name ? ` (${clash.name})` : ""
+    }. One student, one profile.`,
+  );
 }
 
 /**
@@ -355,17 +428,13 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
       leetcode_id: string;
     }[] = [];
 
-    // Handles already taken, so a new row cannot claim one.
-    const newHandles = [...keyed.values()]
-      .filter((r) => !existingByRoll.has(normalizeRoll(r.roll)))
-      .map((r) => normalizeHandle(r.leetcode_id));
-    const { data: handleRows } = newHandles.length
-      ? await supabaseAdmin
-          .from("students")
-          .select("roll, leetcode_id")
-          .in("leetcode_id", newHandles)
-      : { data: [] as { roll: string; leetcode_id: string }[] };
-    const takenHandle = new Map((handleRows ?? []).map((s) => [s.leetcode_id, s.roll]));
+    // Handles already taken, so a new row cannot claim one. Keyed case-folded:
+    // an upload of `Priya_N` must still collide with a stored `priya_n`.
+    const takenHandle = await ownersByHandleKey(
+      [...keyed.values()]
+        .filter((r) => !existingByRoll.has(normalizeRoll(r.roll)))
+        .map((r) => handleKey(r.leetcode_id)),
+    );
 
     for (const [roll, r] of keyed) {
       const existingId = existingByRoll.get(roll);
@@ -381,7 +450,7 @@ export const bulkAddStudents = createServerFn({ method: "POST" })
       }
 
       const handle = normalizeHandle(r.leetcode_id);
-      const owner = takenHandle.get(handle);
+      const owner = takenHandle.get(handleKey(r.leetcode_id));
       if (owner) {
         errors.push({ roll, reason: `LeetCode ID "${handle}" already belongs to ${owner}` });
         continue;
@@ -733,13 +802,37 @@ export const updateStudent = createServerFn({ method: "POST" })
     if (handle !== current.leetcode_id) await assertHandleFree(handle, data.id);
 
     const email = data.email && data.email.length > 0 ? data.email : null;
-    const { error } = await supabaseAdmin
+
+    /*
+      `.select()` so the write reports what it actually touched.
+
+      A bare `.update()` returns 204 with no error when it matches nothing, so a
+      save that changed no row was indistinguishable from one that did — and the
+      UI showed a green "Student updated" either way. That is how the
+      lower-casing bug stayed invisible for as long as it did.
+    */
+    const { data: updated, error } = await supabaseAdmin
       .from("students")
       .update({ name: data.name, roll, email, leetcode_id: handle })
-      .eq("id", data.id);
+      .eq("id", data.id)
+      .select("id, roll, leetcode_id");
     if (error) {
-      if (error.code === "23505") throw new Error(`Roll "${roll}" is already taken`);
+      // Two unique indexes can raise this now: roll, and the case-insensitive
+      // LeetCode handle added in 20260819000001. Naming the wrong one sends
+      // whoever hit it looking for a roll clash that does not exist.
+      if (error.code === "23505") {
+        throw new Error(
+          /leetcode/i.test(`${error.message} ${(error as { details?: string }).details ?? ""}`)
+            ? `LeetCode ID "${handle}" already belongs to another student. One student, one profile.`
+            : `Roll "${roll}" is already taken`,
+        );
+      }
       throw new Error(error.message);
+    }
+
+    // Never report a write that reached no row as success.
+    if (!updated || updated.length === 0) {
+      throw new Error("The update did not reach any row — nothing was saved. Please report this.");
     }
 
     if (handle !== current.leetcode_id) await resetPlatformBaseline(data.id, "leetcode");

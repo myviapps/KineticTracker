@@ -81,7 +81,12 @@ import { useDuplicates } from "@/components/duplicates";
 import { CohortFilterBar } from "@/components/cohort-filter-bar";
 import { CohortToolbar } from "@/components/cohort-toolbar";
 import { LensStatRow } from "@/components/lens-stat-row";
-import { CohortInsightPanel } from "@/components/cohort-insight-panel";
+import {
+  CohortInsightPanel,
+  parseInsightTab,
+  type Tab as InsightTab,
+} from "@/components/cohort-insight-panel";
+import { parseTopN, serializeTopN } from "@/components/top-n-control";
 import { clampTrendDays } from "@/components/trend-window-control";
 import { ScrapeStatusBadge } from "@/components/scrape-status-badge";
 import { getPerformanceWindows } from "@/lib/performance.functions";
@@ -143,9 +148,10 @@ export type ClassroomSearch = {
   v?: "report" | "matrix";
   sort?: SortKey;
   dir?: "asc" | "desc";
-  /** Trend lookback in days. In the URL like every other filter, so a "last 90
-   *  days" view is a link rather than a setting the next reload discards. */
-  d?: number;
+  /** Leaderboard size. String because "All" is Infinity, which JSON cannot carry. */
+  n?: string;
+  /** Which insight-panel tab is open. */
+  t?: string;
 };
 
 const SORT_KEYS: SortKey[] = [
@@ -189,7 +195,10 @@ export const Route = createFileRoute("/_authenticated/classrooms/$id")({
       // Clamped here as well as in the control: this value reaches a server
       // function that rejects anything outside 1..365, and a hand-edited URL
       // must degrade to the default view rather than to an error.
-      d: clampTrendDays(search.d, 30),
+      // Total parse, like the rest: a hand-edited value renders the default
+      // view rather than an empty leaderboard on an open tab nobody chose.
+      n: serializeTopN(parseTopN(search.n)),
+      t: parseInsightTab(search.t),
     };
   },
   loader: ({ params, context }) => {
@@ -526,8 +535,14 @@ function ClassroomDetail() {
     is the difference between "nobody did anything" and "we only started
     collecting yesterday" — see the header comment in performance.functions.ts.
   */
-  const trendDays = sp.d ?? 30;
-  const setTrendDays = (d: number) => setSearchParams({ d: clampTrendDays(d) });
+  /*
+    Trend lookback — LOCAL, like the Classroom Leaderboard's movement window.
+    It changes how far back one chart looks, not which students the page is
+    about, so it does not survive in a shared link and does not need to: the
+    recipient opens the same cohort and slides it themselves.
+  */
+  const [trendDays, setTrendDaysState] = useState(30);
+  const setTrendDays = (d: number) => setTrendDaysState(clampTrendDays(d));
 
   const perfQuery = useQuery({
     // trendDays is part of the key: without it, widening the window would serve
@@ -726,7 +741,10 @@ function ClassroomDetail() {
     };
   }, [data.students]);
 
-  const [topN, setTopN] = useState(10);
+  const topN = parseTopN(sp.n);
+  const setTopN = (n: number) => setSearchParams({ n: serializeTopN(n) });
+  const insightTab = parseInsightTab(sp.t);
+  const setInsightTab = (t: InsightTab) => setSearchParams({ t });
   // Filter-scoped but not search-filtered: typing a name shouldn't reduce the
   // leaderboard to one row, but selecting "At Risk" should rank that group.
   const bucketRows = useMemo(
@@ -1076,6 +1094,8 @@ function ClassroomDetail() {
           boardMax={bucketRows.length}
           topN={topN}
           onTopN={setTopN}
+          tab={insightTab}
+          onTab={setInsightTab}
           animate={chartMotion !== CHART_MOTION_STATIC}
         />
 
