@@ -16,13 +16,8 @@ import { AnimatedLoader } from "@/components/animated-loader";
 import { CohortFilterBar } from "@/components/cohort-filter-bar";
 import { CohortToolbar } from "@/components/cohort-toolbar";
 import { LensStatRow } from "@/components/lens-stat-row";
-import {
-  CohortInsightPanel,
-  parseInsightTab,
-  type Tab as InsightTab,
-} from "@/components/cohort-insight-panel";
+import { CohortInsightPanel } from "@/components/cohort-insight-panel";
 import { clampTrendDays } from "@/components/trend-window-control";
-import { parseTopN, serializeTopN } from "@/components/top-n-control";
 import {
   ALL_LENS,
   lensFor,
@@ -53,16 +48,6 @@ const OVERVIEW_ICONS: Record<string, LucideIcon> = {
   "Active (30d)": Activity,
 };
 
-/** Same shape and rationale as the classroom route — see ClassroomSearch. */
-export type OverviewSearch = {
-  p?: string;
-  b?: string;
-  /** Leaderboard size. String because "All" is Infinity, which JSON cannot carry. */
-  n?: string;
-  /** Which insight-panel tab is open. */
-  t?: string;
-};
-
 type ClassroomGains = { today: number; yesterday: number; d7: number; d30: number };
 
 /** Movement windows offered on the classroom leaderboard, in display order. */
@@ -77,14 +62,6 @@ type GainWindow = (typeof GAIN_WINDOWS)[number]["id"];
 
 export const Route = createFileRoute("/_authenticated/overview")({
   head: () => ({ meta: [{ title: "Overview — Almanac" }] }),
-  validateSearch: (search: Partial<OverviewSearch>): OverviewSearch => ({
-    p: typeof search.p === "string" && search.p.length <= 50 ? search.p : ALL_LENS,
-    b: typeof search.b === "string" && search.b.length <= 50 ? search.b : "all",
-    // Normalised on the way IN, like every other param here, so a typo in the
-    // address bar renders the default view instead of an empty leaderboard.
-    n: serializeTopN(parseTopN(search.n)),
-    t: parseInsightTab(search.t),
-  }),
   loader: ({ context }) => {
     if (typeof window !== "undefined") {
       return context.queryClient.ensureQueryData(qo);
@@ -122,28 +99,16 @@ function OverviewPage() {
     [data.students],
   );
 
-  // Lens + filter live in the URL here too, so a filtered institution view is a
-  // link rather than something you have to describe over a call.
-  const sp = Route.useSearch();
-  const navigate = Route.useNavigate();
-  // viewTransition: false — these change a filter on the page you are already
-  // on, so the router's default cross-fade reads as a full page reload. See the
-  // longer note on the classroom route.
-  const setSearchParams = (patch: Partial<OverviewSearch>) =>
-    navigate({
-      search: (prev) => ({ ...prev, ...patch }),
-      replace: true,
-      viewTransition: false,
-    });
-
-  const lens = lensFor(sp.p, data.platforms);
-  const setLens = (p: string) => setSearchParams({ p, b: "all" });
-  const bucket = sp.b ?? "all";
-  const setBucket = (b: string) => setSearchParams({ b });
-  const topN = parseTopN(sp.n);
-  const setTopN = (n: number) => setSearchParams({ n: serializeTopN(n) });
-  const insightTab = parseInsightTab(sp.t);
-  const setInsightTab = (t: InsightTab) => setSearchParams({ t });
+  // Component-local, like the classroom route — see the note above SORT_KEYS
+  // there. Filtering the page you are already looking at is not a navigation.
+  const [lensId, setLensId] = useState<string>(ALL_LENS);
+  const lens = lensFor(lensId, data.platforms);
+  const [bucket, setBucket] = useState("all");
+  const setLens = (p: string) => {
+    setLensId(p);
+    setBucket("all");
+  };
+  const [topN, setTopN] = useState(10);
 
   /*
     `StudentRow.total` is LeetCode-only (see buckets.ts) — fine for the LeetCode
@@ -513,8 +478,6 @@ function OverviewPage() {
           boardMax={rows.length}
           topN={topN}
           onTopN={setTopN}
-          tab={insightTab}
-          onTab={setInsightTab}
           animate={chartMotion !== CHART_MOTION_STATIC}
         />
 

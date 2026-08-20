@@ -81,12 +81,7 @@ import { useDuplicates } from "@/components/duplicates";
 import { CohortFilterBar } from "@/components/cohort-filter-bar";
 import { CohortToolbar } from "@/components/cohort-toolbar";
 import { LensStatRow } from "@/components/lens-stat-row";
-import {
-  CohortInsightPanel,
-  parseInsightTab,
-  type Tab as InsightTab,
-} from "@/components/cohort-insight-panel";
-import { parseTopN, serializeTopN } from "@/components/top-n-control";
+import { CohortInsightPanel } from "@/components/cohort-insight-panel";
 import { clampTrendDays } from "@/components/trend-window-control";
 import { ScrapeStatusBadge } from "@/components/scrape-status-badge";
 import { getPerformanceWindows } from "@/lib/performance.functions";
@@ -128,32 +123,17 @@ function PendingClassroom() {
 }
 
 /**
- * Filter state lives in the URL.
+ * Filter state is component-local.
  *
- * Every filter on this page used to be component-local `useState`, so it was
- * lost on refresh, could not be shared, and — because the sidebar collapses and
- * re-navigates aggressively — was wiped by ordinary navigation. Putting it in
- * the search params makes a filtered cohort a link you can send someone.
+ * It lived in the URL for a while, on the theory that a filtered cohort should
+ * be a link you can send someone. In practice every filter change became a
+ * navigation: the loader re-ran, memos recomputed, and the router's view
+ * transition cross-faded the whole document to apply a sort — so routine
+ * filtering read as a page reload. Sharing a filtered view turned out to be
+ * rare; filtering turned out to be constant.
  *
- * Every field is optional and every parse is total: a stale or hand-edited URL
- * degrades to the default view rather than throwing.
+ * The cost is that filters reset on refresh, which is the accepted trade.
  */
-export type ClassroomSearch = {
-  /** Platform lens id, or "all". */
-  p?: string;
-  /** Free-text search. */
-  q?: string;
-  /** Bucket id (LeetCode/all lens) or band id (other platforms). */
-  b?: string;
-  v?: "report" | "matrix";
-  sort?: SortKey;
-  dir?: "asc" | "desc";
-  /** Leaderboard size. String because "All" is Infinity, which JSON cannot carry. */
-  n?: string;
-  /** Which insight-panel tab is open. */
-  t?: string;
-};
-
 const SORT_KEYS: SortKey[] = [
   "name",
   "roll",
@@ -173,34 +153,6 @@ const SORT_KEYS: SortKey[] = [
 
 export const Route = createFileRoute("/_authenticated/classrooms/$id")({
   head: () => ({ meta: [{ title: "Classroom — Almanac" }] }),
-  /*
-    The INPUT type is what decides whether a <Link to="/classrooms/$id"> must
-    pass search params. Typing it as Record<string, unknown> made every one of
-    the six required at eight call sites across the app; Partial keeps them all
-    optional while the return type stays total, so reads below never need a
-    fallback.
-  */
-  validateSearch: (search: Partial<ClassroomSearch>): ClassroomSearch => {
-    const str = (v: unknown, fallback: string) =>
-      typeof v === "string" && v.length > 0 && v.length <= 100 ? v : fallback;
-    const sort = str(search.sort, "total") as SortKey;
-    return {
-      p: str(search.p, ALL_LENS),
-      q: str(search.q, ""),
-      b: str(search.b, "all"),
-      v: search.v === "matrix" ? "matrix" : "report",
-      // An unknown key would silently sort by nothing; fall back instead.
-      sort: SORT_KEYS.includes(sort) ? sort : "total",
-      dir: search.dir === "asc" ? "asc" : "desc",
-      // Clamped here as well as in the control: this value reaches a server
-      // function that rejects anything outside 1..365, and a hand-edited URL
-      // must degrade to the default view rather than to an error.
-      // Total parse, like the rest: a hand-edited value renders the default
-      // view rather than an empty leaderboard on an open tab nobody chose.
-      n: serializeTopN(parseTopN(search.n)),
-      t: parseInsightTab(search.t),
-    };
-  },
   loader: ({ params, context }) => {
     if (typeof window !== "undefined") {
       return context.queryClient.ensureQueryData(clsQO(params.id));
@@ -265,44 +217,7 @@ function ClassroomDetail() {
   const { status: refreshStatus } = useRefreshJobStatus();
   const chartMotion =
     refreshStatus === "running" || refreshStatus === "queued" ? CHART_MOTION_STATIC : CHART_MOTION;
-  /*
-    Filters come from the URL, not from useState. `replace: true` on every write
-    so dragging a slider or typing in the search box does not fill the back
-    stack — Back should leave the page, not step through filter history.
-  */
-  const sp = Route.useSearch();
-  const navigate = Route.useNavigate();
-  /*
-    viewTransition: false is deliberate.
-
-    The router sets defaultViewTransition, which is right for route -> route
-    moves and wrong for these: every setter here changes a FILTER on the page
-    you are already looking at. Cross-fading the whole document to apply a sort
-    or a lens made each interaction read as a page reload — most obviously in
-    the search box, where a transition fired per keystroke and the roster
-    strobed while you typed.
-  */
-  const setSearchParams = (patch: Partial<ClassroomSearch>) =>
-    navigate({
-      search: (prev) => ({ ...prev, ...patch }),
-      replace: true,
-      viewTransition: false,
-    });
-
-  /*
-    Roster search is LOCAL state and never touches the URL.
-
-    It used to write `?q=` on a debounce, which kept the view shareable but cost
-    a navigation for every pause in typing — the loader re-ran, every memo on
-    this page recomputed, and the whole thing read as a page reload while you
-    were still typing. Filtering a table you are already looking at is not a
-    navigation, and the other filters on this page (lens, bucket, sort) are the
-    ones worth putting in a link.
-
-    An incoming `?q=` still seeds the box, so existing links keep working; it
-    simply stops being written back.
-  */
-  const [search, setSearch] = useState(sp.q ?? "");
+  const [search, setSearch] = useState("");
   // The lens: "all" or a platform id. Resolved against the platforms this cohort
   // actually uses, so a stale id degrades to "all" rather than an empty page.
   // Recorded so the Classrooms jump page can mark this cohort as the one you
@@ -311,16 +226,21 @@ function ClassroomDetail() {
     rememberClassroom(id);
   }, [id]);
 
-  const lens = lensFor(sp.p, data.platforms);
+  const [lensId, setLensId] = useState<string>(ALL_LENS);
+  const lens = lensFor(lensId, data.platforms);
+  const [filterId, setFilterId] = useState("all");
   // Changing platform resets the chip: a Codeforces rating band means nothing
   // once the lens is GeeksforGeeks, and leaving it set would silently filter the
   // roster by a rule that no longer applies.
-  const setLens = (p: string) => setSearchParams({ p, b: "all" });
-  const filterId = sp.b ?? "all";
-  const setFilterId = (b: string) => setSearchParams({ b });
-  const tab = sp.v ?? "report";
-  const setTab = (v: "report" | "matrix") => setSearchParams({ v });
-  const sort = { key: sp.sort ?? "total", dir: sp.dir ?? "desc" };
+  const setLens = (p: string) => {
+    setLensId(p);
+    setFilterId("all");
+  };
+  const [tab, setTab] = useState<"report" | "matrix">("report");
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "total",
+    dir: "desc",
+  });
 
   const [exportOpen, setExportOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -741,10 +661,7 @@ function ClassroomDetail() {
     };
   }, [data.students]);
 
-  const topN = parseTopN(sp.n);
-  const setTopN = (n: number) => setSearchParams({ n: serializeTopN(n) });
-  const insightTab = parseInsightTab(sp.t);
-  const setInsightTab = (t: InsightTab) => setSearchParams({ t });
+  const [topN, setTopN] = useState(10);
   // Filter-scoped but not search-filtered: typing a name shouldn't reduce the
   // leaderboard to one row, but selecting "At Risk" should rank that group.
   const bucketRows = useMemo(
@@ -851,10 +768,8 @@ function ClassroomDetail() {
     : (lensWindow?.first_snapshot_date ?? null);
 
   function toggleSort(key: SortKey) {
-    setSearchParams(
-      sort.key === key
-        ? { sort: key, dir: sort.dir === "asc" ? "desc" : "asc" }
-        : { sort: key, dir: "desc" },
+    setSort((prev) =>
+      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" },
     );
   }
 
@@ -1094,8 +1009,6 @@ function ClassroomDetail() {
           boardMax={bucketRows.length}
           topN={topN}
           onTopN={setTopN}
-          tab={insightTab}
-          onTab={setInsightTab}
           animate={chartMotion !== CHART_MOTION_STATIC}
         />
 

@@ -3,28 +3,6 @@ import { cn } from "@/lib/utils";
 
 const PRESETS = [10, 20, 50] as const;
 
-/** What "All" looks like in a URL. `Infinity` does not survive JSON. */
-export const TOP_N_ALL = "all";
-
-/**
- * Read a top-N out of a search param.
- *
- * Mirrors `clampTrendDays`: the URL is user-editable, so a hand-typed value has
- * to degrade to the default view rather than to `slice(0, NaN)` — which returns
- * an empty leaderboard and reads as "this cohort has nobody in it".
- */
-export function parseTopN(v: unknown, fallback = 10): number {
-  if (v === TOP_N_ALL) return Infinity;
-  const n = Math.floor(Number(v));
-  if (!Number.isFinite(n) || n < 1) return fallback;
-  return n;
-}
-
-/** The inverse, for writing back to the URL. */
-export function serializeTopN(n: number): string {
-  return Number.isFinite(n) ? String(n) : TOP_N_ALL;
-}
-
 /**
  * Picks how many students a leaderboard chart shows.
  *
