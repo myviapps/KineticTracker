@@ -42,8 +42,10 @@ const SCRAPE_TOUCHED_KEYS: readonly (readonly string[])[] = [
   ["colleges"],
 ];
 
-function invalidateScrapedData(qc: QueryClient) {
-  for (const queryKey of SCRAPE_TOUCHED_KEYS) qc.invalidateQueries({ queryKey });
+export function invalidateScrapedData(qc: QueryClient) {
+  for (const queryKey of SCRAPE_TOUCHED_KEYS) {
+    qc.invalidateQueries({ queryKey, refetchType: "all" });
+  }
 }
 
 type JobRow = Database["public"]["Tables"]["refresh_jobs"]["Row"];
@@ -111,6 +113,7 @@ function aggregate(jobs: RefreshJobView[]): RefreshAggregate {
  * components — they all share one query. Does NOT pump; see useRefreshJobPump.
  */
 export function useRefreshJobStatus() {
+  const qc = useQueryClient();
   const query = useQuery({
     queryKey: REFRESH_JOB_KEY,
     queryFn: () => getActiveRefreshJobs(),
@@ -126,6 +129,19 @@ export function useRefreshJobStatus() {
 
   const jobs = useMemo(() => (query.data as RefreshJobView[] | undefined) ?? [], [query.data]);
   const agg = useMemo(() => aggregate(jobs), [jobs]);
+
+  // When an active refresh finishes and the queue clears to idle, immediately
+  // invalidate all scraped queries so every page, leaderboard, trend chart, and
+  // stat card updates without requiring a manual browser refresh.
+  const wasActive = useRef(false);
+  useEffect(() => {
+    if (agg.active) {
+      wasActive.current = true;
+    } else if (wasActive.current) {
+      wasActive.current = false;
+      invalidateScrapedData(qc);
+    }
+  }, [agg.active, qc]);
 
   /** Per-platform lookup for the lens pills. */
   const byPlatform = useMemo(() => {

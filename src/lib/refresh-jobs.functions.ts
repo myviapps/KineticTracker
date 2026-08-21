@@ -23,6 +23,7 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
       .object({
         scope: z.enum(["platform", "classroom", "students"]),
         classroomId: z.string().uuid().optional(),
+        classroomIds: z.array(z.string().uuid()).optional(),
         studentIds: z.array(z.string().uuid()).optional(),
         filter: z.enum(["all", "stale", "failed"]).optional().default("all"),
         staleBefore: z.string().optional(),
@@ -42,12 +43,29 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
     if (data.scope === "platform" && !canAdminister(role))
       throw new Error("Forbidden: admin required for platform refresh");
 
-    if (data.scope === "classroom") {
+    let effectiveScope = data.scope;
+    let effectiveClassroomId = data.classroomId;
+    let effectiveStudentIds = data.studentIds;
+
+    // Multi-cohort refresh support: resolve all students in the selected classrooms
+    if (data.classroomIds && data.classroomIds.length > 0) {
+      for (const cid of data.classroomIds) {
+        await assertClassroomAccess(userId, role, cid);
+      }
+      const { data: rows } = await supabaseAdmin
+        .from("classroom_students")
+        .select("student_id")
+        .in("classroom_id", data.classroomIds);
+      effectiveStudentIds = [...new Set((rows ?? []).map((r) => r.student_id))];
+      if (effectiveStudentIds.length === 0) {
+        throw new Error("No students found in the selected cohorts.");
+      }
+      effectiveScope = "students";
+      effectiveClassroomId = undefined;
+    } else if (data.scope === "classroom") {
       if (!data.classroomId) throw new Error("classroomId is required for a classroom refresh");
       await assertClassroomAccess(userId, role, data.classroomId);
-    }
-
-    if (data.scope === "students") {
+    } else if (data.scope === "students") {
       const ids = data.studentIds ?? [];
       if (ids.length === 0) throw new Error("studentIds is required for a student refresh");
 
@@ -81,9 +99,9 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
     */
     const { enqueueRefreshFanOut } = await import("./refresh-enqueue.server");
     const { queued, skipped } = await enqueueRefreshFanOut({
-      scope: data.scope,
-      classroomId: data.classroomId,
-      studentIds: data.studentIds,
+      scope: effectiveScope,
+      classroomId: effectiveClassroomId,
+      studentIds: effectiveStudentIds,
       filter: data.filter,
       createdBy: userId,
       staleBefore: data.staleBefore,

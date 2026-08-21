@@ -29,9 +29,18 @@ export const getOverview = createServerFn({ method: "GET" })
     // null = every classroom; an array = only these. Faculty get their assignments.
     const classroomIds = await accessibleClassroomIds(userId, role);
 
-    let classroomsQuery = supabaseAdmin.from("classrooms").select("id, name, created_at");
+    let classroomsQuery = supabaseAdmin
+      .from("classrooms")
+      .select("id, name, created_at, college_id");
     if (classroomIds !== null) classroomsQuery = classroomsQuery.in("id", classroomIds);
     const { data: classrooms } = await classroomsQuery;
+
+    const collegeIds = [
+      ...new Set((classrooms ?? []).map((c) => c.college_id).filter(Boolean)),
+    ] as string[];
+    const { data: colleges } = collegeIds.length
+      ? await supabaseAdmin.from("colleges").select("id, name").in("id", collegeIds).order("name")
+      : { data: [] as { id: string; name: string }[] };
 
     /*
       Memberships are the scoping query, so losing rows here drops students from
@@ -157,6 +166,7 @@ export const getOverview = createServerFn({ method: "GET" })
       role: role as string,
       scoped: classroomIds !== null,
       classrooms: classrooms ?? [],
+      colleges: colleges ?? [],
       platforms: cohortPlatforms,
       students: students.map((s) => ({
         ...s,

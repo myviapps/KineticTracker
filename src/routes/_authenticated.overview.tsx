@@ -1,12 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { queryOptions, useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { Trophy, Users, Flame, Target, LayoutGrid, Activity, type LucideIcon } from "lucide-react";
+import { queryOptions, useQuery, useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Trophy, Users, Flame, Target, LayoutGrid, Activity, Layers, type LucideIcon } from "lucide-react";
 
 import { getOverview } from "@/lib/overview.functions";
 import { getPerformanceWindows } from "@/lib/performance.functions";
 import { toStudentRow, type StudentRow } from "@/lib/buckets";
 import { StudentListDialog } from "@/components/student-list-dialog";
+import { RefreshCohortsDialog } from "@/components/refresh-cohorts-dialog";
+import { Button } from "@/components/ui/button";
 import { CHART_MOTION, CHART_MOTION_STATIC } from "@/lib/chart-motion";
 import { RefreshButton } from "@/components/refresh-button";
 import { useRole } from "@/hooks/use-role";
@@ -79,6 +81,20 @@ function OverviewPage() {
   const { data } = useSuspenseQuery(qo);
   const { canAdminister, canManageStudents, role } = useRole();
   const { status: refreshStatus } = useRefreshJobStatus();
+  const qc = useQueryClient();
+  const [refreshCohortsOpen, setRefreshCohortsOpen] = useState(false);
+
+  // When a refresh job completes and returns to idle, immediately refetch the overview
+  // and performance queries so all cards, charts, and leaderboards update live without a hard reload.
+  const prevStatus = useRef(refreshStatus);
+  useEffect(() => {
+    if (prevStatus.current !== "idle" && refreshStatus === "idle") {
+      qc.invalidateQueries({ queryKey: ["overview"], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["performance-windows"], refetchType: "all" });
+    }
+    prevStatus.current = refreshStatus;
+  }, [refreshStatus, qc]);
+
   // See the note in chart-motion.ts: a live refresh job invalidates this query
   // every few seconds, and replaying the draw-in each time reads as flicker.
   const chartMotion =
@@ -399,19 +415,39 @@ function OverviewPage() {
                 : `Cross-classroom stats across ${data.classrooms.length} cohorts and ${data.students.length} students.`}
             </p>
           </div>
-          {/* Platform refresh is admin-only server-side. Faculty can refresh their assigned
-            cohorts via student-scoped refresh. */}
+          {/* Platform / student refresh actions for Admin and Faculty. */}
           {canAdminister ? (
-            <div className="flex gap-2">
-              <RefreshButton scope="platform" />
+            <div className="flex flex-wrap items-center gap-2">
+              <RefreshButton scope="platform" label="Refresh All" />
+              {data.classrooms.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setRefreshCohortsOpen(true)}
+                  title="Select specific cohorts to refresh"
+                >
+                  <Layers className="mr-1 size-4" />
+                  Refresh Selected
+                </Button>
+              )}
             </div>
           ) : canManageStudents ? (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <RefreshButton
                 scope="students"
                 studentIds={data.students.map((s) => s.id)}
                 disabled={data.students.length === 0}
+                label="Refresh All"
               />
+              {data.classrooms.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setRefreshCohortsOpen(true)}
+                  title="Select specific cohorts to refresh"
+                >
+                  <Layers className="mr-1 size-4" />
+                  Refresh Selected
+                </Button>
+              )}
             </div>
           ) : null}
         </div>
@@ -573,6 +609,14 @@ function OverviewPage() {
               classrooms: namesFor(r.id),
             }),
           )}
+        />
+
+        <RefreshCohortsDialog
+          open={refreshCohortsOpen}
+          onOpenChange={setRefreshCohortsOpen}
+          classrooms={data.classrooms}
+          colleges={data.colleges ?? []}
+          students={data.students}
         />
       </div>
     </div>
