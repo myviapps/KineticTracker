@@ -56,8 +56,21 @@ function StudentPage() {
   const refresh = useServerFn(refreshStudent);
   const refreshM = useMutation({
     mutationFn: () => refresh({ data: { id: student.id } }),
-    onSuccess: () => {
-      toast.success("Refreshed");
+    onSuccess: (res) => {
+      /*
+        Per-platform, because "Refreshed" over a partial result is how a student
+        stays stale without anyone noticing: one platform can 404 or be blocked
+        while the rest come back fine, and a flat success toast says nothing
+        about which.
+      */
+      const failed = (res?.platforms ?? []).filter((p) => !p.ok);
+      if (failed.length > 0) {
+        toast.warning(`Refreshed with ${failed.length} problem${failed.length === 1 ? "" : "s"}`, {
+          description: failed.map((f) => `${f.platform_id}: ${f.error}`).join(" · "),
+        });
+      } else {
+        toast.success("Refreshed");
+      }
       // Invalidate every cache that renders scraped data so the fresh numbers
       // propagate to classroom tables, overview, rankings, etc. — not just the
       // current route's loader.

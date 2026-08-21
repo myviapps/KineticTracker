@@ -77,7 +77,7 @@ function PendingOverview() {
 
 function OverviewPage() {
   const { data } = useSuspenseQuery(qo);
-  const { canAdminister, role } = useRole();
+  const { canAdminister, canManageStudents, role } = useRole();
   const { status: refreshStatus } = useRefreshJobStatus();
   // See the note in chart-motion.ts: a live refresh job invalidates this query
   // every few seconds, and replaying the draw-in each time reads as flicker.
@@ -399,13 +399,21 @@ function OverviewPage() {
                 : `Cross-classroom stats across ${data.classrooms.length} cohorts and ${data.students.length} students.`}
             </p>
           </div>
-          {/* Platform refresh is admin-only server-side; this button used to render for
-            placement officers, where it could only ever return Forbidden. */}
-          {canAdminister && (
+          {/* Platform refresh is admin-only server-side. Faculty can refresh their assigned
+            cohorts via student-scoped refresh. */}
+          {canAdminister ? (
             <div className="flex gap-2">
               <RefreshButton scope="platform" />
             </div>
-          )}
+          ) : canManageStudents ? (
+            <div className="flex gap-2">
+              <RefreshButton
+                scope="students"
+                studentIds={data.students.map((s) => s.id)}
+                disabled={data.students.length === 0}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 

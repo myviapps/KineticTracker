@@ -10,9 +10,15 @@ import { REFRESH_JOB_KEY, useRefreshJobStatus } from "@/hooks/use-refresh-job";
 export function RefreshButton({
   scope,
   classroomId,
+  studentIds,
+  label,
+  disabled,
 }: {
-  scope: "classroom" | "platform";
+  scope: "classroom" | "platform" | "students";
   classroomId?: string;
+  studentIds?: string[];
+  label?: string;
+  disabled?: boolean;
 }) {
   const { jobs, active, status, processed, total, isLoading } = useRefreshJobStatus();
   const qc = useQueryClient();
@@ -21,7 +27,11 @@ export function RefreshButton({
   const enqueueM = useMutation({
     mutationFn: () =>
       enqueue({
-        data: { scope, classroomId: scope === "classroom" ? classroomId : undefined },
+        data: {
+          scope,
+          classroomId: scope === "classroom" ? classroomId : undefined,
+          studentIds: scope === "students" ? studentIds : undefined,
+        },
       }),
     // Without this the UI shows nothing until the next poll — which, while idle,
     // is up to 15s away. That reads as "the button does nothing".
@@ -86,9 +96,13 @@ export function RefreshButton({
   }
 
   return (
-    <Button variant="outline" onClick={() => enqueueM.mutate()} disabled={enqueueM.isPending}>
+    <Button
+      variant="outline"
+      onClick={() => enqueueM.mutate()}
+      disabled={disabled || enqueueM.isPending}
+    >
       <RefreshCw className={cn("mr-1 size-4", enqueueM.isPending && "animate-spin")} />
-      {scope === "platform" ? "Refresh Platform" : "Refresh all"}
+      {label ?? (scope === "platform" ? "Refresh Platform" : "Refresh all")}
     </Button>
   );
 }

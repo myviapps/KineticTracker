@@ -1408,6 +1408,23 @@ export const refreshStudent = createServerFn({ method: "POST" })
       // hid the 42703 described above.
       console.warn("[refresh] could not open scrape_runs row:", e);
     }
+    /*
+      Platform accounts FIRST, then the legacy LeetCode scrape.
+
+      Order matters. scrapeStudentById throws when the handle is bad, and it used
+      to be the only thing this button did — so a student whose platform_stats
+      row had just been deleted by a handle correction could never get it back:
+      the only code path that writes that table was never reached. Running the
+      account refresh ahead of it means a legacy failure can no longer skip it.
+
+      Both still run, and on LeetCode that is two fetches. Deliberate for now:
+      student_stats is where the profile page still reads avatar, real name and
+      country from, and dropping the legacy pass would blank those. It goes away
+      when student_stats becomes a view over platform_stats.
+    */
+    const { refreshStudentPlatforms } = await import("./refresh-student.server");
+    const platforms = await refreshStudentPlatforms(data.id);
+
     try {
       const { scrapeStudentById } = await import("./scrape.server");
       await scrapeStudentById(data.id);
@@ -1419,7 +1436,7 @@ export const refreshStudent = createServerFn({ method: "POST" })
       } catch (e) {
         console.warn("[refresh] could not close scrape_runs row (success):", e);
       }
-      return { ok: true };
+      return { ok: true, platforms };
     } catch (e) {
       try {
         await supabaseAdmin
@@ -1434,6 +1451,15 @@ export const refreshStudent = createServerFn({ method: "POST" })
       } catch (bookkeepingError) {
         console.warn("[refresh] could not close scrape_runs row (failure):", bookkeepingError);
       }
+      /*
+        Only rethrow if the platform pass got nothing either.
+
+        A dead students.leetcode_id with a working platform account is exactly
+        the state a half-finished handle correction leaves behind. Throwing here
+        would report "refresh failed" over a refresh that just repopulated the
+        roster — and the user would press it again forever.
+      */
+      if (platforms.some((p) => p.ok)) return { ok: true, platforms };
       throw e;
     }
   });
