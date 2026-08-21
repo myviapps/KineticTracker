@@ -579,13 +579,21 @@ function ClassroomDetail() {
   const filtered = useMemo(() => {
     const bFiltered = applyLensFilter(lens, rows, statsByStudent, filterId);
     const q = search.toLowerCase().trim();
+    const studentById = new Map(data.students.map((s) => [s.id, s]));
     const list = q
-      ? bFiltered.filter(
-          (r) =>
-            r.name.toLowerCase().includes(q) ||
-            r.roll.toLowerCase().includes(q) ||
-            r.leetcode_id.toLowerCase().includes(q),
-        )
+      ? bFiltered.filter((r) => {
+          if (r.name.toLowerCase().includes(q)) return true;
+          if (r.roll.toLowerCase().includes(q)) return true;
+          if (r.leetcode_id && r.leetcode_id.toLowerCase().includes(q)) return true;
+          const st = studentById.get(r.id);
+          if (st?.email && st.email.toLowerCase().includes(q)) return true;
+          if (st?.platformStats) {
+            for (const pStat of Object.values(st.platformStats)) {
+              if (pStat.handle && pStat.handle.toLowerCase().includes(q)) return true;
+            }
+          }
+          return false;
+        })
       : bFiltered;
     return [...list].sort((a, b) => {
       const dir = sort.dir === "asc" ? 1 : -1;
@@ -630,7 +638,13 @@ function ClassroomDetail() {
       return 0;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, search, sort.key, sort.dir, lens, statsByStudent, filterId]);
+  }, [rows, data.students, search, sort.key, sort.dir, lens, statsByStudent, filterId]);
+
+  const filteredStudentIds = useMemo(() => new Set(filtered.map((r) => r.id)), [filtered]);
+  const filteredStudents = useMemo(
+    () => data.students.filter((s) => filteredStudentIds.has(s.id)),
+    [data.students, filteredStudentIds],
+  );
 
   const cohort = useMemo(
     () => ({
@@ -1088,14 +1102,14 @@ function ClassroomDetail() {
               used to do it from down here, below the stats and charts it was
               meant to govern — so the page could show LeetCode numbers while the
               selector said Codeforces. */}
-            {lens.isAll && <CohortOverall students={data.students} platforms={data.platforms} />}
+            {lens.isAll && <CohortOverall students={filteredStudents} platforms={data.platforms} />}
 
             {!lens.isAll &&
               lens.id !== "leetcode" &&
               (() => {
                 const sel = data.platforms.find((pl) => pl.id === lens.id);
                 return sel ? (
-                  <CohortPlatformReport platform={sel} students={data.students} />
+                  <CohortPlatformReport platform={sel} students={filteredStudents} />
                 ) : null;
               })()}
 

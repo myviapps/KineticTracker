@@ -683,6 +683,16 @@ export function DailyMatrix({
                   </tr>
                 );
               })}
+              {rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={5 + allDates.length}
+                    className="border-b border-border/50 px-4 py-8 text-center text-sm text-muted-foreground"
+                  >
+                    No students found matching your search or filters.
+                  </td>
+                </tr>
+              )}
             </tbody>
             {rows.length > 0 && (
               <tfoot>

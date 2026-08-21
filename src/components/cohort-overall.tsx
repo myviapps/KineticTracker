@@ -253,6 +253,13 @@ export function CohortOverall({
                 </tr>
               );
             })}
+            {scored.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  No students found matching your search or filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
