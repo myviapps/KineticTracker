@@ -215,6 +215,20 @@ function ClassroomDetail() {
   // seconds. Replaying the draw-in animation on that cadence reads as flicker, so
   // charts update in place instead.
   const { status: refreshStatus } = useRefreshJobStatus();
+  const qc = useQueryClient();
+
+  // Auto-refetch cohort data, daily matrix, and performance metrics whenever any refresh job finishes.
+  const prevStatus = useRef(refreshStatus);
+  useEffect(() => {
+    if (prevStatus.current !== "idle" && refreshStatus === "idle") {
+      qc.invalidateQueries({ queryKey: ["classroom", id], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["matrix-breakdown"], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["cohort-performance", id], refetchType: "all" });
+      qc.invalidateQueries({ queryKey: ["performance-windows"], refetchType: "all" });
+    }
+    prevStatus.current = refreshStatus;
+  }, [refreshStatus, id, qc]);
+
   const chartMotion =
     refreshStatus === "running" || refreshStatus === "queued" ? CHART_MOTION_STATIC : CHART_MOTION;
   const [search, setSearch] = useState("");
@@ -358,7 +372,6 @@ function ClassroomDetail() {
     onError: (e) => toast.error(String(e)),
   });
 
-  const qc = useQueryClient();
   const del = useServerFn(deleteClassroom);
   const delM = useMutation({
     mutationFn: () => del({ data: { id } }),

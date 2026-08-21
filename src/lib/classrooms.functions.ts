@@ -511,18 +511,22 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
     const studentIds = (students || []).map((s) => s.student_id);
     if (studentIds.length === 0) return {};
 
-    const { data: snapshots } = await supabaseAdmin
-      .from("daily_snapshots")
-      .select("student_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved")
-      .in("student_id", studentIds)
-      // Same reason as above: one platform per matrix, or every cell double-counts.
-      .eq("platform_id", data.platformId)
-      .gte("snapshot_date", data.startDate)
-      .lte("snapshot_date", data.endDate)
-      .order("snapshot_date", { ascending: true })
-      // The matrix is students x dates, so the default 1000-row ceiling is hit
-      // by any real cohort over a month and the grid loses its rightmost days.
-      .range(0, MAX_ROWS - 1);
+    const { fetchAllIn } = await import("./supabase-batch.server");
+    const snapshots = await fetchAllIn(
+      studentIds,
+      (batch, from, to) =>
+        supabaseAdmin
+          .from("daily_snapshots")
+          .select("student_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved")
+          .in("student_id", batch)
+          // Same reason as above: one platform per matrix, or every cell double-counts.
+          .eq("platform_id", data.platformId)
+          .gte("snapshot_date", data.startDate)
+          .lte("snapshot_date", data.endDate)
+          .order("snapshot_date", { ascending: true })
+          .range(from, to),
+      "matrix breakdown: snapshots",
+    );
 
     const result: Record<
       string,
