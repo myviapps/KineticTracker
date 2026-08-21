@@ -137,10 +137,23 @@ export function DailyMatrix({
   // was onboarded, nothing in the future. Allowing earlier dates made picking
   // one look like "the filter did nothing" — there was never data to show.
   const todayIso = new Date().toISOString().slice(0, 10);
-  const minDate = startDate.toISOString().slice(0, 10);
+  const default30d = useMemo(() => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 30);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const classStartIso = startDate.toISOString().slice(0, 10);
+  const minDate = classStartIso < default30d ? classStartIso : default30d;
   const [customStart, setCustomStart] = useState<string>(minDate);
   const [customEnd, setCustomEnd] = useState<string>(todayIso);
   const [view, setView] = useState<MatrixView>("both");
+
+  // Keep date window synchronized if startDate prop changes
+  useEffect(() => {
+    const cIso = startDate.toISOString().slice(0, 10);
+    const m = cIso < default30d ? cIso : default30d;
+    setCustomStart((prev) => (prev > todayIso ? m : prev));
+  }, [startDate, default30d, todayIso]);
 
   function handleStartChange(value: string) {
     if (!value) return;
@@ -176,18 +189,6 @@ export function DailyMatrix({
   // so widening the range added no visible columns — the date filter looked dead.
   const allDates = useMemo(() => {
     if (!customStart || !customEnd || customStart > customEnd) return [];
-    /*
-      Stepped in UTC, deliberately not with date-fns `eachDayOfInterval`.
-
-      That helper walks in LOCAL time: given a UTC midnight it returns LOCAL
-      midnights, and `toISOString()` then pushes each one back across the date
-      line for any zone ahead of UTC. In IST (+05:30) a 7 Aug -> 14 Aug filter
-      rendered as 6 Aug -> 13 Aug — every column labelled a day early, and every
-      snapshot looked up against the wrong key.
-
-      Everything else here is already UTC (fmtShort, fmtWeekday, the snapshot
-      dates themselves), so this stays UTC end to end.
-    */
     const out: string[] = [];
     const cursor = new Date(`${customStart}T00:00:00Z`);
     const end = new Date(`${customEnd}T00:00:00Z`);
@@ -201,46 +202,63 @@ export function DailyMatrix({
   /*
     Short ranges stretch to fill the width; long ones keep a fixed column and
     scroll.
-
-    Fixed 56px columns stop a wide range from squeezing every day past
-    readability — but on a short range they left the table ending well short of
-    the card, with dead space beside it. Below the threshold the date columns
-    take no explicit width, so table-fixed divides the remaining space between
-    them and the grid meets the right edge; above it they go back to 56px and
-    the overflow scrolls.
   */
   const flexDates = allDates.length > 0 && allDates.length <= 14;
 
   /**
-   * Per-student `date -> { total, gain }`.
+   * Per-student `date -> { total, gain, span }`.
    *
-   * `gain` is measured against that student's previous *snapshot*, not the
-   * previous column — a student with no data on the 3rd who reappears on the 4th
-   * gained across the gap, and pretending otherwise would credit the wrong day.
-   * The first snapshot in range has no predecessor, so its gain is null (unknown)
-   * rather than 0 (no progress) — those are different statements.
-   *
-   * This also replaces the per-cell `snapshots.find()` the table used to run,
-   * which was a full scan for every student x date pair.
+   * Carries forward the running total across dates after the student's first recorded
+   * snapshot so that flat days render their true cumulative total with a "–" no-gain marker
+   * rather than an empty "—" missing data placeholder.
    */
   const byStudent = useMemo(() => {
     const out = new Map<string, Map<string, Cell>>();
     for (const [studentId, v] of Object.entries(breakdown ?? {})) {
-      const snaps = [...v.snapshots].sort((a, b) => a.date.localeCompare(b.date));
+      const rawSnaps = [...v.snapshots].sort((a, b) => a.date.localeCompare(b.date));
       const m = new Map<string, Cell>();
-      let prev: { total: number; date: string } | null = null;
-      for (const s of snaps) {
-        m.set(s.date, {
-          total: s.total,
-          gain: prev === null ? null : s.total - prev.total,
-          span: prev === null ? 1 : daysBetween(prev.date, s.date),
-        });
-        prev = { total: s.total, date: s.date };
+      if (rawSnaps.length === 0) {
+        out.set(studentId, m);
+        continue;
       }
+
+      // Map explicit snapshots
+      const snapMap = new Map<string, { total: number; easy: number; medium: number; hard: number }>();
+      for (const s of rawSnaps) {
+        snapMap.set(s.date, s);
+      }
+
+      let prevTotal: number | null = null;
+      let prevDate: string | null = null;
+      let started = false;
+
+      for (const d of allDates) {
+        const explicit = snapMap.get(d);
+        if (explicit) {
+          started = true;
+          const gain = prevTotal === null ? null : Math.max(0, explicit.total - prevTotal);
+          const span = prevDate === null ? 1 : daysBetween(prevDate, d);
+          m.set(d, {
+            total: explicit.total,
+            gain,
+            span,
+          });
+          prevTotal = explicit.total;
+          prevDate = d;
+        } else if (started && prevTotal !== null) {
+          // Carry forward previous running total with 0 gain
+          m.set(d, {
+            total: prevTotal,
+            gain: 0,
+            span: 1,
+          });
+        }
+      }
+
       out.set(studentId, m);
     }
     return out;
-  }, [breakdown]);
+  }, [breakdown, allDates]);
 
   /**
    * Per-student gain across the WHOLE filtered range (first snapshot in range
@@ -260,10 +278,10 @@ export function DailyMatrix({
       const first = snaps[0];
       const last = snaps[snaps.length - 1];
       out.set(studentId, {
-        easy: last.easy - first.easy,
-        medium: last.medium - first.medium,
-        hard: last.hard - first.hard,
-        total: last.total - first.total,
+        easy: Math.max(0, last.easy - first.easy),
+        medium: Math.max(0, last.medium - first.medium),
+        hard: Math.max(0, last.hard - first.hard),
+        total: Math.max(0, last.total - first.total),
       });
     }
     return out;

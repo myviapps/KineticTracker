@@ -1350,7 +1350,7 @@ function ClassroomDetail() {
               classroomId={data.classroom.id}
               rows={filtered.map((r) => ({ id: r.id, name: r.name, roll: r.roll }))}
               startDate={new Date(data.classroom.created_at)}
-              platformId={lens.isAll ? undefined : lens.id}
+              platformId={lens.isAll ? "all" : lens.id}
             />
           </TabsContent>
         </Tabs>

@@ -326,6 +326,7 @@ async function writeDailySnapshot(target: PersistTarget, p: NormalizedProfile): 
   if (p.totalSolved === undefined || p.totalSolved === null) return; // nothing to snapshot
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { log } = await import("./log.server");
   const today = new Date().toISOString().slice(0, 10);
 
   let prevTotal: number | null = null;
@@ -344,22 +345,36 @@ async function writeDailySnapshot(target: PersistTarget, p: NormalizedProfile): 
     /* first ever snapshot — a null baseline yields a 0 delta, which is correct */
   }
 
+  const row = {
+    student_id: target.studentId,
+    platform_id: target.platformId,
+    snapshot_date: today,
+    total_solved: p.totalSolved,
+    easy_solved: p.easySolved ?? 0,
+    medium_solved: p.mediumSolved ?? 0,
+    hard_solved: p.hardSolved ?? 0,
+    unrated_solved: p.unratedSolved ?? null,
+    rating: p.rating ?? null,
+    platform_score: p.platformScore ?? null,
+    solved_that_day: Math.max(0, p.totalSolved - (prevTotal ?? p.totalSolved)),
+  };
+
   try {
-    await supabaseAdmin.from("daily_snapshots").upsert({
-      student_id: target.studentId,
-      platform_id: target.platformId,
-      snapshot_date: today,
-      total_solved: p.totalSolved,
-      easy_solved: p.easySolved ?? 0,
-      medium_solved: p.mediumSolved ?? 0,
-      hard_solved: p.hardSolved ?? 0,
-      unrated_solved: p.unratedSolved ?? null,
-      rating: p.rating ?? null,
-      platform_score: p.platformScore ?? null,
-      solved_that_day: Math.max(0, p.totalSolved - (prevTotal ?? p.totalSolved)),
-    });
-  } catch {
-    /* history is decoration on top of the real numbers — never fail a run for it */
+    const { error } = await supabaseAdmin
+      .from("daily_snapshots")
+      .upsert(row, { onConflict: "student_id,platform_id,snapshot_date" });
+
+    if (error) {
+      log.warn("persist", `daily_snapshots upsert with 3-key conflict failed (${error.message}), retrying fallback`);
+      const { error: fbError } = await supabaseAdmin
+        .from("daily_snapshots")
+        .upsert(row, { onConflict: "student_id,snapshot_date" });
+      if (fbError) {
+        log.error("persist", `daily_snapshots fallback upsert failed for ${target.handle}`, fbError);
+      }
+    }
+  } catch (e) {
+    log.error("persist", `daily_snapshots upsert exception for ${target.handle}`, e);
   }
 }
 

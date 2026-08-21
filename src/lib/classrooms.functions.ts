@@ -491,9 +491,7 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
           classroomId: z.string().uuid(),
           startDate: z.string(),
           endDate: z.string(),
-          // Defaulted rather than required so existing callers keep working; the
-          // matrix can serve any platform once a caller asks for one.
-          platformId: z.string().min(1).max(50).default("leetcode"),
+          platformId: z.string().min(1).max(50).default("all"),
         })
         .parse(d),
   )
@@ -512,22 +510,92 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
     if (studentIds.length === 0) return {};
 
     const { fetchAllIn } = await import("./supabase-batch.server");
+
+    // Fetch daily snapshots across the requested date window
     const snapshots = await fetchAllIn(
       studentIds,
-      (batch, from, to) =>
-        supabaseAdmin
+      (batch, from, to) => {
+        let q = supabaseAdmin
           .from("daily_snapshots")
-          .select("student_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved")
+          .select("student_id, platform_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved")
           .in("student_id", batch)
-          // Same reason as above: one platform per matrix, or every cell double-counts.
-          .eq("platform_id", data.platformId)
           .gte("snapshot_date", data.startDate)
           .lte("snapshot_date", data.endDate)
-          .order("snapshot_date", { ascending: true })
-          .range(from, to),
+          .order("snapshot_date", { ascending: true });
+
+        if (data.platformId && data.platformId !== "all") {
+          q = q.eq("platform_id", data.platformId);
+        }
+        return q.range(from, to);
+      },
       "matrix breakdown: snapshots",
     );
 
+    // Fetch current platform_stats for real-time totals and today's fallback
+    const accounts = await fetchAllIn(
+      studentIds,
+      (batch, from, to) => {
+        let q = supabaseAdmin
+          .from("student_platform_accounts")
+          .select("id, student_id, platform_id")
+          .in("student_id", batch);
+        if (data.platformId && data.platformId !== "all") {
+          q = q.eq("platform_id", data.platformId);
+        }
+        return q.range(from, to);
+      },
+      "matrix breakdown: accounts",
+    );
+
+    const accountIds = accounts.map((a) => a.id);
+    const pStats = accountIds.length
+      ? await fetchAllIn(
+          accountIds,
+          (batch, from, to) =>
+            supabaseAdmin
+              .from("platform_stats")
+              .select("account_id, total_solved, easy_solved, medium_solved, hard_solved")
+              .in("account_id", batch)
+              .range(from, to),
+          "matrix breakdown: pstats",
+        )
+      : [];
+
+    const acctToStudent = new Map(accounts.map((a) => [a.id, a.student_id]));
+    const liveStatsByStudent = new Map<string, { total: number; easy: number; medium: number; hard: number }>();
+
+    for (const ps of pStats) {
+      const sId = acctToStudent.get(ps.account_id);
+      if (!sId) continue;
+      const cur = liveStatsByStudent.get(sId) ?? { total: 0, easy: 0, medium: 0, hard: 0 };
+      cur.total += ps.total_solved ?? 0;
+      cur.easy += ps.easy_solved ?? 0;
+      cur.medium += ps.medium_solved ?? 0;
+      cur.hard += ps.hard_solved ?? 0;
+      liveStatsByStudent.set(sId, cur);
+    }
+
+    // Group snapshots by student and date (summing across platforms if platformId === "all")
+    const snapsByStudentDate = new Map<
+      string,
+      Map<string, { total: number; easy: number; medium: number; hard: number }>
+    >();
+
+    for (const s of snapshots) {
+      let studentMap = snapsByStudentDate.get(s.student_id);
+      if (!studentMap) {
+        studentMap = new Map();
+        snapsByStudentDate.set(s.student_id, studentMap);
+      }
+      const cur = studentMap.get(s.snapshot_date) ?? { total: 0, easy: 0, medium: 0, hard: 0 };
+      cur.total += s.total_solved ?? 0;
+      cur.easy += s.easy_solved ?? 0;
+      cur.medium += s.medium_solved ?? 0;
+      cur.hard += s.hard_solved ?? 0;
+      studentMap.set(s.snapshot_date, cur);
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
     const result: Record<
       string,
       {
@@ -536,33 +604,40 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
       }
     > = {};
 
-    if (snapshots && snapshots.length > 0) {
-      const byStudent = new Map<string, typeof snapshots>();
-      for (const s of snapshots) {
-        if (!byStudent.has(s.student_id)) byStudent.set(s.student_id, []);
-        byStudent.get(s.student_id)!.push(s);
+    for (const sId of studentIds) {
+      const studentMap = snapsByStudentDate.get(sId) ?? new Map();
+      const live = liveStatsByStudent.get(sId);
+
+      // If today is in range and live stats exist, ensure today is present in the snapshots map
+      if (
+        todayStr >= data.startDate &&
+        todayStr <= data.endDate &&
+        live &&
+        live.total > 0 &&
+        !studentMap.has(todayStr)
+      ) {
+        studentMap.set(todayStr, { ...live });
       }
 
-      for (const [studentId, snaps] of byStudent.entries()) {
-        if (snaps.length > 0) {
-          const last = snaps[snaps.length - 1];
-          result[studentId] = {
-            latest: {
-              total: last.total_solved,
-              easy: last.easy_solved,
-              medium: last.medium_solved,
-              hard: last.hard_solved,
-            },
-            snapshots: snaps.map((s) => ({
-              date: s.snapshot_date,
-              total: s.total_solved,
-              easy: s.easy_solved,
-              medium: s.medium_solved,
-              hard: s.hard_solved,
-            })),
-          };
-        }
-      }
+      const snapList = [...studentMap.entries()]
+        .map(([date, val]) => ({ date, ...val }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const fallbackLatest =
+        snapList.length > 0
+          ? snapList[snapList.length - 1]
+          : { total: 0, easy: 0, medium: 0, hard: 0 };
+      const effectiveLatest = live && live.total > 0 ? live : fallbackLatest;
+
+      result[sId] = {
+        latest: {
+          total: effectiveLatest.total,
+          easy: effectiveLatest.easy,
+          medium: effectiveLatest.medium,
+          hard: effectiveLatest.hard,
+        },
+        snapshots: snapList,
+      };
     }
 
     return result;
