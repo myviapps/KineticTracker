@@ -246,6 +246,24 @@ function windowValue(solved: number | null | undefined, since: string | null | u
 }
 
 /**
+ * How many students are on a live streak, and the best one in the room.
+ *
+ * Counted at >= 7 deliberately: that is the threshold the "Consistent (7d
+ * streak)" chip already uses (see BUCKETS), so the card and the chip directly
+ * below it can never show different numbers for the same question.
+ */
+function streakCard(rows: StudentRow[]): LensStat {
+  const streaks = rows.map((r) => r.streak);
+  const onStreak = streaks.filter((v) => v >= 7).length;
+  const longest = streaks.length ? Math.max(...streaks) : 0;
+  return {
+    label: "On a streak",
+    value: fmt(onStreak),
+    hint: longest > 0 ? `7+ days · longest ${longest}d` : "nobody yet",
+  };
+}
+
+/**
  * The cards for this lens, split by importance.
  *
  * `primary` is ALWAYS four cards answering the same four questions whatever the
@@ -342,6 +360,8 @@ export function lensStatCards(input: LensStatInput): LensStatCards {
           value: fmt(platforms.length),
           hint: platforms.length ? platforms.map((p) => p.name).join(", ") : "none yet",
         },
+        // LeetCode-sourced, like the behavioural buckets this lens also shows.
+        streakCard(rows),
       ],
     };
   }
@@ -409,13 +429,33 @@ export function lensStatCards(input: LensStatInput): LensStatCards {
     }
   }
 
-  if (lens.rank_metric === "solved" && onPlatform > 0) {
+  /*
+    Contests entered, in the slot "Avg / student" used to hold.
+
+    That card was `solved / onPlatform` — the arithmetic mean of total_solved,
+    which is EXACTLY what the "Avg Solved" card above already shows. It was
+    guarded by `rank_metric === "solved"`, so LeetCode was the one lens where
+    both rendered and the disclosure read as two Avg cards disagreeing about
+    nothing.
+
+    Gated on the DATA rather than a platform id, the same way hasDifficultySplit
+    is: a platform that starts publishing contest counts picks this up with no
+    change here, and one that never does never shows an empty card.
+  */
+  const contested = stats.filter((s) => (s.contests_attended ?? 0) > 0);
+  if (contested.length) {
+    const totalContests = contested.reduce((a, s) => a + (s.contests_attended ?? 0), 0);
     secondary.push({
-      label: "Avg / student",
-      value: fmt(Math.round(solved / onPlatform)),
-      hint: "lifetime",
+      label: "Contests",
+      value: fmt(totalContests),
+      hint: `avg ${Math.round(totalContests / contested.length)} · ${contested.length} competing`,
     });
   }
+
+  // Streaks come off the LeetCode submission calendar and nothing else
+  // publishes one — the same rule lensFilters follows for the behavioural
+  // buckets. Claiming a streak under a Codeforces lens would be inventing data.
+  if (lens.id === "leetcode") secondary.push(streakCard(rows));
 
   return { primary, secondary };
 }

@@ -7,11 +7,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AppearanceMenu, AppearanceControls } from "@/components/appearance-menu";
 import { StudentSearch } from "@/components/student-search";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -123,7 +124,7 @@ function AuthenticatedLayout() {
           </Link>
         </Button>
         <div className="hidden sm:block">
-          <ThemeToggle />
+          <AppearanceMenu />
         </div>
 
         {/*
@@ -149,9 +150,10 @@ function AuthenticatedLayout() {
                 Dashboard
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="p-0">
-              <ThemeToggle variant="menu" />
-            </DropdownMenuItem>
+            {/* Composed straight in rather than nested as its own dropdown —
+                see the note in appearance-menu.tsx. */}
+            <DropdownMenuSeparator />
+            <AppearanceControls />
           </DropdownMenuContent>
         </DropdownMenu>
       </header>

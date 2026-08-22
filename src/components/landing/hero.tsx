@@ -27,7 +27,7 @@ export function Hero() {
     <section className="relative flex flex-col items-center px-4 pb-24 pt-20 text-center sm:px-6 sm:pt-28">
       <div className="flex w-full max-w-3xl flex-col items-center">
         <div className="animate-in fade-in fill-mode-backwards" style={{ animationDelay: "0ms" }}>
-          <span className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+          <span className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 font-mono text-2xs font-bold uppercase tracking-widest text-muted-foreground">
             <span className="relative flex size-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
               <span className="relative inline-flex size-2 rounded-full bg-primary" />
@@ -103,7 +103,7 @@ export function Hero() {
         <PerspectiveFrame>
           <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
             <div className="flex flex-col rounded-lg border border-border p-4">
-              <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              <div className="mb-3 font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
                 Submission activity
               </div>
               <div className="my-auto">

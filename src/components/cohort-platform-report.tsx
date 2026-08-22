@@ -48,7 +48,7 @@ export function CohortPlatformReport({
         <p className="text-sm text-muted-foreground">
           No student in this cohort has a {platform.name} handle yet.
         </p>
-        <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+        <p className="mt-1 font-mono text-3xs text-muted-foreground">
           Add a “{platform.id}” column to your import file, or set it on a student, to start
           tracking it.
         </p>
@@ -59,7 +59,7 @@ export function CohortPlatformReport({
   return (
     <div className="space-y-3">
       {(states.partial > 0 || states.never > 0 || states.missing > 0) && (
-        <div className="flex flex-wrap gap-3 font-mono text-[10px] text-muted-foreground">
+        <div className="flex flex-wrap gap-3 font-mono text-3xs text-muted-foreground">
           {states.missing > 0 && <span>{states.missing} without a handle</span>}
           {states.never > 0 && <span>{states.never} never fetched</span>}
           {states.partial > 0 && (

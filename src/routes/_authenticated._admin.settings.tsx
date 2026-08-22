@@ -56,7 +56,7 @@ function SettingsPage() {
 
       {/* Authentication Settings */}
       <section className="mb-8">
-        <h3 className="mb-4 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <h3 className="mb-4 flex items-center gap-2 font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           <Settings2 className="size-3" /> Authentication
         </h3>
         <div className="space-y-3">
@@ -72,7 +72,7 @@ function SettingsPage() {
                 <div className="mt-0.5 text-xs text-muted-foreground">
                   Show "Sign in with Google" button on the login page.
                   <br />
-                  <span className="font-mono text-[10px]">
+                  <span className="font-mono text-3xs">
                     Note: Requires Google OAuth to be configured in your Supabase project.
                   </span>
                 </div>

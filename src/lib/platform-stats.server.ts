@@ -365,12 +365,19 @@ async function writeDailySnapshot(target: PersistTarget, p: NormalizedProfile): 
       .upsert(row, { onConflict: "student_id,platform_id,snapshot_date" });
 
     if (error) {
-      log.warn("persist", `daily_snapshots upsert with 3-key conflict failed (${error.message}), retrying fallback`);
+      log.warn(
+        "persist",
+        `daily_snapshots upsert with 3-key conflict failed (${error.message}), retrying fallback`,
+      );
       const { error: fbError } = await supabaseAdmin
         .from("daily_snapshots")
         .upsert(row, { onConflict: "student_id,snapshot_date" });
       if (fbError) {
-        log.error("persist", `daily_snapshots fallback upsert failed for ${target.handle}`, fbError);
+        log.error(
+          "persist",
+          `daily_snapshots fallback upsert failed for ${target.handle}`,
+          fbError,
+        );
       }
     }
   } catch (e) {

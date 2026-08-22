@@ -32,6 +32,9 @@ function ReportsPage() {
   const scopes = useQuery({ queryKey: ["report-scopes"], queryFn: () => listReportScopes() });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [days, setDays] = useState(30);
+  // Same anchor the export dialog and the cohort Streak Matrix use, so all
+  // three answer "what streak did they have on X" for the same X.
+  const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
   const [report, setReport] = useState<ReportData | null>(null);
 
   /*
@@ -55,7 +58,7 @@ function ReportsPage() {
 
   const build = useServerFn(buildReport);
   const run = useMutation({
-    mutationFn: () => build({ data: { classroomIds: [...selected], days } }),
+    mutationFn: () => build({ data: { classroomIds: [...selected], days, asOf } }),
     onSuccess: (d) => {
       const data = d as unknown as ReportData;
       setReport(data);
@@ -128,13 +131,13 @@ function ReportsPage() {
               <div key={g.id} className="mb-3 last:mb-0">
                 {collegeGroups.length > 1 && (
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    <span className="font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
                       {g.name}
                     </span>
                     <button
                       type="button"
                       onClick={() => toggleMany(ids, !allOn)}
-                      className="text-[11px] font-medium text-primary hover:underline"
+                      className="text-2xs font-medium text-primary hover:underline"
                     >
                       {allOn ? "Clear" : "Select all"}
                     </button>
@@ -167,6 +170,16 @@ function ReportsPage() {
               <option value={30}>Last 30 days</option>
               <option value={90}>Last 90 days</option>
             </select>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Streaks as of
+              <input
+                type="date"
+                value={asOf}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => e.target.value && setAsOf(e.target.value)}
+                className="rounded border border-border bg-background px-2 py-1 font-mono text-xs"
+              />
+            </label>
             <Button
               size="sm"
               disabled={selected.size === 0 || run.isPending}
@@ -185,7 +198,7 @@ function ReportsPage() {
                 </Button>
               </>
             )}
-            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+            <span className="ml-auto font-mono text-3xs text-muted-foreground">
               {selected.size} selected
             </span>
           </div>
@@ -224,7 +237,7 @@ function ReportDashboard({ data }: { data: ReportData }) {
         <p className="text-sm text-muted-foreground">
           {data.scope.classrooms.map((c) => c.name).join(" · ")}
         </p>
-        <p className="font-mono text-[10px] text-muted-foreground">
+        <p className="font-mono text-3xs text-muted-foreground">
           Generated {new Date(data.scope.generatedAt).toLocaleString()}
         </p>
       </div>
@@ -271,7 +284,7 @@ function ReportDashboard({ data }: { data: ReportData }) {
           <SectionTitle>Performance by Platform</SectionTitle>
         </div>
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2">
                 Platform
@@ -301,7 +314,7 @@ function ReportDashboard({ data }: { data: ReportData }) {
                 <td className="px-3 py-2 text-right">{p.coverage_pct}%</td>
                 <td className="px-3 py-2 text-right font-bold">
                   {p.avg_metric?.toLocaleString() ?? "—"}
-                  <span className="ml-1 font-mono text-[10px] font-normal text-muted-foreground">
+                  <span className="ml-1 font-mono text-3xs font-normal text-muted-foreground">
                     {p.rank_metric}
                   </span>
                 </td>
@@ -311,7 +324,7 @@ function ReportDashboard({ data }: { data: ReportData }) {
                 <td className="px-3 py-2 text-xs">
                   {p.top_student ?? "—"}
                   {p.top_value != null && (
-                    <span className="ml-1 font-mono text-[10px] text-muted-foreground">
+                    <span className="ml-1 font-mono text-3xs text-muted-foreground">
                       {p.top_value.toLocaleString()}
                     </span>
                   )}
@@ -322,12 +335,14 @@ function ReportDashboard({ data }: { data: ReportData }) {
         </table>
       </div>
 
+      {data.streaks?.length > 0 && <StreakSection rows={data.streaks} />}
+
       <div className="report-block overflow-x-auto rounded-lg border border-border bg-surface">
         <div className="border-b border-border px-4 py-2">
           <SectionTitle>Top 25 by Almanac Score</SectionTitle>
         </div>
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2">
                 #
@@ -365,6 +380,97 @@ function ReportDashboard({ data }: { data: ReportData }) {
                   <td className="px-3 py-2 text-right">{r["College Rank"] ?? "—"}</td>
                 </tr>
               ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Consistency, on screen and on the printed sheet.
+ *
+ * Reads the same rows the Streaks sheet of the workbook carries, so the PDF a
+ * principal is handed and the file an analyst opens report identical numbers.
+ *
+ * `Streak Through` can be null — a student with no submission calendar has not
+ * been measured, which is not the same as a streak of zero, and the count of
+ * those is stated rather than folded into the totals.
+ */
+function StreakSection({ rows }: { rows: ReportData["streaks"] }) {
+  const measured = rows.filter((r) => typeof r["Streak Through"] === "number");
+  const through = measured.map((r) => Number(r["Streak Through"]));
+  const onStreak = through.filter((v) => v >= 7).length;
+  const longest = through.length ? Math.max(...through) : 0;
+  const asOf = String(rows[0]?.["As Of"] ?? "");
+  const activeKey = Object.keys(rows[0] ?? {}).find((k) => k.startsWith("Active Days In"));
+  const longestKey = Object.keys(rows[0] ?? {}).find((k) => k.startsWith("Longest In"));
+
+  const top = [...measured]
+    .sort((a, b) => Number(b["Streak Through"] ?? 0) - Number(a["Streak Through"] ?? 0))
+    .slice(0, 25);
+
+  return (
+    <div className="report-block space-y-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          label="On a 7+ day streak"
+          value={onStreak.toLocaleString()}
+          hint={`of ${measured.length} measured`}
+        />
+        <StatCard label="Longest active streak" value={longest ? `${longest}d` : "—"} />
+        <StatCard label="Measured as of" value={<span className="text-xl">{asOf}</span>} />
+        <StatCard
+          label="No streak record"
+          value={(rows.length - measured.length).toLocaleString()}
+          hint="LeetCode calendar missing"
+        />
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <div className="border-b border-border px-4 py-2">
+          <SectionTitle>Longest Current Streaks</SectionTitle>
+        </div>
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th scope="col" className="px-3 py-2">
+                Student
+              </th>
+              <th scope="col" className="px-3 py-2">
+                Roll
+              </th>
+              <th scope="col" className="px-3 py-2 text-right" title={`Run carried into ${asOf}`}>
+                Into
+              </th>
+              <th scope="col" className="px-3 py-2 text-right" title={`Run including ${asOf}`}>
+                Through
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Best
+              </th>
+              <th scope="col" className="px-3 py-2 text-right">
+                Active
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {top.map((r) => (
+              <tr key={String(r.Roll)} className="border-b border-border/50 last:border-0">
+                <td className="px-3 py-2">{r.Student}</td>
+                <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{r.Roll}</td>
+                <td className="px-3 py-2 text-right font-mono">{r["Streak Into"] ?? "—"}d</td>
+                <td className="px-3 py-2 text-right font-mono font-bold text-primary">
+                  {r["Streak Through"] ?? "—"}d
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-muted-foreground">
+                  {longestKey ? (r[longestKey] ?? "—") : "—"}d
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-muted-foreground">
+                  {activeKey ? (r[activeKey] ?? "—") : "—"}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

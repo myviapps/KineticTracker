@@ -104,7 +104,7 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
         <a
           href={`data:text/csv;charset=utf-8,${encodeURIComponent(templateCsv())}`}
           download="template.csv"
-          className="font-mono text-[10px] uppercase tracking-widest text-primary hover:underline"
+          className="font-mono text-3xs uppercase tracking-widest text-primary hover:underline"
         >
           ↓ Template
         </a>
@@ -122,7 +122,7 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
             </>
           )}
         </span>
-        <span className="text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="text-center font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           name · roll · email · classroom · college ·{" "}
           {PLATFORM_COLUMNS.map((p) => p.id).join(" · ")}
         </span>
@@ -140,7 +140,7 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
 
       {/* Or paste */}
       <details className="mb-4">
-        <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground">
+        <summary className="cursor-pointer font-mono text-3xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
           … or paste CSV text
         </summary>
 
@@ -157,11 +157,11 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
               setCsvText(next);
               handleParse(undefined, next);
             }}
-            className="rounded border border-border px-2 py-1 font-mono text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded border border-border px-2 py-1 font-mono text-3xs text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             Insert full header row
           </button>
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono text-3xs text-muted-foreground">
             every column is optional except name, roll and one handle
           </span>
         </div>
@@ -214,7 +214,7 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
           you only find out after the handles are silently missing. */}
       {rows.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
             Handle columns found:
           </span>
           {detected.length === 0 && (
@@ -232,8 +232,8 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
                 title={fetchable ? undefined : statusNote(p.id, platformStatus(p.id, false))}
                 className={
                   fetchable
-                    ? "rounded border border-easy/40 bg-easy/10 px-1.5 py-0.5 font-mono text-[10px] text-easy"
-                    : "rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                    ? "rounded border border-easy/40 bg-easy/10 px-1.5 py-0.5 font-mono text-3xs text-easy"
+                    : "rounded border border-border px-1.5 py-0.5 font-mono text-3xs text-muted-foreground"
                 }
               >
                 {p.label} · {n}
@@ -249,18 +249,18 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
           after it has dropped the rows that referenced it. */}
       {rows.length > 0 && colleges.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
             Colleges named:
           </span>
           {colleges.map((c) => (
             <span
               key={c}
-              className="rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary"
+              className="rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-mono text-3xs text-primary"
             >
               {c}
             </span>
           ))}
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono text-3xs text-muted-foreground">
             must already exist · only applied to new classrooms
           </span>
         </div>
@@ -277,12 +277,12 @@ export function BulkUploader({ onDone }: { onDone?: (n: number) => void }) {
             {Object.entries(grouped).map(([cls, list]) => (
               <div key={cls} className="rounded border border-border bg-surface p-2">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="font-mono text-[11px] font-bold text-primary">{cls}</span>
-                  <span className="font-mono text-[10px] text-muted-foreground">
+                  <span className="font-mono text-2xs font-bold text-primary">{cls}</span>
+                  <span className="font-mono text-3xs text-muted-foreground">
                     {list.length} students
                   </span>
                 </div>
-                <div className="font-mono text-[10px] text-muted-foreground">
+                <div className="font-mono text-3xs text-muted-foreground">
                   {list
                     .slice(0, 5)
                     .map((r) => r.name)

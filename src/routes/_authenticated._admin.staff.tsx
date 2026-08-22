@@ -299,7 +299,7 @@ function StaffPage() {
 
       {!staffLoading && visible.length > 0 && (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
-          <div className="hidden grid-cols-[minmax(14rem,1.1fr)_8rem_minmax(16rem,1.4fr)_2.5rem] gap-4 border-b border-border bg-background/60 px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[minmax(14rem,1.1fr)_8rem_minmax(16rem,1.4fr)_2.5rem] gap-4 border-b border-border bg-background/60 px-4 py-2 font-mono text-3xs uppercase tracking-wider text-muted-foreground md:grid">
             <span>Person</span>
             <span>Role</span>
             <span>Can reach</span>
@@ -316,7 +316,7 @@ function StaffPage() {
                 >
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{s.email}</div>
-                    <div className="font-mono text-[10px] text-muted-foreground">
+                    <div className="font-mono text-3xs text-muted-foreground">
                       {meta?.blurb ?? s.role}
                     </div>
                   </div>
@@ -324,7 +324,7 @@ function StaffPage() {
                   <div>
                     <span
                       className={cn(
-                        "inline-block rounded px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider",
+                        "inline-block rounded px-2 py-0.5 font-mono text-3xs font-bold uppercase tracking-wider",
                         s.role === "admin"
                           ? "bg-hard/15 text-hard"
                           : s.role === "ceo"
@@ -343,7 +343,7 @@ function StaffPage() {
                       all four. */}
                   <div className="min-w-0">
                     {meta?.scope === "none" && (
-                      <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-hard">
+                      <span className="inline-flex items-center gap-1.5 font-mono text-3xs uppercase tracking-wider text-hard">
                         <ShieldCheck className="size-3.5" /> Every college and cohort
                       </span>
                     )}
@@ -384,7 +384,7 @@ function StaffPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-52">
-                        <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                        <DropdownMenuLabel className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                           {s.email}
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator />
@@ -421,7 +421,7 @@ function StaffPage() {
       <div className="mt-10 rounded-lg border border-border bg-surface p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <h3 className="font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
               Maintenance
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -504,7 +504,7 @@ function RoleChip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[11px] font-semibold transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-2xs font-semibold transition-colors",
         active
           ? "border-primary bg-primary/10 text-primary"
           : "border-border bg-surface text-muted-foreground hover:border-primary/50 hover:text-foreground",
@@ -542,14 +542,14 @@ function CollegeAccess({
       {assigned.length === 0 &&
         (role === "ceo" ? (
           <span
-            className="font-mono text-[10px] uppercase tracking-wider text-hard"
+            className="font-mono text-3xs uppercase tracking-wider text-hard"
             title="A CEO with no college assigned sees nothing at all."
           >
             No college — sees nothing
           </span>
         ) : (
           <span
-            className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+            className="font-mono text-3xs uppercase tracking-wider text-muted-foreground"
             title="Platform-wide access. Assigning a college restricts them to it."
           >
             All colleges
@@ -622,7 +622,7 @@ function ClassroomAccess({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {assigned.length === 0 && (
-        <span className="font-mono text-[10px] uppercase tracking-wider text-medium">
+        <span className="font-mono text-3xs uppercase tracking-wider text-medium">
           No cohorts — sees nothing
         </span>
       )}
@@ -656,7 +656,7 @@ function ClassroomAccess({
               .map(([college, rooms]) => (
                 <div key={college}>
                   {multiCollege && (
-                    <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    <DropdownMenuLabel className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                       {college}
                     </DropdownMenuLabel>
                   )}
@@ -799,13 +799,13 @@ function CreateStaffDialog({
                 ))}
               </SelectContent>
             </Select>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">{meta.blurb}</p>
+            <p className="mt-1.5 text-2xs text-muted-foreground">{meta.blurb}</p>
           </div>
 
           {meta.scope === "colleges" && (
             <div>
               <Label>{role === "ceo" ? "Colleges" : "Colleges (optional)"}</Label>
-              <p className="mb-1.5 mt-1 text-[11px] text-muted-foreground">
+              <p className="mb-1.5 mt-1 text-2xs text-muted-foreground">
                 {role === "ceo"
                   ? "Without one they see nothing."
                   : "Leave empty for platform-wide access."}
@@ -860,7 +860,7 @@ function CreateStaffDialog({
           )}
 
           {meta.scope === "none" && (
-            <p className="rounded-md bg-hard/10 px-3 py-2 text-[11px] text-muted-foreground">
+            <p className="rounded-md bg-hard/10 px-3 py-2 text-2xs text-muted-foreground">
               An admin can see and change every college, cohort and student, and can create further
               admins. There is no way to scope one.
             </p>

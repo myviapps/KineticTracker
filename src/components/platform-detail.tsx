@@ -114,7 +114,7 @@ export function PlatformDetail({ p }: { p: StudentPlatformSummary }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold">{p.name}</h2>
-            <div className="mt-0.5 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+            <div className="mt-0.5 flex items-center gap-2 font-mono text-2xs text-muted-foreground">
               {p.profile_url ? (
                 <a
                   href={p.profile_url}
@@ -135,14 +135,14 @@ export function PlatformDetail({ p }: { p: StudentPlatformSummary }) {
           </div>
           {p.rank && (
             <div className="text-right">
-              <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              <div className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                 Rank by {p.rank.metric}
               </div>
               <div className="text-lg font-bold text-primary">
                 #{p.rank.college_rank}
                 <span className="text-sm text-muted-foreground">/{p.rank.college_total}</span>
               </div>
-              <div className="font-mono text-[10px] text-muted-foreground">
+              <div className="font-mono text-3xs text-muted-foreground">
                 #{p.rank.overall_rank} of {p.rank.overall_total} on {p.name}
               </div>
             </div>
@@ -228,7 +228,7 @@ export function PlatformDetail({ p }: { p: StudentPlatformSummary }) {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+          <p className="mt-1 font-mono text-3xs text-muted-foreground">
             {history.length} rated contests
           </p>
         </div>
@@ -251,7 +251,7 @@ export function PlatformDetail({ p }: { p: StudentPlatformSummary }) {
                   </span>
                 ) : null}
                 {n(b.rank) ? (
-                  <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                  <span className="ml-auto font-mono text-3xs text-muted-foreground">
                     rank #{b.rank!.toLocaleString()}
                   </span>
                 ) : null}
@@ -287,7 +287,7 @@ export function PlatformDetail({ p }: { p: StudentPlatformSummary }) {
       )}
 
       {p.score_contribution != null && (
-        <p className="font-mono text-[10px] text-muted-foreground">
+        <p className="font-mono text-3xs text-muted-foreground">
           Contributes {Math.round(p.score_contribution).toLocaleString()} to this student&apos;s
           Almanac Score.
         </p>

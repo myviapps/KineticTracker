@@ -37,7 +37,7 @@ export function LandingFooter() {
       </div>
       <Separator />
       <div className="mx-auto max-w-6xl px-4 pb-8 pt-4 sm:px-6">
-        <p className="text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground/60 sm:text-left">
+        <p className="text-center font-mono text-3xs uppercase tracking-widest text-muted-foreground/60 sm:text-left">
           Almanac · progress tracking for placement teams
         </p>
       </div>

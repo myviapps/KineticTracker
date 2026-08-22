@@ -1,4 +1,6 @@
 // LeetCode public GraphQL scraper. Server-only helper.
+import { currentStreak } from "./date-buckets";
+
 const LC_URL = "https://leetcode.com/graphql";
 
 const HEADERS = {
@@ -286,8 +288,10 @@ export type ParsedProfile = {
   hardTotal: number;
   acceptanceRate: number | null;
 
-  streak: number;
-  totalActiveDays: number;
+  /** Undefined when NO calendar year could be fetched, so the stored value is
+   *  left alone rather than being overwritten with a 0 that is not true. */
+  streak?: number;
+  totalActiveDays?: number;
   submissionCalendar: Record<string, number>;
 
   contestRating: number | null;
@@ -325,24 +329,49 @@ export async function fetchLeetCodeProfile(
 
   let calendar: LcCalendarData | null = null;
   let recent: LcRecentData | null = null;
-  // The profile call is the only required one. Calendar and recent submissions
-  // are already best-effort, so when the budget is spent we skip them outright
-  // rather than paying a doomed request — the student still gets full stats.
-  if (remainingMs(deadline) >= MIN_CALL_MS) {
+  /*
+    The profile call is the only required one. Calendar and recent submissions
+    are already best-effort, so when the budget is spent we skip them outright
+    rather than paying a doomed request — the student still gets full stats.
+
+    TWO YEARS, not one. `userCalendar` is scoped to the year you ask for, so a
+    single call could never see a streak that crosses New Year — every streak
+    reset to 0 on 1 Jan, and the 53-week heatmap had its left third blank by
+    construction. The previous year is fetched second and is the first thing
+    dropped when the budget runs short, because the current year is what almost
+    every reader needs.
+  */
+  const thisYear = new Date().getUTCFullYear();
+  /** Submission days from every year we managed to fetch, merged. */
+  const mergedCalendar: Record<string, number> = {};
+  let anyCalendar = false;
+
+  for (const year of [thisYear, thisYear - 1]) {
+    if (remainingMs(deadline) < MIN_CALL_MS) break;
     try {
-      calendar = await gql<LcCalendarData>(
-        CALENDAR_QUERY,
-        {
-          username,
-          year: new Date().getUTCFullYear(),
-        },
-        deadline,
-      );
+      const c = await gql<LcCalendarData>(CALENDAR_QUERY, { username, year }, deadline);
+      const uc = c?.matchedUser?.userCalendar;
+      if (uc) {
+        anyCalendar = true;
+        // Only the CURRENT year's envelope is kept: totalActiveDays is a
+        // per-year figure, and taking last year's would be a different question.
+        if (year === thisYear) calendar = c;
+        if (uc.submissionCalendar) {
+          for (const [day, n] of Object.entries(
+            JSON.parse(uc.submissionCalendar) as Record<string, number>,
+          )) {
+            mergedCalendar[day] = (mergedCalendar[day] ?? 0) + n;
+          }
+        }
+      }
     } catch {
       /* calendar may be private or unavailable — non-fatal */
     }
+    // Outside the try so an empty or failed year still pays the gap. A `continue`
+    // here would fire the next request back to back, which is the one thing
+    // these sleeps exist to prevent.
+    await new Promise((r) => setTimeout(r, 250));
   }
-  await new Promise((r) => setTimeout(r, 250));
   if (remainingMs(deadline) >= MIN_CALL_MS) {
     try {
       recent = await gql<LcRecentData>(RECENT_QUERY, { username, limit: 20 }, deadline);
@@ -359,15 +388,16 @@ export async function fetchLeetCodeProfile(
   const all = profile.allQuestionsCount;
 
   const totalSolved = pickCount(ac, "All");
-  const totalAcSubs = tot.find((x) => x.difficulty === "All")?.submissions ?? 0;
+  // From `ac`, not `tot`. Both sides used to read totalSubmissionNum filtered
+  // on the same "All" bucket, so the ratio was always exactly 1 and every
+  // profile in the app reported 100% acceptance.
+  const totalAcSubs = ac.find((x) => x.difficulty === "All")?.submissions ?? 0;
   const totalAllSubs = tot.reduce((s, x) => (x.difficulty === "All" ? s + x.submissions : s), 0);
   const acceptanceRate =
     totalAllSubs > 0 ? Math.round((totalAcSubs / totalAllSubs) * 100 * 10) / 10 : null;
 
   const cal = calendar?.matchedUser?.userCalendar;
-  const submissionCalendar: Record<string, number> = cal?.submissionCalendar
-    ? JSON.parse(cal.submissionCalendar)
-    : {};
+  const submissionCalendar = mergedCalendar;
 
   return {
     realName: mu.profile.realName,
@@ -386,8 +416,19 @@ export async function fetchLeetCodeProfile(
     hardTotal: pickTotal(all, "Hard"),
     acceptanceRate,
 
-    streak: cal?.streak ?? 0,
-    totalActiveDays: cal?.totalActiveDays ?? 0,
+    /*
+      OUR number, not LeetCode's, and `undefined` rather than 0 when no calendar
+      arrived at all.
+
+      Two separate bugs lived on this line. It read `cal?.streak ?? 0`, so a
+      scrape that ran out of budget — the calendar call is best-effort and
+      skipped first — wrote 0 straight over a real 40-day streak, because
+      definedColumns() only skips `undefined`. And LeetCode's own field is
+      year-scoped, so it reset every 1 Jan. currentStreak() over the merged
+      two-year calendar answers both.
+    */
+    streak: anyCalendar ? currentStreak(submissionCalendar) : undefined,
+    totalActiveDays: cal?.totalActiveDays,
     submissionCalendar,
 
     contestRating: profile.userContestRanking?.rating ?? null,

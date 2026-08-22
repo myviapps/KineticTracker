@@ -116,7 +116,7 @@ function ScrapeRunsPage() {
           <TabsTrigger value="failures">
             Failed students
             {failed.length > 0 && (
-              <span className="ml-1.5 rounded bg-hard/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-hard">
+              <span className="ml-1.5 rounded bg-hard/15 px-1.5 py-0.5 font-mono text-3xs font-bold text-hard">
                 {failed.length}
               </span>
             )}
@@ -124,7 +124,7 @@ function ScrapeRunsPage() {
           <TabsTrigger value="duplicates">
             Duplicates
             {duplicates.length > 0 && (
-              <span className="ml-1.5 rounded bg-medium/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-medium">
+              <span className="ml-1.5 rounded bg-medium/15 px-1.5 py-0.5 font-mono text-3xs font-bold text-medium">
                 {duplicates.length}
               </span>
             )}
@@ -133,7 +133,7 @@ function ScrapeRunsPage() {
 
         <TabsContent value="runs">
           {runsTruncated && (
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <p className="mb-2 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
               Showing the {runs.length} most recent of {runsData?.total} runs
             </p>
           )}
@@ -142,7 +142,7 @@ function ScrapeRunsPage() {
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border bg-surface">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">Source</th>
@@ -167,7 +167,7 @@ function ScrapeRunsPage() {
                         {new Date(r.started_at).toLocaleString()}
                       </td>
                       <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-1.5 rounded bg-muted px-2 py-0.5 text-[10px] font-bold uppercase">
+                        <span className="inline-flex items-center gap-1.5 rounded bg-muted px-2 py-0.5 text-3xs font-bold uppercase">
                           {(r.source === "cron" || r.source === "platform") && (
                             <RefreshCw className="size-3" />
                           )}
@@ -256,7 +256,7 @@ function ScrapeRunsPage() {
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border bg-surface">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="w-10 px-4 py-3">
                       <input
@@ -336,7 +336,7 @@ function FailedRow({
         >
           {s.name}
         </Link>
-        <div className="font-mono text-[11px] text-muted-foreground">{s.roll}</div>
+        <div className="font-mono text-2xs text-muted-foreground">{s.roll}</div>
       </td>
       <td className="px-4 py-3 text-xs text-muted-foreground">
         {s.classroom_names.length > 0 ? s.classroom_names.join(" · ") : "—"}
@@ -349,7 +349,7 @@ function FailedRow({
           {s.consecutive_failures}
         </span>
         {s.abandoned && (
-          <span className="ml-1.5 rounded bg-hard/15 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-hard">
+          <span className="ml-1.5 rounded bg-hard/15 px-1.5 py-0.5 font-mono text-4xs font-bold uppercase text-hard">
             Skipped
           </span>
         )}

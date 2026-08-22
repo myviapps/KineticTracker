@@ -53,7 +53,7 @@ export function LensStatRow({
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
-            className="mt-2 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
+            className="mt-2 inline-flex items-center gap-1 font-mono text-3xs uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
           >
             <ChevronRight
               className={cn("size-3 transition-transform", open && "rotate-90")}

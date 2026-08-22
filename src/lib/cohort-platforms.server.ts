@@ -66,7 +66,7 @@ export async function loadCohortPlatformStats(studentIds: string[]): Promise<{
         supabaseAdmin
           .from("platform_stats")
           .select(
-            "account_id, platform_id, total_solved, rating, max_rating, platform_score, global_rank, fetch_status",
+            "account_id, platform_id, total_solved, rating, max_rating, platform_score, global_rank, contests_attended, fetch_status",
           )
           .in("account_id", batch)
           .range(from, to),
@@ -91,6 +91,7 @@ export async function loadCohortPlatformStats(studentIds: string[]): Promise<{
       max_rating: st?.max_rating ?? null,
       platform_score: st?.platform_score ?? null,
       global_rank: st?.global_rank ?? null,
+      contests_attended: st?.contests_attended ?? null,
       handle: a.handle,
       fetch_status: st?.fetch_status ?? null,
     };

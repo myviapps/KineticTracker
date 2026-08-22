@@ -105,15 +105,41 @@
 }
 
 @theme inline {
-  --font-sans: "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* ─── Type faces ──────────────────────────────────────────────────────────
+     Indirected through --app-font-* on purpose, exactly like the colours below
+     indirect through --background etc.
+
+     `@theme inline` DEREFERENCES one level when it generates utilities: with a
+     literal value here, `font-sans` would emit `font-family: "Inter", ...`
+     baked in, and no runtime override could reach it. Pointing at another
+     variable makes the utility emit `var(--app-font-sans)` instead, which the
+     [data-font] rules further down can then swap per user. */
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
   /* Archivo, not Inter. This slot existed but was aliased to the body face, so
      the product had no display voice at all — every headline was Inter at a
      larger size. Archivo is variable on a real `wdth` axis, which is what the
      landing headlines set wide (see .lp-display); a wide grotesque against
      JetBrains Mono captions IS the type system. Falls back to the sans stack,
      so a blocked Google Fonts request degrades to today's appearance. */
-  --font-display: "Archivo", "Inter", system-ui, sans-serif;
+  --font-display: var(--app-font-display);
+
+  /* ─── Type scale below `xs` ───────────────────────────────────────────────
+     The mono uppercase labels on stat cards, table headers and kbd hints were
+     written as text-[10px] / text-[11px] / text-[9px] in 60 files — nearly 300
+     literals. A literal pixel size cannot participate in a user font-size
+     preference: the body would grow while every label stayed pinned, inverting
+     the hierarchy the labels exist to establish. Named rem steps continue
+     Tailwind's own scale downward from xs (0.75rem/12px) so they scale with
+     everything else. */
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-2xs--line-height: 1.45;
+  --text-3xs: 0.625rem; /* 10px — the workhorse label size */
+  --text-3xs--line-height: 1.5;
+  --text-4xs: 0.5625rem; /* 9px */
+  --text-4xs--line-height: 1.5;
+  --text-5xs: 0.5rem; /* 8px */
+  --text-5xs--line-height: 1.5;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -154,6 +180,57 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ─── Appearance preferences ────────────────────────────────────────────────
+   Two knobs the user controls, both stamped on <html> before first paint by
+   the APPEARANCE_INIT script in __root.tsx (see the note there about why it has
+   to run inline rather than in an effect).
+
+   Scale is a PERCENTAGE, not a pixel size. `100%` inherits whatever the browser
+   is configured to use, so someone who has already set a larger default in
+   their browser keeps it and this multiplies on top. Hardcoding `16px` here
+   would silently override that preference — a real accessibility regression
+   dressed up as an accessibility feature.
+
+   Everything downstream is in rem — Tailwind's spacing, radii, the type scale
+   above — so one property rescales the whole interface proportionally rather
+   than just swelling the glyphs inside fixed boxes. */
+html {
+  font-size: calc(100% * var(--app-font-scale, 1));
+}
+
+:root {
+  --app-font-scale: 1;
+
+  --app-font-sans: "Inter", system-ui, sans-serif;
+  --app-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* Archivo, not Inter. This slot existed but was aliased to the body face, so
+     the product had no display voice at all — every headline was Inter at a
+     larger size. Archivo is variable on a real `wdth` axis, which is what the
+     landing headlines set wide (see .lp-display); a wide grotesque against
+     JetBrains Mono captions IS the type system. Falls back to the sans stack,
+     so a blocked Google Fonts request degrades to today's appearance. */
+  --app-font-display: "Archivo", "Inter", system-ui, sans-serif;
+}
+
+/* No webfont at all. The fastest option and the one that looks native on the
+   machine it is read on — worth offering on its own merits, not just as a
+   fallback. */
+:root[data-font="system"] {
+  --app-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --app-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --app-font-display: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Atkinson Hyperlegible was drawn by the Braille Institute specifically to
+   raise character recognition for low-vision readers — unambiguous b/d, 1/l/I,
+   0/O. The mono face deliberately stays JetBrains: every table in this app
+   leans on tabular figures, and a proportional substitute would make columns of
+   numbers stop lining up. */
+:root[data-font="hyperlegible"] {
+  --app-font-sans: "Atkinson Hyperlegible", "Inter", system-ui, sans-serif;
+  --app-font-display: "Atkinson Hyperlegible", "Inter", system-ui, sans-serif;
 }
 
 /* Dark by default (terminal industrial) */

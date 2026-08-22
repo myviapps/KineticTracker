@@ -14,7 +14,7 @@ function ImportPage() {
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <Link
         to="/dashboard"
-        className="mb-4 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary"
+        className="mb-4 inline-flex items-center gap-1 font-mono text-3xs uppercase tracking-widest text-muted-foreground hover:text-primary"
       >
         <ArrowLeft className="size-3" /> Dashboard
       </Link>

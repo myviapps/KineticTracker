@@ -21,10 +21,10 @@ export function PlatformRail() {
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
       <div className="mb-6 flex items-baseline justify-between gap-4 border-b border-border pb-3">
-        <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <p className="font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
           One dashboard for every platform
         </p>
-        <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <p className="font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
           {PLATFORMS.length} live
         </p>
       </div>

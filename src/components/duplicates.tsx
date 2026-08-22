@@ -128,7 +128,7 @@ export function Duplicates() {
 
       {rolls.length > 0 && (
         <>
-          <h3 className="pt-2 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <h3 className="pt-2 font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
             Duplicate roll numbers
           </h3>
           {rolls.map((d) => (
@@ -139,7 +139,7 @@ export function Duplicates() {
 
       {handles.length > 0 && (
         <>
-          <h3 className="pt-2 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <h3 className="pt-2 font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
             Duplicate LeetCode IDs
           </h3>
           {handles.map((d) => (
@@ -199,11 +199,11 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
     <div className="overflow-hidden rounded-lg border border-border bg-surface">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background/60 px-4 py-2.5">
         <TriangleAlert className="size-4 shrink-0 text-medium" />
-        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           {isRoll ? "Roll" : "LeetCode ID"}
         </span>
         <span className="font-mono text-sm font-bold">{dupe.value}</span>
-        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           {dupe.student_count} students
         </span>
       </div>
@@ -229,7 +229,7 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
                   className="size-3.5 accent-[var(--primary)]"
                   aria-label={`Keep ${s.roll}`}
                 />
-                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   Keep
                 </span>
               </label>
@@ -242,7 +242,7 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
                 >
                   {s.name}
                 </Link>
-                <div className="font-mono text-[11px] text-muted-foreground">
+                <div className="font-mono text-2xs text-muted-foreground">
                   {s.roll} · {s.leetcode_id}
                   {/* The scan matches case-insensitively but Phase 2's constraint
                       does not, so a case-only difference has to be visible here or
@@ -253,11 +253,11 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
                 </div>
               </div>
 
-              <div className="font-mono text-[11px] text-muted-foreground">
+              <div className="font-mono text-2xs text-muted-foreground">
                 {s.classrooms.length > 0 ? s.classrooms.join(" · ") : "no cohort"}
               </div>
 
-              <div className="flex gap-4 font-mono text-[11px] tabular-nums text-muted-foreground">
+              <div className="flex gap-4 font-mono text-2xs tabular-nums text-muted-foreground">
                 <span title="Problems solved">{s.total_solved} solved</span>
                 <span title="Days of snapshot history">{s.snapshot_count} snapshots</span>
                 <span title="Last scraped">
@@ -343,7 +343,7 @@ function DuplicateCard({ dupe }: { dupe: DuplicateGroup }) {
                   . It cannot be undone.
                 </p>
                 {(deleting?.snapshot_count ?? 0) > 0 && (
-                  <p className="rounded-md bg-medium/10 px-2 py-1.5 text-[12px] text-muted-foreground">
+                  <p className="rounded-md bg-medium/10 px-2 py-1.5 text-xs text-muted-foreground">
                     This record has history. If it is the same person as{" "}
                     {survivor?.roll ?? "the one you kept"}, <b>merge instead</b> — that folds the
                     history in rather than discarding it.
@@ -502,7 +502,7 @@ function EditDuplicateDialog({
               autoFocus={kind === "leetcode_id"}
               required
             />
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-2xs text-muted-foreground">
               Stored lowercase — one student, one profile.
             </p>
           </div>

@@ -23,9 +23,9 @@ import {
   Target,
   Flame,
   Activity,
-  BarChart3,
   LayoutGrid,
   Trophy,
+  Columns3,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -53,6 +53,22 @@ import {
 } from "@/lib/students.functions";
 import { EditStudentModal } from "@/components/edit-student-modal";
 import { rememberClassroom } from "@/lib/last-classroom";
+import {
+  ALL_COLUMNS_VISIBLE,
+  OPTIONAL_COLUMNS,
+  readColumnVisibility,
+  writeColumnVisibility,
+  type ColumnVisibility,
+  type OptionalColumnId,
+} from "@/lib/table-columns";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CohortPlatformReport } from "@/components/cohort-platform-report";
@@ -60,6 +76,7 @@ import { CohortOverall } from "@/components/cohort-overall";
 import { ReportExportDialog } from "@/components/report-export-dialog";
 import { toStudentRow, type StudentRow } from "@/lib/buckets";
 import { DailyMatrix } from "@/components/daily-matrix";
+import { StreakMatrix } from "@/components/streak-matrix";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -148,7 +165,7 @@ const SORT_KEYS: SortKey[] = [
   "streak",
   "classRank",
   "collegeRank",
-  "lcRank",
+  "contests",
 ];
 
 export const Route = createFileRoute("/_authenticated/classrooms/$id")({
@@ -179,7 +196,8 @@ const LENS_ICONS: Record<string, LucideIcon> = {
   "Solved (all platforms)": Target,
   "Total solved": Target,
   "Problems solved": Target,
-  "Avg / student": BarChart3,
+  Contests: Trophy,
+  "On a streak": Flame,
   "Avg rating": Trophy,
   "Cohort best": Trophy,
   "Avg score": Trophy,
@@ -202,7 +220,7 @@ type SortKey =
   | "streak"
   | "classRank"
   | "collegeRank"
-  | "lcRank";
+  | "contests";
 
 function ClassroomDetail() {
   const { id } = Route.useParams();
@@ -217,18 +235,13 @@ function ClassroomDetail() {
   const { status: refreshStatus } = useRefreshJobStatus();
   const qc = useQueryClient();
 
-  // Auto-refetch cohort data, daily matrix, and performance metrics whenever any refresh job finishes.
-  const prevStatus = useRef(refreshStatus);
-  useEffect(() => {
-    if (prevStatus.current !== "idle" && refreshStatus === "idle") {
-      qc.invalidateQueries({ queryKey: ["classroom", id], refetchType: "all" });
-      qc.invalidateQueries({ queryKey: ["matrix-breakdown"], refetchType: "all" });
-      qc.invalidateQueries({ queryKey: ["cohort-performance", id], refetchType: "all" });
-      qc.invalidateQueries({ queryKey: ["performance-windows"], refetchType: "all" });
-    }
-    prevStatus.current = refreshStatus;
-  }, [refreshStatus, id, qc]);
-
+  /*
+    The local "refresh finished -> invalidate" effect that used to sit here is
+    gone; see the note on the overview route. Every key it touched is already
+    covered by SCRAPE_TOUCHED_KEYS, and it inherited the same edge-triggered
+    blind spot it was meant to patch. useRefreshJobStatus now drives this off a
+    server-side pulse instead.
+  */
   const chartMotion =
     refreshStatus === "running" || refreshStatus === "queued" ? CHART_MOTION_STATIC : CHART_MOTION;
   const [search, setSearch] = useState("");
@@ -250,7 +263,17 @@ function ClassroomDetail() {
     setLensId(p);
     setFilterId("all");
   };
-  const [tab, setTab] = useState<"report" | "matrix">("report");
+  const [tab, setTab] = useState<"report" | "matrix" | "streak">("report");
+
+  /*
+    Anchor date for the Streak Matrix — the "X" in "what streak did they have
+    on X". Defaults to today, held as a yyyy-mm-dd string because that is what
+    <input type="date"> speaks, and parsed as UTC on the way out so it lines up
+    with the submission calendar (which is keyed on UTC days).
+  */
+  const [streakAnchor, setStreakAnchor] = useState(() => new Date().toISOString().slice(0, 10));
+  const [streakDays, setStreakDays] = useState(30);
+  const streakAnchorDate = useMemo(() => new Date(`${streakAnchor}T00:00:00Z`), [streakAnchor]);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
     key: "total",
     dir: "desc",
@@ -477,6 +500,61 @@ function ClassroomDetail() {
   const [trendDays, setTrendDaysState] = useState(30);
   const setTrendDays = (d: number) => setTrendDaysState(clampTrendDays(d));
 
+  /*
+    Optional movement columns. Starts fully visible and is corrected from
+    localStorage in an effect — reading storage during render would make the
+    first client paint disagree with the server markup. See table-columns.ts.
+  */
+  const [columns, setColumns] = useState<ColumnVisibility>(ALL_COLUMNS_VISIBLE);
+  useEffect(() => setColumns(readColumnVisibility()), []);
+  const toggleColumn = (id: OptionalColumnId) =>
+    setColumns((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      writeColumnVisibility(next);
+      return next;
+    });
+  const hiddenColumnCount = OPTIONAL_COLUMNS.filter((c) => !columns[c.id]).length;
+
+  /*
+    Column widths as percentages of whatever is currently visible.
+
+    Without this the table was `table-auto w-full`, which fills the container
+    but hands ALL the slack to the one column that has no width of its own —
+    Student. Hiding two movement columns therefore did not spread the table out,
+    it just grew one cell into a wide empty gutter with a truncated name sitting
+    at the left of it. Recomputing shares means hiding a column redistributes its
+    space across every remaining one instead.
+
+    Weights, not pixels: Student carries a name and a roll and needs the most,
+    the two identifier columns need more than a number, and every numeric column
+    is interchangeable with the others. `table-fixed` on the table is what makes
+    the browser honour these rather than treating them as suggestions.
+  */
+  const columnWidths = (() => {
+    const weights: number[] = [3.2, 1.7, 2.1, 1.15]; // Student, Roll, LeetCode, Total
+    weights.push(1, 1, 1); // Easy, Medium, Hard
+    weights.push(1); // Today
+    if (columns.yesterday) weights.push(1.25);
+    if (columns.week) weights.push(1);
+    if (columns.month) weights.push(1);
+    weights.push(1.1, 1, 1.15, 1.25); // Streak, Class, College, Contests
+    if (canManageStudents) weights.push(1.3); // Actions
+    const total = weights.reduce((a, w) => a + w, 0);
+    return weights.map((w) => `${((w / total) * 100).toFixed(3)}%`);
+  })();
+  /*
+    Twelve always-on columns — Student, Roll, LeetCode, Total, Easy, Medium,
+    Hard, Today, Streak, Class, College, Contests — plus however many of the
+    three movement windows are showing, plus Actions when it renders.
+
+    Derived rather than hardcoded. The literal it replaces said 14/13 against a
+    header that renders 15/14, so the "no students match" row already stopped one
+    column short of the table; a toggleable column would have made it wrong on
+    every other render.
+  */
+  const leetcodeColSpan =
+    12 + (OPTIONAL_COLUMNS.length - hiddenColumnCount) + (canManageStudents ? 1 : 0);
+
   const perfQuery = useQuery({
     // trendDays is part of the key: without it, widening the window would serve
     // the cached 30-day answer and the chart would not move.
@@ -511,9 +589,15 @@ function ClassroomDetail() {
           data.students.find((s) => s.id === sid)?.ranks?.almanac_score ?? null,
         platforms: data.platforms,
         windowSolved: lens.isAll ? allWindowSolved : (lensWindow?.solved ?? null),
-        windowDays: 30,
+        // The trend slider decides the window this page queried (see perfQuery),
+        // so it has to decide the label too. Pinned at 30 the cards showed a
+        // 7-day figure under a "Solved (30d)" heading the moment anyone moved
+        // the slider.
+        windowDays: trendDays,
+        // Union across platforms, not the max: someone practising on two sites
+        // is one active student, and max under-counted every such cohort.
         activeInWindow: lens.isAll
-          ? windowPlatforms.reduce((a, w) => Math.max(a, w.active_students), 0)
+          ? (perfQuery.data?.windows?.[0]?.active_any ?? null)
           : (lensWindow?.active_students ?? null),
         firstSnapshotDate: lens.isAll
           ? (windowPlatforms
@@ -523,7 +607,17 @@ function ClassroomDetail() {
           : (lensWindow?.first_snapshot_date ?? null),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lens, rows, statsByStudent, data.platforms, lensWindow, allWindowSolved, windowPlatforms],
+    [
+      lens,
+      rows,
+      statsByStudent,
+      data.platforms,
+      lensWindow,
+      allWindowSolved,
+      windowPlatforms,
+      trendDays,
+      perfQuery.data,
+    ],
   );
 
   /*
@@ -627,8 +721,9 @@ function ClassroomDetail() {
             return rankOf(r.id).classRank ?? Number.MAX_SAFE_INTEGER;
           case "collegeRank":
             return rankOf(r.id).collegeRank ?? Number.MAX_SAFE_INTEGER;
-          case "lcRank":
-            return r.rank;
+          case "contests":
+            // Descending-is-better like the solve counts, not like the ranks.
+            return r.contests;
         }
       };
       const av = get(a);
@@ -654,7 +749,10 @@ function ClassroomDetail() {
       easy: rows.reduce((s, r) => s + r.easy, 0),
       medium: rows.reduce((s, r) => s + r.medium, 0),
       hard: rows.reduce((s, r) => s + r.hard, 0),
-      avg: rows.length ? Math.round(rows.reduce((s, r) => s + r.total, 0) / rows.length) : 0,
+      // No `avg` here. It divided by headcount while every card and every sheet
+      // divides by students who actually have data, so it was a third
+      // definition of "average" — and nothing read it. Removed rather than
+      // reconciled: see lensStatCards, which is the one that renders.
     }),
     [rows],
   );
@@ -815,7 +913,7 @@ function ClassroomDetail() {
       "ThisWeek",
       "Last30",
       "Streak",
-      "Rank",
+      "Contests",
     ];
     const lines = filtered.map((r) => {
       const s = data.students.find((x) => x.id === r.id)!;
@@ -833,7 +931,7 @@ function ClassroomDetail() {
         r.week,
         r.last30,
         r.streak,
-        s.stats?.ranking ?? "",
+        r.contests,
       ]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(",");
@@ -864,6 +962,8 @@ function ClassroomDetail() {
         setTab("report");
       } else if (e.key === "2") {
         setTab("matrix");
+      } else if (e.key === "3" && (lens.isAll || lens.id === "leetcode")) {
+        setTab("streak");
       } else if (e.key.toLowerCase() === "b") {
         document.getElementById(`filter-${filterId}`)?.focus();
       } else if (e.key.toLowerCase() === "p") {
@@ -871,12 +971,21 @@ function ClassroomDetail() {
         document.getElementById(`lens-${lens.id}`)?.focus();
       } else if (e.key.toLowerCase() === "e") {
         exportCsv();
+      } else if (e.key.toLowerCase() === "m") {
+        /*
+          The legend has advertised M since the matrix shipped and nothing was
+          ever bound to it. Rather than duplicate an export function up here, it
+          activates the same button the user would click — so the shortcut and
+          the control can never drift apart, and it does nothing (correctly) on
+          a tab where no grid is mounted.
+        */
+        document.getElementById(tab === "streak" ? "export-streak" : "export-matrix")?.click();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterId, lens.id, filtered]);
+  }, [filterId, lens.id, filtered, tab]);
 
   return (
     /*
@@ -891,7 +1000,7 @@ function ClassroomDetail() {
           <div>
             <Link
               to="/dashboard"
-              className="mb-2 inline-block font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary"
+              className="mb-2 inline-block font-mono text-3xs uppercase tracking-widest text-muted-foreground hover:text-primary"
             >
               ← Dashboard
             </Link>
@@ -1063,17 +1172,24 @@ function ClassroomDetail() {
       */}
         <Tabs
           value={tab}
-          onValueChange={(v) => setTab(v as "report" | "matrix")}
+          onValueChange={(v) => setTab(v as "report" | "matrix" | "streak")}
           className="w-full"
         >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <TabsList>
               <TabsTrigger value="report">Day-wise report</TabsTrigger>
               <TabsTrigger value="matrix">Daily matrix</TabsTrigger>
+              {/* LeetCode-only: it reads the submission calendar, which no other
+                  platform publishes. Offering it under a Codeforces lens would
+                  be offering an empty grid. */}
+              {(lens.isAll || lens.id === "leetcode") && (
+                <TabsTrigger value="streak">Streak matrix</TabsTrigger>
+              )}
             </TabsList>
-            <div className="hidden font-mono text-[10px] uppercase tracking-widest text-muted-foreground md:block">
+            <div className="hidden font-mono text-3xs uppercase tracking-widest text-muted-foreground md:block">
               Shortcuts: <kbd className="rounded border border-border px-1">1</kbd> report ·
               <kbd className="ml-1 rounded border border-border px-1">2</kbd> matrix ·
+              <kbd className="ml-1 rounded border border-border px-1">3</kbd> streak ·
               <kbd className="ml-1 rounded border border-border px-1">/</kbd> search ·
               <kbd className="ml-1 rounded border border-border px-1">P</kbd> platform ·
               <kbd className="ml-1 rounded border border-border px-1">B</kbd> filters ·
@@ -1085,10 +1201,45 @@ function ClassroomDetail() {
           <TabsContent value="report" className="mt-0">
             {/* The two halves of this table are different units and nothing said so. */}
             {lens.id === "leetcode" && (
-              <div className="mb-3 flex justify-end">
-                <span className="hidden rounded-md border border-border bg-surface px-2 py-1 font-mono text-[10px] text-muted-foreground xl:inline">
-                  Total/E/M/H = solved · Today/Yest./Week/30d = submissions
+              <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                <span className="hidden rounded-md border border-border bg-surface px-2 py-1 font-mono text-3xs text-muted-foreground xl:inline">
+                  Total/Easy/Medium/Hard = solved · Today/Yesterday/Week/30d = submissions
                 </span>
+                {/*
+                  Fifteen columns is more than a laptop can show without a
+                  horizontal scrollbar, and the three movement windows are the
+                  ones people read only some of the time. Hiding them is a
+                  preference, so it persists per browser rather than per visit.
+                */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 px-2">
+                      <Columns3 className="mr-1 size-3.5" />
+                      <span className="font-mono text-3xs uppercase tracking-widest">Columns</span>
+                      {hiddenColumnCount > 0 && (
+                        <span className="ml-1.5 rounded bg-primary/15 px-1 font-mono text-3xs text-primary">
+                          {hiddenColumnCount} hidden
+                        </span>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuLabel className="font-mono text-3xs uppercase tracking-widest">
+                      Movement windows
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {OPTIONAL_COLUMNS.map((c) => (
+                      <DropdownMenuCheckboxItem
+                        key={c.id}
+                        checked={columns[c.id]}
+                        onCheckedChange={() => toggleColumn(c.id)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        {c.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             )}
 
@@ -1117,42 +1268,105 @@ function ClassroomDetail() {
               className="overflow-x-auto rounded-lg border border-border bg-surface"
               hidden={lens.id !== "leetcode"}
             >
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {/*
+                min-w keeps `table-fixed` honest on a narrow screen: without a
+                floor the fixed layout would squeeze fifteen columns into a phone
+                and render a grid of ellipses. Below the floor the wrapper's
+                overflow-x-auto takes over, which is the behaviour that was
+                already there.
+              */}
+              <table className="w-full min-w-[62rem] table-fixed text-left text-sm">
+                <colgroup>
+                  {columnWidths.map((w, i) => (
+                    <col key={i} style={{ width: w }} />
+                  ))}
+                </colgroup>
+                <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <Th onClick={() => toggleSort("name")}>Student</Th>
-                    <Th onClick={() => toggleSort("roll")}>Roll</Th>
+                    <Th onClick={() => toggleSort("name")} sorted={sort.key === "name" && sort.dir}>
+                      Student
+                    </Th>
+                    <Th onClick={() => toggleSort("roll")} sorted={sort.key === "roll" && sort.dir}>
+                      Roll
+                    </Th>
                     <th className="px-3 py-3">LeetCode</th>
-                    <Th right onClick={() => toggleSort("total")}>
+                    <Th
+                      right
+                      onClick={() => toggleSort("total")}
+                      sorted={sort.key === "total" && sort.dir}
+                    >
                       Total
                     </Th>
-                    <Th right onClick={() => toggleSort("easy")} className="text-easy">
-                      E
+                    <Th
+                      right
+                      onClick={() => toggleSort("easy")}
+                      sorted={sort.key === "easy" && sort.dir}
+                      className="text-easy"
+                    >
+                      Easy
                     </Th>
-                    <Th right onClick={() => toggleSort("medium")} className="text-medium">
-                      M
+                    <Th
+                      right
+                      onClick={() => toggleSort("medium")}
+                      sorted={sort.key === "medium" && sort.dir}
+                      className="text-medium"
+                    >
+                      Medium
                     </Th>
-                    <Th right onClick={() => toggleSort("hard")} className="text-hard">
-                      H
+                    <Th
+                      right
+                      onClick={() => toggleSort("hard")}
+                      sorted={sort.key === "hard" && sort.dir}
+                      className="text-hard"
+                    >
+                      Hard
                     </Th>
-                    <Th right onClick={() => toggleSort("today")}>
+                    <Th
+                      right
+                      onClick={() => toggleSort("today")}
+                      sorted={sort.key === "today" && sort.dir}
+                    >
                       Today
                     </Th>
-                    <Th right onClick={() => toggleSort("yesterday")}>
-                      Yest.
-                    </Th>
-                    <Th right onClick={() => toggleSort("week")}>
-                      Week
-                    </Th>
-                    <Th right onClick={() => toggleSort("month")}>
-                      30d
-                    </Th>
-                    <Th right onClick={() => toggleSort("streak")}>
+                    {columns.yesterday && (
+                      <Th
+                        right
+                        onClick={() => toggleSort("yesterday")}
+                        sorted={sort.key === "yesterday" && sort.dir}
+                      >
+                        Yesterday
+                      </Th>
+                    )}
+                    {columns.week && (
+                      <Th
+                        right
+                        onClick={() => toggleSort("week")}
+                        sorted={sort.key === "week" && sort.dir}
+                      >
+                        Week
+                      </Th>
+                    )}
+                    {columns.month && (
+                      <Th
+                        right
+                        onClick={() => toggleSort("month")}
+                        sorted={sort.key === "month" && sort.dir}
+                      >
+                        30d
+                      </Th>
+                    )}
+                    <Th
+                      right
+                      onClick={() => toggleSort("streak")}
+                      sorted={sort.key === "streak" && sort.dir}
+                      title="Consecutive days with a LeetCode submission, as of today"
+                    >
                       Streak
                     </Th>
                     <Th
                       right
                       onClick={() => toggleSort("classRank")}
+                      sorted={sort.key === "classRank" && sort.dir}
                       title="Rank in this cohort by LeetCode problems solved"
                     >
                       Class
@@ -1160,25 +1374,29 @@ function ClassroomDetail() {
                     <Th
                       right
                       onClick={() => toggleSort("collegeRank")}
+                      sorted={sort.key === "collegeRank" && sort.dir}
                       title="Rank across the college by Almanac Score (all platforms)"
                     >
                       College
                     </Th>
                     <Th
                       right
-                      onClick={() => toggleSort("lcRank")}
-                      title="LeetCode's worldwide ranking, from their profile"
+                      onClick={() => toggleSort("contests")}
+                      sorted={sort.key === "contests" && sort.dir}
+                      title="LeetCode contests this student has entered"
                     >
-                      LC World
+                      Contests
                     </Th>
-                    {canManageStudents && <th className="px-3 py-3 text-right">Actions</th>}
+                    {canManageStudents && (
+                      <th className="whitespace-nowrap px-2 py-3 text-right">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border font-mono">
                   {filtered.length === 0 && (
                     <tr>
                       <td
-                        colSpan={canManageStudents ? 14 : 13}
+                        colSpan={leetcodeColSpan}
                         className="px-4 py-16 text-center text-muted-foreground"
                       >
                         No students match this bucket.
@@ -1191,109 +1409,154 @@ function ClassroomDetail() {
                       <tr
                         key={r.id}
                         className={cn(
-                          "group cursor-pointer transition-colors hover:bg-primary/5",
+                          "cursor-pointer transition-colors hover:bg-primary/5",
                           s.scrape_error && "border-l-2 border-l-hard",
                         )}
                         onClick={() =>
                           router.navigate({ to: "/students/$roll", params: { roll: r.roll } })
                         }
                       >
+                        {/*
+                          Capped and truncated. Every other column is sized by
+                          its own content, so this is the column that absorbs
+                          whatever width is left — and, before the cap, the one
+                          that pushed the table past the viewport the moment a
+                          cohort contained a long name. The full name is still
+                          reachable via the title attribute and the profile.
+                        */}
                         <td className="px-3 py-3">
-                          <div className="flex items-center gap-2">
+                          {/*
+                            No max-width here any more — the colgroup above sets
+                            this column's width and `table-fixed` makes it stick,
+                            so a cap would only reintroduce the gutter it was
+                            added to remove. The name still shrinks: `truncate`
+                            sets overflow:hidden, which zeroes a flex item's
+                            automatic minimum size.
+                          */}
+                          <div className="flex min-w-0 items-center gap-2">
                             {s.stats?.avatar ? (
                               <img
                                 src={s.stats.avatar}
                                 alt=""
-                                className="size-7 rounded bg-muted object-cover"
+                                className="size-7 shrink-0 rounded bg-muted object-cover"
                                 onError={(e) => (e.currentTarget.style.display = "none")}
                               />
                             ) : (
-                              <div className="grid size-7 place-items-center rounded bg-muted font-sans text-[10px] font-bold">
+                              <div className="grid size-7 shrink-0 place-items-center rounded bg-muted font-sans text-3xs font-bold">
                                 {r.name.slice(0, 2).toUpperCase()}
                               </div>
                             )}
-                            <span className="font-sans font-semibold">{r.name}</span>
+                            <span className="truncate font-sans font-semibold" title={r.name}>
+                              {r.name}
+                            </span>
                           </div>
                         </td>
                         <td className="px-3 py-3 text-muted-foreground">
-                          {r.roll}
-                          {duplicateRolls.has(r.roll.trim().toLowerCase()) && (
-                            <Link
-                              to="/scrape-runs"
-                              onClick={(e) => e.stopPropagation()}
-                              title="This roll number belongs to more than one student record — probably the same person in two cohorts. Resolve under Scrape History → Duplicates"
-                              className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
-                            >
-                              <TriangleAlert className="size-3.5" />
-                            </Link>
-                          )}
+                          <div className="flex min-w-0 items-center">
+                            <span className="truncate" title={r.roll}>
+                              {r.roll}
+                            </span>
+                            {duplicateRolls.has(r.roll.trim().toLowerCase()) && (
+                              <Link
+                                to="/scrape-runs"
+                                onClick={(e) => e.stopPropagation()}
+                                title="This roll number belongs to more than one student record — probably the same person in two cohorts. Resolve under Scrape History → Duplicates"
+                                className="ml-1.5 inline-flex shrink-0 items-center align-middle text-medium hover:text-foreground"
+                              >
+                                <TriangleAlert className="size-3.5" />
+                              </Link>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-3">
-                          {s.scrape_error ? (
-                            <span
-                              className="inline-flex items-center gap-1 text-hard font-bold"
-                              title={s.scrape_error}
-                            >
-                              {r.leetcode_id} ⚠️
-                            </span>
-                          ) : (
-                            <a
-                              href={`https://leetcode.com/u/${r.leetcode_id}/`}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-primary hover:underline"
-                            >
-                              {r.leetcode_id}
-                              <ExternalLink className="size-3" />
-                            </a>
-                          )}
-                          {/* One student, one profile. A shared handle means this
+                          <div className="flex min-w-0 items-center">
+                            {s.scrape_error ? (
+                              <span
+                                className="flex items-center gap-1 truncate font-bold text-hard"
+                                title={s.scrape_error}
+                              >
+                                <span className="truncate">{r.leetcode_id}</span> ⚠️
+                              </span>
+                            ) : (
+                              <a
+                                href={`https://leetcode.com/u/${r.leetcode_id}/`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 truncate text-primary hover:underline"
+                                title={r.leetcode_id}
+                              >
+                                <span className="truncate">{r.leetcode_id}</span>
+                                <ExternalLink className="size-3 shrink-0" />
+                              </a>
+                            )}
+                            {/* One student, one profile. A shared handle means this
                             profile is being scraped once per student and building
                             two divergent histories — otherwise only discoverable
                             on an admin page nobody opens. */}
-                          {duplicateHandles.has(r.leetcode_id.toLowerCase()) && (
-                            <Link
-                              to="/scrape-runs"
-                              onClick={(e) => e.stopPropagation()}
-                              title="This LeetCode ID is shared with another student — resolve it under Scrape History → Duplicates"
-                              className="ml-1.5 inline-flex items-center align-middle text-medium hover:text-foreground"
-                            >
-                              <TriangleAlert className="size-3.5" />
-                            </Link>
-                          )}
+                            {duplicateHandles.has(r.leetcode_id.toLowerCase()) && (
+                              <Link
+                                to="/scrape-runs"
+                                onClick={(e) => e.stopPropagation()}
+                                title="This LeetCode ID is shared with another student — resolve it under Scrape History → Duplicates"
+                                className="ml-1.5 inline-flex shrink-0 items-center align-middle text-medium hover:text-foreground"
+                              >
+                                <TriangleAlert className="size-3.5" />
+                              </Link>
+                            )}
+                          </div>
                         </td>
-                        <td className="px-3 py-3 text-right font-bold">{r.total || "—"}</td>
-                        <td className="px-3 py-3 text-right text-easy">{r.easy || "—"}</td>
-                        <td className="px-3 py-3 text-right text-medium">{r.medium || "—"}</td>
-                        <td className="px-3 py-3 text-right text-hard">{r.hard || "—"}</td>
-                        <td className="px-3 py-3 text-right">
+                        <td className="whitespace-nowrap px-2 py-3 text-right font-bold">
+                          {r.total || "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-3 text-right text-easy">
+                          {r.easy || "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-3 text-right text-medium">
+                          {r.medium || "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-3 text-right text-hard">
+                          {r.hard || "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-3 text-right">
                           {r.today > 0 ? (
                             <span className="text-primary">+{r.today}</span>
                           ) : (
                             <span className="text-muted-foreground">0</span>
                           )}
                         </td>
-                        <td className="px-3 py-3 text-right text-muted-foreground">
-                          {r.yesterday || "—"}
-                        </td>
-                        <td className="px-3 py-3 text-right">{r.week || "—"}</td>
-                        <td className="px-3 py-3 text-right">{r.last30 || "—"}</td>
-                        <td className="px-3 py-3 text-right">{r.streak}d</td>
-                        {/* Three ranks, three questions. Class is where they sit in
-                          this room, College across the platform, LC World is
-                          LeetCode's own global number off their profile. */}
-                        <td className="px-3 py-3 text-right font-bold text-primary">
+                        {columns.yesterday && (
+                          <td className="whitespace-nowrap px-2 py-3 text-right text-muted-foreground">
+                            {r.yesterday || "—"}
+                          </td>
+                        )}
+                        {columns.week && (
+                          <td className="whitespace-nowrap px-2 py-3 text-right">
+                            {r.week || "—"}
+                          </td>
+                        )}
+                        {columns.month && (
+                          <td className="whitespace-nowrap px-2 py-3 text-right">
+                            {r.last30 || "—"}
+                          </td>
+                        )}
+                        <td className="whitespace-nowrap px-2 py-3 text-right">{r.streak}d</td>
+                        {/* Two ranks, then participation. Class is where they sit
+                          in this room, College across the platform. The third
+                          column used to be LeetCode's worldwide ranking, which
+                          nobody acted on; contests entered is something a
+                          student can actually change this week. */}
+                        <td className="whitespace-nowrap px-2 py-3 text-right font-bold text-primary">
                           {rankOf(r.id).classRank ? `#${rankOf(r.id).classRank}` : "—"}
                         </td>
-                        <td className="px-3 py-3 text-right font-bold">
+                        <td className="whitespace-nowrap px-2 py-3 text-right font-bold">
                           {rankOf(r.id).collegeRank ? `#${rankOf(r.id).collegeRank}` : "—"}
                         </td>
-                        <td className="px-3 py-3 text-right text-muted-foreground">
-                          {s.stats?.ranking ? `#${s.stats.ranking.toLocaleString()}` : "—"}
+                        <td className="whitespace-nowrap px-2 py-3 text-right text-muted-foreground">
+                          {r.contests || "—"}
                         </td>
                         {canManageStudents && (
-                          <td className="px-3 py-3 text-right">
+                          <td className="whitespace-nowrap px-2 py-3 text-right">
                             <button
                               type="button"
                               title="Edit student"
@@ -1308,7 +1571,7 @@ function ClassroomDetail() {
                                   leetcode_id: s.leetcode_id,
                                 });
                               }}
-                              className="inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-accent hover:text-foreground"
+                              className="inline-flex size-7 items-center justify-center rounded border border-border/60 text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground"
                             >
                               <Pencil className="size-3" />
                             </button>
@@ -1330,7 +1593,7 @@ function ClassroomDetail() {
                                   shared: sharedIds.has(s.id),
                                 });
                               }}
-                              className="ml-1 inline-flex size-7 items-center justify-center rounded border border-transparent text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 hover:border-border hover:bg-hard/10 hover:text-hard"
+                              className="ml-1 inline-flex size-7 items-center justify-center rounded border border-border/60 text-muted-foreground transition-colors hover:border-hard/50 hover:bg-hard/10 hover:text-hard"
                             >
                               <UserMinus className="size-3" />
                             </button>
@@ -1345,7 +1608,7 @@ function ClassroomDetail() {
           </TabsContent>
 
           <TabsContent value="matrix" className="mt-0">
-            <div className="mb-2 flex flex-wrap items-center gap-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <div className="mb-2 flex flex-wrap items-center gap-3 font-mono text-3xs uppercase tracking-widest text-muted-foreground">
               <span>
                 Anchor:{" "}
                 <b className="text-foreground">
@@ -1366,6 +1629,60 @@ function ClassroomDetail() {
               startDate={new Date(data.classroom.created_at)}
               platformId={lens.isAll ? "all" : lens.id}
             />
+          </TabsContent>
+
+          <TabsContent value="streak" className="mt-0">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
+                    As of
+                  </span>
+                  <input
+                    type="date"
+                    value={streakAnchor}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => e.target.value && setStreakAnchor(e.target.value)}
+                    className="h-8 rounded-md border border-border bg-background px-2 font-mono text-xs"
+                  />
+                </label>
+                <div className="flex flex-col gap-1">
+                  <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
+                    Window
+                  </span>
+                  <div className="flex h-8 rounded-md border border-border p-0.5" role="group">
+                    {[14, 30, 60, 90].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setStreakDays(d)}
+                        aria-pressed={streakDays === d}
+                        className={
+                          streakDays === d
+                            ? "rounded bg-primary px-2 font-mono text-3xs font-medium text-primary-foreground"
+                            : "rounded px-2 font-mono text-3xs text-muted-foreground hover:text-foreground"
+                        }
+                      >
+                        {d}d
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
+                Filter:{" "}
+                <b className="text-primary">
+                  {lensFilterSet.filters.find((f) => f.id === filterId)?.label ?? "All"}
+                </b>
+              </div>
+            </div>
+            {/*
+              `filtered` is the same roster the report tab shows, so the lens,
+              search box and bucket chips all apply here without extra wiring —
+              and StudentRow already carries the submission calendar this needs,
+              so the whole view costs no server round trip.
+            */}
+            <StreakMatrix rows={filtered} anchor={streakAnchorDate} days={streakDays} />
           </TabsContent>
         </Tabs>
 
@@ -1425,7 +1742,7 @@ function ClassroomDetail() {
                   placeholder="optional"
                 />
               </div>
-              <p className="rounded-md bg-medium/10 px-2 py-1.5 text-[11px] text-muted-foreground">
+              <p className="rounded-md bg-medium/10 px-2 py-1.5 text-2xs text-muted-foreground">
                 A CSV that still lists the old name will create a new, empty classroom rather than
                 matching this one. Update your import sheets too.
               </p>
@@ -1516,12 +1833,26 @@ function ClassroomDetail() {
  * Radix Dialog picks up the tuned animate-in/animate-out curves from styles.css.
  */
 
+/**
+ * A sortable header cell.
+ *
+ * The sort arrow renders ONLY on the column actually being sorted. It used to
+ * render on all fifteen, which said nothing about the current sort and cost
+ * ~16px of width apiece — a quarter of the overflow that put a horizontal
+ * scrollbar on this table at 1080p. The others get it on hover instead, which
+ * is where a discoverability affordance belongs.
+ *
+ * Right-aligned columns are the numeric ones and take tighter padding: their
+ * content is three or four digits, so px-3 was spending more on gutters than on
+ * data across a dozen columns.
+ */
 function Th({
   children,
   onClick,
   right,
   className,
   title,
+  sorted,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
@@ -1529,20 +1860,36 @@ function Th({
   className?: string;
   /** Three columns now end in "rank"; the tooltip says which is which. */
   title?: string;
+  /** Direction when this column is the active sort, false otherwise. */
+  sorted?: "asc" | "desc" | false;
 }) {
   return (
     <th
       onClick={onClick}
       title={title}
+      aria-sort={sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined}
       className={cn(
-        "cursor-pointer select-none px-3 py-3 font-semibold hover:text-foreground",
-        right && "text-right",
+        // Deliberately wrappable. Under `table-fixed` the colgroup owns the
+        // width, so a nowrap header wider than its share would spill across the
+        // next column instead of being clipped. Wrapping to a second line is the
+        // pressure valve — it only happens on a narrow viewport, and a slightly
+        // taller header row beats a sheared one.
+        "group cursor-pointer select-none py-3 align-bottom font-semibold leading-tight hover:text-foreground",
+        right ? "px-2 text-right" : "px-3",
+        sorted && "text-foreground",
         className,
       )}
     >
       <span className="inline-flex items-center gap-1">
         {children}
-        {onClick && <ArrowUpDown className="size-3 opacity-40" />}
+        {onClick && (
+          <ArrowUpDown
+            className={cn(
+              "size-3 shrink-0 transition-opacity",
+              sorted ? "opacity-90" : "opacity-0 group-hover:opacity-40",
+            )}
+          />
+        )}
       </span>
     </th>
   );

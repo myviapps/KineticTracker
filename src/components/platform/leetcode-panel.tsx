@@ -11,11 +11,12 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import { Calendar, Star, Code, Brain } from "lucide-react";
+import { Calendar, Star, Code, Brain, Flame, Trophy, Medal, Percent } from "lucide-react";
 
 import type { StudentPlatformSummary } from "@/lib/students.functions";
 import { Heatmap } from "@/components/heatmap";
-import { SectionTitle } from "@/components/stat-card";
+import { SectionTitle, StatCard } from "@/components/stat-card";
+import { currentStreak } from "@/lib/date-buckets";
 import { useCssVars } from "@/hooks/use-css-vars";
 import { CHART_MOTION } from "@/lib/chart-motion";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,11 @@ import { cn } from "@/lib/utils";
 /** The LeetCode-shaped stats row. Loosely typed because student_stats is. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LegacyStats = any;
+
+/** student_stats is loosely typed, so a missing column reads as undefined. */
+function numOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
 
 function EmptyState({
   icon,
@@ -70,6 +76,31 @@ export function LeetcodePanel({ p, stats }: { p: StudentPlatformSummary; stats: 
   );
 
   const cal = (stats?.submission_calendar ?? {}) as Record<string, number>;
+
+  /*
+    Streak and contest standing, the two things this panel published nowhere.
+
+    The streak is derived from the calendar rather than read off
+    `stats.streak`, for the same reason the roster derives it: a stored value is
+    frozen at scrape time and cannot fall when the student stops. Contest
+    figures have been fetched and stored since the platform_stats migration and
+    were simply never rendered.
+  */
+  // Same rule the roster follows: derive from the calendar when there is one,
+  // fall back to the stored column only when there is not.
+  const streak = Object.keys(cal).length > 0 ? currentStreak(cal) : (numOrNull(stats?.streak) ?? 0);
+  const activeDays = numOrNull(stats?.total_active_days);
+  const contestsAttended = numOrNull(stats?.contests_attended);
+  const contestRating = numOrNull(stats?.contest_rating);
+  const contestRank = numOrNull(stats?.contest_global_ranking);
+  const contestTop = numOrNull(stats?.contest_top_percentage);
+  // A student who has never entered a contest gets no band at all — four
+  // dashes would read as "we failed to fetch this" rather than "never competed".
+  const hasContests =
+    contestsAttended !== null ||
+    contestRating !== null ||
+    contestRank !== null ||
+    contestTop !== null;
 
   // Normalized language stats
   const rawLangs = stats?.language_stats;
@@ -132,6 +163,47 @@ export function LeetcodePanel({ p, stats }: { p: StudentPlatformSummary; stats: 
 
   return (
     <>
+      {/* Row 2.5: streak + contest standing */}
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <StatCard
+          label="Current streak"
+          value={streak > 0 ? `${streak}d` : "—"}
+          hint={
+            activeDays !== null ? `${activeDays.toLocaleString()} active days this year` : "no runs"
+          }
+          icon={Flame}
+          tone={streak >= 7 ? "primary" : "default"}
+        />
+        {hasContests && (
+          <>
+            <StatCard
+              label="Contests"
+              value={contestsAttended !== null ? contestsAttended.toLocaleString() : "—"}
+              hint="entered on LeetCode"
+              icon={Trophy}
+            />
+            <StatCard
+              label="Contest rating"
+              value={contestRating !== null ? Math.round(contestRating).toLocaleString() : "—"}
+              hint="LeetCode's own rating"
+              icon={Medal}
+            />
+            <StatCard
+              label="Contest rank"
+              value={contestRank !== null ? `#${Math.round(contestRank).toLocaleString()}` : "—"}
+              hint="worldwide"
+              icon={Trophy}
+            />
+            <StatCard
+              label="Top %"
+              value={contestTop !== null ? `${contestTop.toFixed(1)}%` : "—"}
+              hint="of all competitors"
+              icon={Percent}
+            />
+          </>
+        )}
+      </div>
+
       {/* Row 3: Heatmap + Difficulty */}
       <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* <Heatmap> renders its own card and "Submission Activity" heading — this
@@ -171,7 +243,7 @@ export function LeetcodePanel({ p, stats }: { p: StudentPlatformSummary; stats: 
                     <div className="text-xl font-bold leading-none text-foreground">
                       {center ? center.value : totalSolved}
                     </div>
-                    <div className="mt-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+                    <div className="mt-0.5 text-4xs uppercase tracking-wider text-muted-foreground">
                       {center ? center.name : "Solved"}
                     </div>
                   </div>
@@ -357,7 +429,7 @@ export function LeetcodePanel({ p, stats }: { p: StudentPlatformSummary; stats: 
                 className="flex items-center justify-between rounded-md border border-transparent px-3 py-2 text-sm hover:border-border hover:bg-surface-2"
               >
                 <span className="truncate">{r.title}</span>
-                <span className="ml-3 flex shrink-0 items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                <span className="ml-3 flex shrink-0 items-center gap-2 font-mono text-3xs text-muted-foreground">
                   <span className="rounded bg-muted px-1.5 py-0.5">{r.lang}</span>
                   {new Date(r.submitted_at).toLocaleDateString()}
                 </span>
@@ -386,7 +458,7 @@ function DifficultyBar({
   const tc = color === "easy" ? "text-easy" : color === "medium" ? "text-medium" : "text-hard";
   return (
     <div>
-      <div className="mb-1 flex justify-between font-mono text-[11px] font-bold">
+      <div className="mb-1 flex justify-between font-mono text-2xs font-bold">
         <span className={tc}>{label}</span>
         <span className="text-muted-foreground">
           <span className="text-foreground">{solved}</span> / {total}
@@ -411,7 +483,7 @@ function TagColumn({
   const sorted = [...tags].sort((a, b) => b.solved - a.solved).slice(0, 8);
   return (
     <div>
-      <h4 className={cn("mb-2 font-mono text-[10px] font-bold uppercase tracking-widest", color)}>
+      <h4 className={cn("mb-2 font-mono text-3xs font-bold uppercase tracking-widest", color)}>
         {title}
       </h4>
       {sorted.length === 0 ? (

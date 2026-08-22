@@ -88,7 +88,7 @@ export function HeroSearch() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold">{s.name}</span>
-                        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-3xs font-bold text-primary">
                           {s.roll}
                         </span>
                       </div>

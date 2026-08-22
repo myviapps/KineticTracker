@@ -15,6 +15,7 @@ import {
 } from "@/lib/platforms.functions";
 import { SectionTitle } from "@/components/stat-card";
 import { AnimatedLoader } from "@/components/animated-loader";
+import { REFRESH_JOB_KEY } from "@/hooks/use-refresh-job";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -97,6 +98,10 @@ function PlatformsPage() {
     onSuccess: () => {
       toast.success("Refresh queued — the pump will pick it up");
       invalidate();
+      // The pump and the progress strip both key off this query. Without the
+      // nudge they only notice on their next idle poll, so the job sits visibly
+      // queued for seconds after a button that says it started it.
+      qc.invalidateQueries({ queryKey: REFRESH_JOB_KEY });
     },
     onError: (e) => toast.error(String(e)),
   });
@@ -188,7 +193,7 @@ function PlatformRow({
           <div className="flex items-center gap-2">
             <span className="font-bold">{p.name}</span>
             <span
-              className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground"
+              className="rounded bg-muted px-1.5 py-0.5 font-mono text-3xs uppercase text-muted-foreground"
               title={TIER_COPY[p.tier]}
             >
               {p.tier}
@@ -196,22 +201,22 @@ function PlatformRow({
             {/* A registered platform with no adapter is a configurable slot, not
                 a bug — say so rather than leaving a switch that does nothing. */}
             {!p.has_adapter && (
-              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
                 no adapter yet
               </span>
             )}
             {parked && (
-              <span className="inline-flex items-center gap-1 rounded bg-medium/15 px-1.5 py-0.5 font-mono text-[10px] text-medium">
+              <span className="inline-flex items-center gap-1 rounded bg-medium/15 px-1.5 py-0.5 font-mono text-3xs text-medium">
                 <Pause className="size-3" /> paused · resumes {ago(p.resume_after)}
               </span>
             )}
             {p.job_status === "running" && (
-              <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+              <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 font-mono text-3xs text-primary">
                 <Play className="size-3" /> running {p.job_progress}
               </span>
             )}
           </div>
-          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+          <div className="mt-0.5 font-mono text-3xs text-muted-foreground">
             batch {p.batch_size} students · concurrency {p.max_concurrency} parallel · cooldown{" "}
             {p.base_cooldown_ms}ms · ttl {p.refresh_ttl_hours}h
           </div>
@@ -262,7 +267,7 @@ function PlatformRow({
               surfacing the raw message is the difference between a five-minute
               fix and a week of quietly wrong numbers. */}
           {(p.last_error || p.sample_error) && (
-            <div className="mt-2 flex items-start gap-1.5 rounded border border-hard/30 bg-hard/5 p-2 text-[11px] text-hard">
+            <div className="mt-2 flex items-start gap-1.5 rounded border border-hard/30 bg-hard/5 p-2 text-2xs text-hard">
               <AlertTriangle className="mt-px size-3.5 shrink-0" />
               <span className="break-words">{p.last_error ?? p.sample_error}</span>
             </div>
@@ -271,17 +276,17 @@ function PlatformRow({
       )}
 
       {p.accounts === 0 && (
-        <div className="mt-2 font-mono text-[10px] text-muted-foreground">
+        <div className="mt-2 font-mono text-3xs text-muted-foreground">
           No student handles yet — import a column named “{p.id}” to start tracking it.
         </div>
       )}
 
       {p.notes && (
         <details className="mt-2">
-          <summary className="cursor-pointer font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground">
+          <summary className="cursor-pointer font-mono text-3xs uppercase tracking-widest text-muted-foreground hover:text-foreground">
             adapter notes
           </summary>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{p.notes}</p>
+          <p className="mt-1 text-2xs leading-relaxed text-muted-foreground">{p.notes}</p>
         </details>
       )}
     </div>
@@ -339,7 +344,7 @@ function PlatformTuningModal({
               <Label htmlFor="batch-size" className="text-xs font-semibold">
                 Students per Batch (`batch_size`)
               </Label>
-              <span className="font-mono text-[10px] text-muted-foreground">1 – 100</span>
+              <span className="font-mono text-3xs text-muted-foreground">1 – 100</span>
             </div>
             <Input
               id="batch-size"
@@ -350,7 +355,7 @@ function PlatformTuningModal({
               onChange={(e) => setBatchSize(Number(e.target.value))}
               required
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Number of students fetched per batch chunk (e.g. 5, 10, 15).
             </p>
           </div>
@@ -360,7 +365,7 @@ function PlatformTuningModal({
               <Label htmlFor="max-concurrency" className="text-xs font-semibold">
                 Concurrent Batches / Workers (`max_concurrency`)
               </Label>
-              <span className="font-mono text-[10px] text-muted-foreground">1 – 20</span>
+              <span className="font-mono text-3xs text-muted-foreground">1 – 20</span>
             </div>
             <Input
               id="max-concurrency"
@@ -371,7 +376,7 @@ function PlatformTuningModal({
               onChange={(e) => setConcurrency(Number(e.target.value))}
               required
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Number of parallel requests running simultaneously (e.g. 3 = Batch A, B, C running
               concurrently).
             </p>
@@ -382,7 +387,7 @@ function PlatformTuningModal({
               <Label htmlFor="cooldown-ms" className="text-xs font-semibold">
                 Cooldown between Batches (ms)
               </Label>
-              <span className="font-mono text-[10px] text-muted-foreground">0 – 60,000 ms</span>
+              <span className="font-mono text-3xs text-muted-foreground">0 – 60,000 ms</span>
             </div>
             <Input
               id="cooldown-ms"
@@ -394,7 +399,7 @@ function PlatformTuningModal({
               onChange={(e) => setCooldownMs(Number(e.target.value))}
               required
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Base pause between batches. Adaptive cooldown automatically scales up if rate-limited.
             </p>
           </div>
@@ -404,7 +409,7 @@ function PlatformTuningModal({
               <Label htmlFor="refresh-ttl" className="text-xs font-semibold">
                 Refresh TTL (hours)
               </Label>
-              <span className="font-mono text-[10px] text-muted-foreground">1 – 720 h</span>
+              <span className="font-mono text-3xs text-muted-foreground">1 – 720 h</span>
             </div>
             <Input
               id="refresh-ttl"
@@ -415,7 +420,7 @@ function PlatformTuningModal({
               onChange={(e) => setTtlHours(Number(e.target.value))}
               required
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-2xs text-muted-foreground">
               Data fresher than this cutoff is skipped during routine refreshes.
             </p>
           </div>
@@ -453,7 +458,7 @@ function Cell({
           : "";
   return (
     <div>
-      <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
       <div className={`font-bold ${color}`}>{value}</div>

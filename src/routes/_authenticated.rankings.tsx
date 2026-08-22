@@ -323,7 +323,7 @@ function RankingsPage() {
 
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <Th sorted={sort === "name"} dir={dir} onClick={() => toggleSort("name")}>
                 Student
@@ -401,7 +401,7 @@ function RankingsPage() {
                           onError={(e) => (e.currentTarget.style.display = "none")}
                         />
                       ) : (
-                        <div className="grid size-7 shrink-0 place-items-center rounded bg-muted font-mono text-[10px] font-bold">
+                        <div className="grid size-7 shrink-0 place-items-center rounded bg-muted font-mono text-3xs font-bold">
                           {r.name.slice(0, 2).toUpperCase()}
                         </div>
                       )}
@@ -413,7 +413,7 @@ function RankingsPage() {
                         >
                           {r.name}
                         </Link>
-                        <div className="font-mono text-[10px] text-muted-foreground">{r.roll}</div>
+                        <div className="font-mono text-3xs text-muted-foreground">{r.roll}</div>
                       </div>
                     </div>
                   </td>
@@ -424,12 +424,12 @@ function RankingsPage() {
                     )}
                     {classes.length > 0 ? (
                       classes.map((c) => (
-                        <div key={c.id} className="truncate font-mono text-[10px] leading-5">
+                        <div key={c.id} className="truncate font-mono text-3xs leading-5">
                           {c.name}
                         </div>
                       ))
                     ) : (
-                      <div className="font-mono text-[10px] leading-5">—</div>
+                      <div className="font-mono text-3xs leading-5">—</div>
                     )}
                   </td>
 
@@ -443,7 +443,7 @@ function RankingsPage() {
                     {showCollegeColumn && <div className="text-xs">&nbsp;</div>}
                     {classes.length > 0 ? (
                       classes.map((c) => (
-                        <div key={c.id} className="text-[11px] leading-5">
+                        <div key={c.id} className="text-2xs leading-5">
                           {c.rank !== null ? (
                             <>
                               <span className="font-bold">#{c.rank}</span>
@@ -457,7 +457,7 @@ function RankingsPage() {
                         </div>
                       ))
                     ) : (
-                      <div className="text-[11px] leading-5 text-muted-foreground">—</div>
+                      <div className="text-2xs leading-5 text-muted-foreground">—</div>
                     )}
                   </td>
 
@@ -540,7 +540,7 @@ function ScoreExplainer({ scoring }: { scoring: ScoringPlatform[] }) {
     <div className="mb-4">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1 font-mono text-3xs uppercase tracking-widest text-muted-foreground hover:text-foreground"
       >
         {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         How the Almanac Score works
@@ -552,19 +552,19 @@ function ScoreExplainer({ scoring }: { scoring: ScoringPlatform[] }) {
             Every rank on this page comes from one difficulty-weighted score, summed across the
             platforms listed below:
           </p>
-          <pre className="mt-2 overflow-x-auto rounded bg-background/60 p-3 font-mono text-[11px] leading-relaxed text-foreground">
+          <pre className="mt-2 overflow-x-auto rounded bg-background/60 p-3 font-mono text-2xs leading-relaxed text-foreground">
             {`easy×w_easy + medium×w_medium + hard×w_hard + unrated×w_unrated
   + max(0, (rating − baseline) ÷ 100) × w_rating`}
           </pre>
 
           {scoring.length === 0 ? (
-            <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-hard">
+            <p className="mt-3 font-mono text-3xs uppercase tracking-widest text-hard">
               No platforms are currently enabled — every score is 0.
             </p>
           ) : (
             <>
               <table className="mt-3 w-full text-left text-xs">
-                <thead className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <thead className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th scope="col" className="py-1 pr-3">
                       Platform
@@ -603,7 +603,7 @@ function ScoreExplainer({ scoring }: { scoring: ScoringPlatform[] }) {
                   ))}
                 </tbody>
               </table>
-              <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <p className="mt-3 font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                 Currently scoring: {names}. Activity on any other platform does not affect these
                 ranks.
               </p>

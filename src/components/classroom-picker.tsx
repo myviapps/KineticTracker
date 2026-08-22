@@ -93,7 +93,7 @@ export function ClassroomPicker({
             className="h-8 pl-7 text-sm"
           />
         </div>
-        <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="shrink-0 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           {chosen} / {total}
         </span>
       </div>
@@ -113,13 +113,13 @@ export function ClassroomPicker({
           return (
             <div key={g.id} className="mb-1 last:mb-0">
               <div className="flex items-center justify-between gap-2 px-2 py-1">
-                <span className="truncate font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                <span className="truncate font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
                   {g.name}
                 </span>
                 <button
                   type="button"
                   onClick={() => onToggleMany(ids, !allOn)}
-                  className="shrink-0 text-[10px] font-medium text-primary hover:underline"
+                  className="shrink-0 text-3xs font-medium text-primary hover:underline"
                 >
                   {allOn ? "Clear" : "Select all"}
                 </button>
@@ -138,7 +138,7 @@ export function ClassroomPicker({
                   />
                   <span className="min-w-0 flex-1 truncate">{c.name}</span>
                   {c.student_count !== undefined && (
-                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                    <span className="shrink-0 font-mono text-3xs text-muted-foreground">
                       {c.student_count}
                     </span>
                   )}

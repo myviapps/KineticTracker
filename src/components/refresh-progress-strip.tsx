@@ -50,7 +50,7 @@ export function RefreshProgressStrip() {
           {/* One row per platform once there is more than one in flight. A
               single-platform refresh says everything it needs to above. */}
           {jobs.length > 1 && (
-            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px]">
+            <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-3xs">
               {jobs.map((j) => (
                 <PlatformRow key={j.id} job={j} />
               ))}

@@ -305,10 +305,24 @@ export const getPerformanceWindows = createServerFn({ method: "GET" })
       return {
         days,
         platforms: platforms.sort((a, b) => a.platform_name.localeCompare(b.platform_name)),
+        active_any: new Set(
+          inWindow.filter((s) => (s.solved_that_day ?? 0) > 0).map((s) => s.student_id),
+        ).size,
       };
     });
 
     return { windows };
   });
 
-export type WindowResult = { days: number; platforms: PlatformWindow[] };
+export type WindowResult = {
+  days: number;
+  platforms: PlatformWindow[];
+  /**
+   * Distinct students who solved something on ANY platform in the window.
+   *
+   * Not derivable from `platforms`: summing per-platform counts double-counts
+   * anyone active on two sites, and taking the max under-counts them. Only a
+   * union over the raw rows answers it, so it is computed here once.
+   */
+  active_any: number;
+};

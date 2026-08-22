@@ -216,6 +216,8 @@ export type CohortPlatformStat = {
   max_rating: number | null;
   platform_score: number | null;
   global_rank: number | null;
+  /** Contests entered. Null on platforms that publish no contest history. */
+  contests_attended: number | null;
   handle: string;
   fetch_status: string | null;
 };
@@ -517,7 +519,9 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
       (batch, from, to) => {
         let q = supabaseAdmin
           .from("daily_snapshots")
-          .select("student_id, platform_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved")
+          .select(
+            "student_id, platform_id, snapshot_date, total_solved, easy_solved, medium_solved, hard_solved",
+          )
           .in("student_id", batch)
           .gte("snapshot_date", data.startDate)
           .lte("snapshot_date", data.endDate)
@@ -562,7 +566,10 @@ export const getMatrixBreakdown = createServerFn({ method: "GET" })
       : [];
 
     const acctToStudent = new Map(accounts.map((a) => [a.id, a.student_id]));
-    const liveStatsByStudent = new Map<string, { total: number; easy: number; medium: number; hard: number }>();
+    const liveStatsByStudent = new Map<
+      string,
+      { total: number; easy: number; medium: number; hard: number }
+    >();
 
     for (const ps of pStats) {
       const sId = acctToStudent.get(ps.account_id);

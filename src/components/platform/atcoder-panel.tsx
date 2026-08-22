@@ -85,7 +85,7 @@ export function AtcoderPanel({ p }: { p: StudentPlatformSummary }) {
         capability="rating"
         hasData={history.length > 1}
         right={
-          <span className="font-mono text-[10px] text-muted-foreground">
+          <span className="font-mono text-3xs text-muted-foreground">
             {history.length} rated contests
           </span>
         }
@@ -119,7 +119,7 @@ export function AtcoderPanel({ p }: { p: StudentPlatformSummary }) {
       </PanelSection>
 
       {p.score_contribution != null && (
-        <p className="font-mono text-[10px] text-muted-foreground">
+        <p className="font-mono text-3xs text-muted-foreground">
           Contributes {Math.round(p.score_contribution).toLocaleString()} to this student&apos;s
           Almanac Score.
         </p>

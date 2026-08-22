@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { Search, ArrowLeft, ExternalLink, LogIn, LayoutDashboard } from "lucide-react";
 
 import { useStudentSearch } from "@/hooks/use-student-search";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AppearanceMenu } from "@/components/appearance-menu";
 import { AlmanacLogo } from "@/components/almanac-logo";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,7 +39,7 @@ function SearchPage() {
           <AlmanacLogo size={28} />
         </Link>
         <div className="flex items-center gap-1 sm:gap-2">
-          <ThemeToggle />
+          <AppearanceMenu />
           {signedIn === null ? (
             <Skeleton className="h-8 w-28 sm:w-36" />
           ) : signedIn ? (
@@ -150,7 +150,7 @@ function SearchPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold">{s.name}</span>
-                            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-primary">
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-3xs font-bold text-primary">
                               {s.roll}
                             </span>
                           </div>

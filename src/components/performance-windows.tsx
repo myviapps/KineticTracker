@@ -64,7 +64,7 @@ function WindowCard({ days, platforms }: { days: number; platforms: PlatformWind
     <div className="rounded-lg border border-border bg-surface p-5">
       <div className="mb-3 flex items-baseline justify-between">
         <h3 className="text-sm font-bold">{title}</h3>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           {/* "over the window", not "per day" — see the note at the top. */}
           {total.toLocaleString()} solved over {days}d
         </span>
@@ -101,7 +101,7 @@ function PlatformRow({ p, days }: { p: PlatformWindow; days: number }) {
     return (
       <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-2 last:border-0">
         <span className="text-sm font-medium">{p.platform_name}</span>
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-3xs text-muted-foreground">
           {p.first_snapshot_date
             ? `collecting since ${new Date(p.first_snapshot_date).toLocaleDateString(undefined, {
                 day: "numeric",
@@ -159,7 +159,7 @@ function PlatformRow({ p, days }: { p: PlatformWindow; days: number }) {
       )}
 
       {p.days_covered < days && (
-        <p className="font-mono text-[10px] text-muted-foreground">
+        <p className="font-mono text-3xs text-muted-foreground">
           {p.days_covered} of {days} days have data
         </p>
       )}

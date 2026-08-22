@@ -47,7 +47,11 @@ export const leetcodeAdapter: PlatformAdapter = {
       // when the chunk runs short. Empty results from a student who genuinely has
       // none are indistinguishable here, so `partial` is advisory only — it
       // never suppresses a write.
-      const partial = p.streak === 0 && p.totalActiveDays === 0 && p.recent.length === 0;
+      //
+      // `undefined` is now the honest signal that no calendar arrived at all; a
+      // real 0 means the calendar came back and the student is simply inactive.
+      // The old test read both as 0 and could not tell them apart.
+      const partial = p.streak === undefined && p.recent.length === 0;
 
       return {
         displayName: p.realName,

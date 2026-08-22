@@ -84,7 +84,7 @@ export const CohortToolbar = forwardRef<
               tabIndex={on ? 0 : -1}
               onClick={() => onFilter(f.id)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[11px] font-semibold transition-[color,background-color,border-color]",
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-2xs font-semibold transition-[color,background-color,border-color]",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 on
                   ? "border-primary bg-primary/10 text-primary"
@@ -102,7 +102,7 @@ export const CohortToolbar = forwardRef<
       {/* Says what the filter is doing in words. A chip highlighted three
           sections above the table is easy to forget you set. */}
       {value !== "all" && activeLabel && (
-        <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <p className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           Filtered to <b className="text-primary">{activeLabel}</b> — everything below reflects this
           group.
         </p>

@@ -223,7 +223,7 @@ function ClassroomsListPage() {
                 aria-pressed={sort === s.id}
                 onClick={() => set({ sort: s.id })}
                 className={cn(
-                  "rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors",
+                  "rounded-md border px-2 py-1 font-mono text-3xs uppercase tracking-wider transition-colors",
                   sort === s.id
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground hover:text-foreground",
@@ -278,7 +278,7 @@ function ClassroomsListPage() {
                   </span>
                 </div>
                 {isCurrent && (
-                  <span className="mt-2 inline-block rounded bg-primary/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-primary">
+                  <span className="mt-2 inline-block rounded bg-primary/15 px-2 py-0.5 font-mono text-3xs font-bold uppercase tracking-wider text-primary">
                     Current
                   </span>
                 )}
@@ -297,17 +297,17 @@ function ClassroomsListPage() {
                           <span className="text-xl font-bold leading-none tabular-nums">
                             {avg !== null ? Math.round(avg).toLocaleString() : "—"}
                           </span>
-                          <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                             avg {metricLabel(lens.rank_metric).toLowerCase()}
                           </span>
                         </span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
+                        <span className="font-mono text-3xs text-muted-foreground">
                           {roll.tracked}/{c.student_count}
                           {coverage !== null && <span className="opacity-70"> · {coverage}%</span>}
                         </span>
                       </div>
                     ) : (
-                      <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                         nobody on {lens.name} yet
                       </span>
                     )}
@@ -325,7 +325,7 @@ function ClassroomsListPage() {
                         <span
                           key={p.id}
                           title={`${r.tracked} of ${c.student_count} on ${p.name}`}
-                          className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                          className="rounded border border-border px-1.5 py-0.5 font-mono text-3xs text-muted-foreground"
                         >
                           {p.name} <span className="text-foreground">{r.tracked}</span>
                         </span>

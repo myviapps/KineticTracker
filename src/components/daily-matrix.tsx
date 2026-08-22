@@ -55,14 +55,10 @@ function GainBadge({
   stacked: boolean;
 }) {
   if (gain === null) {
-    return (
-      <span className={cn("text-[9px] text-muted-foreground/40", stacked && "mt-0.5")}>·</span>
-    );
+    return <span className={cn("text-4xs text-muted-foreground/40", stacked && "mt-0.5")}>·</span>;
   }
   if (gain <= 0) {
-    return (
-      <span className={cn("text-[9px] text-muted-foreground/40", stacked && "mt-0.5")}>–</span>
-    );
+    return <span className={cn("text-4xs text-muted-foreground/40", stacked && "mt-0.5")}>–</span>;
   }
   return (
     <span
@@ -71,7 +67,7 @@ function GainBadge({
         // A gain across a snapshot gap isn't one day's work. Amber marks it so a
         // caught-up backlog can't be misread as a single heroic day.
         span > 1 ? "text-medium" : "text-easy",
-        stacked ? "mt-0.5 text-[9px]" : "text-[11px]",
+        stacked ? "mt-0.5 text-4xs" : "text-2xs",
       )}
     >
       <ArrowUp className={stacked ? "size-2.5" : "size-3"} strokeWidth={3} />
@@ -108,11 +104,11 @@ function StackedCell({
         {total ?? <span className="text-muted-foreground/50">—</span>}
       </span>
       {gain === null ? (
-        <span className="mt-1 text-[9px] text-muted-foreground/40">·</span>
+        <span className="mt-1 text-4xs text-muted-foreground/40">·</span>
       ) : gain <= 0 ? (
-        <span className="mt-1 text-[9px] text-muted-foreground/40">–</span>
+        <span className="mt-1 text-4xs text-muted-foreground/40">–</span>
       ) : (
-        <span className={cn("mt-1 inline-flex items-center gap-px text-[10px] font-bold", tone)}>
+        <span className={cn("mt-1 inline-flex items-center gap-px text-3xs font-bold", tone)}>
           <ArrowUp className="size-2.5" strokeWidth={3} />
           {gain}
         </span>
@@ -223,7 +219,10 @@ export function DailyMatrix({
       }
 
       // Map explicit snapshots
-      const snapMap = new Map<string, { total: number; easy: number; medium: number; hard: number }>();
+      const snapMap = new Map<
+        string,
+        { total: number; easy: number; medium: number; hard: number }
+      >();
       for (const s of rawSnaps) {
         snapMap.set(s.date, s);
       }
@@ -399,7 +398,7 @@ export function DailyMatrix({
             className="h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           {allDates.length} days · {fmtShort(customStart)} → {fmtShort(customEnd)}
         </span>
         <button
@@ -416,7 +415,7 @@ export function DailyMatrix({
           E/M/H are single letters to fit a 50px sticky column — the legend spells
           them out once instead of relying on color alone.
         */}
-        <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+        <div className="flex items-center gap-2 font-mono text-4xs uppercase tracking-wider text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="size-2 rounded-full bg-easy" />
             Easy
@@ -467,6 +466,7 @@ export function DailyMatrix({
             ))}
           </div>
           <button
+            id="export-matrix"
             onClick={handleExportCsv}
             className="h-8 rounded-md border border-border bg-background px-3 text-sm text-foreground hover:bg-accent"
           >
@@ -523,7 +523,7 @@ export function DailyMatrix({
               ))}
             </colgroup>
             <thead>
-              <tr className="font-mono text-[10px] font-bold uppercase tracking-wider text-foreground">
+              <tr className="font-mono text-3xs font-bold uppercase tracking-wider text-foreground">
                 <th className="sticky left-0 top-0 z-30 min-w-[200px] border-b border-r border-border bg-background px-3 py-2 text-left">
                   Student
                 </th>
@@ -559,8 +559,8 @@ export function DailyMatrix({
                       flexDates ? "min-w-[44px]" : "w-[56px] min-w-[56px] max-w-[56px]",
                     )}
                   >
-                    <div className="text-[10px] font-bold leading-tight">{fmtShort(date)}</div>
-                    <div className="text-[8px] opacity-60">{fmtWeekday(date)}</div>
+                    <div className="text-3xs font-bold leading-tight">{fmtShort(date)}</div>
+                    <div className="text-5xs opacity-60">{fmtWeekday(date)}</div>
                   </th>
                 ))}
               </tr>
@@ -608,7 +608,7 @@ export function DailyMatrix({
                         >
                           {r.name}
                         </div>
-                        <div className="truncate text-[10px] text-muted-foreground">{r.roll}</div>
+                        <div className="truncate text-3xs text-muted-foreground">{r.roll}</div>
                       </Link>
                     </td>
                     <td className="sticky left-[224px] z-10 border-b border-border bg-surface px-3 py-2 text-right group-hover:bg-[color-mix(in_oklch,var(--primary)_5%,var(--surface))]">
@@ -660,11 +660,11 @@ export function DailyMatrix({
                           }
                         >
                           {!cell ? (
-                            <span className="text-[11px] font-bold text-foreground">—</span>
+                            <span className="text-2xs font-bold text-foreground">—</span>
                           ) : (
                             <div className="flex flex-col items-center leading-none">
                               {view !== "gain" && (
-                                <span className="text-[11px] font-bold text-foreground">
+                                <span className="text-2xs font-bold text-foreground">
                                   {cell.total}
                                 </span>
                               )}
@@ -696,7 +696,7 @@ export function DailyMatrix({
             </tbody>
             {rows.length > 0 && (
               <tfoot>
-                <tr className="bg-background font-mono text-[10px] uppercase tracking-wider">
+                <tr className="bg-background font-mono text-3xs uppercase tracking-wider">
                   <td className="sticky left-0 z-10 border-t border-r border-border bg-background px-3 py-2 font-bold">
                     Cohort / day
                   </td>
@@ -745,9 +745,7 @@ export function DailyMatrix({
                     >
                       <div className="flex flex-col items-center leading-none">
                         {view !== "gain" && (
-                          <span className="text-[11px] font-bold text-primary">
-                            {c.total || "·"}
-                          </span>
+                          <span className="text-2xs font-bold text-primary">{c.total || "·"}</span>
                         )}
                         {view !== "total" && (
                           <GainBadge gain={c.gain} span={c.span} stacked={view === "both"} />

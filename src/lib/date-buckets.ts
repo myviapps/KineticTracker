@@ -62,6 +62,84 @@ export function thisYearCount(cal: CalendarMap, ref: Date = new Date()): number 
   return s;
 }
 
+/** Midnight UTC on the day `d` falls in. */
+function utcMidnight(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+export function shiftDays(d: Date, n: number): Date {
+  const c = utcMidnight(d);
+  c.setUTCDate(c.getUTCDate() + n);
+  return c;
+}
+
+/** Submissions recorded on the UTC day `d` falls in. */
+export function dayCount(cal: CalendarMap, d: Date): number {
+  return cal[String(utcDay(d))] ?? 0;
+}
+
+/**
+ * Consecutive active days ending ON `day`, inclusive. 0 if `day` itself is idle.
+ *
+ * The primitive every streak figure in the app is built from, so "streak" means
+ * one thing whether it is asked about today or about a date last March.
+ */
+export function streakEndingOn(cal: CalendarMap, day: Date): number {
+  const cursor = utcMidnight(day);
+  let n = 0;
+  while (dayCount(cal, cursor) > 0) {
+    n += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return n;
+}
+
+/**
+ * Consecutive days, ending today, with at least one submission.
+ *
+ * The app used to render LeetCode's own `userCalendar(year).streak` verbatim.
+ * That number is scoped to ONE CALENDAR YEAR, so every streak crossing New Year
+ * reset to 0 on 1 Jan; it was also written as `0` whenever the calendar call was
+ * skipped, silently wiping a real streak. Deriving it here from the calendar we
+ * already store fixes both, and adds a third property a stored integer cannot
+ * have: it DECAYS. A student scraped three days ago and quiet since reads 0d,
+ * not the 10d that was true when the scrape ran.
+ *
+ * Falls back to YESTERDAY when today is empty — the current UTC day is still in
+ * progress, and resetting a 30-day streak at 00:01 UTC because nothing has been
+ * submitted yet today would be wrong every single morning. That grace is
+ * specific to "now": streakEndingOn() has no such rule, because a past date is
+ * a finished day and there is nothing left to wait for.
+ *
+ * Counts DAYS WITH A SUBMISSION, retries included, which is what every other
+ * count derived from this calendar means (see the note in buckets.ts).
+ */
+export function currentStreak(cal: CalendarMap, ref: Date = new Date()): number {
+  const today = utcMidnight(ref);
+  if (dayCount(cal, today) > 0) return streakEndingOn(cal, today);
+  return streakEndingOn(cal, shiftDays(today, -1));
+}
+
+/**
+ * Longest run of consecutive active days within [from, to] inclusive.
+ *
+ * Clipped to the window on purpose: a run that started before `from` is
+ * reported only for the part that falls inside it, because the question the
+ * Streak Matrix asks is "how did they do over THIS range".
+ */
+export function longestStreakBetween(cal: CalendarMap, from: Date, to: Date): number {
+  let best = 0;
+  let run = 0;
+  const cursor = utcMidnight(from);
+  const end = utcMidnight(to);
+  while (cursor <= end) {
+    run = dayCount(cal, cursor) > 0 ? run + 1 : 0;
+    if (run > best) best = run;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return best;
+}
+
 // Build a 371-cell (53 weeks * 7 days) heatmap grid ending today.
 export function buildHeatmapGrid(cal: CalendarMap, ref: Date = new Date()) {
   const weeks: { date: Date; count: number }[][] = [];

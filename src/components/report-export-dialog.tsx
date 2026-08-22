@@ -47,6 +47,13 @@ export function ReportExportDialog({
 
   const [picked, setPicked] = useState<Set<string>>(new Set(preselectClassroomIds));
   const [days, setDays] = useState(30);
+  /*
+    The date the Streaks sheet is measured against — the same "X" the Streak
+    Matrix on the cohort page asks about. Defaults to today. Exposed here so a
+    workbook can answer the question someone was looking at on screen, rather
+    than always answering it for today and quietly disagreeing.
+  */
+  const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
   const [touched, setTouched] = useState(false);
 
   // Seed from the launching page the first time the list arrives, then leave the
@@ -78,7 +85,7 @@ export function ReportExportDialog({
   const run = useMutation({
     mutationFn: async (mode: "workbook" | "print") => {
       const data = (await build({
-        data: { classroomIds: [...selected], days },
+        data: { classroomIds: [...selected], days, asOf },
       })) as unknown as ReportData;
       return { data, mode };
     },
@@ -90,7 +97,7 @@ export function ReportExportDialog({
       if (mode === "workbook") {
         const name = downloadReportWorkbook(data);
         toast.success(`Downloaded ${name}`, {
-          description: `${data.totals.students} students · ${data.fact.length} platform rows · ${data.daily.length} daily rows`,
+          description: `${data.totals.students} students · ${data.fact.length} platform rows · ${data.daily.length} daily rows · ${data.streaks?.length ?? 0} streak rows`,
         });
       } else {
         sessionStorage.setItem("almanac-report", JSON.stringify(data));
@@ -134,7 +141,7 @@ export function ReportExportDialog({
           <div className="max-h-72 space-y-3 overflow-auto pr-1">
             {byCollege.map((group) => (
               <div key={group.name}>
-                <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                <div className="mb-1 font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                   {group.name}
                 </div>
                 <div className="space-y-1.5">
@@ -171,7 +178,20 @@ export function ReportExportDialog({
             <option value={30}>Last 30 days</option>
             <option value={90}>Last 90 days</option>
           </select>
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+
+          <Label htmlFor="asof" className="ml-3 text-xs">
+            Streaks as of
+          </Label>
+          <input
+            id="asof"
+            type="date"
+            value={asOf}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => e.target.value && setAsOf(e.target.value)}
+            className="rounded border border-border bg-background px-2 py-1 font-mono text-xs"
+          />
+
+          <span className="ml-auto font-mono text-3xs text-muted-foreground">
             {selected.size} cohort{selected.size === 1 ? "" : "s"} selected
           </span>
         </div>

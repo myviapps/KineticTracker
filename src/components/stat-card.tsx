@@ -47,7 +47,7 @@ export function StatCard({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="truncate font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        <div className="truncate font-mono text-3xs font-semibold uppercase tracking-widest text-muted-foreground">
           {label}
         </div>
         {Icon && <Icon className={cn("size-4 shrink-0", t.icon)} aria-hidden />}
@@ -62,7 +62,7 @@ export function StatCard({
       </div>
       <div className="mt-auto pt-2">
         {hint && (
-          <div className="font-mono text-[10px] leading-snug text-muted-foreground">{hint}</div>
+          <div className="font-mono text-3xs leading-snug text-muted-foreground">{hint}</div>
         )}
       </div>
     </div>
@@ -80,7 +80,7 @@ export function SectionTitle({
 }) {
   return (
     <div className={cn("mb-3 flex flex-wrap items-center justify-between gap-3", className)}>
-      <h2 className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+      <h2 className="font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
         {children}
       </h2>
       {right}

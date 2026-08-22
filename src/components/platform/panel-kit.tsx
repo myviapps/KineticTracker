@@ -112,7 +112,7 @@ export function IdentityBanner({
             )}
           </div>
           {sub && <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>}
-          <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-2xs text-muted-foreground">
             {p.profile_url ? (
               <a
                 href={p.profile_url}
@@ -137,14 +137,14 @@ export function IdentityBanner({
 
         {p.rank && (
           <div className="shrink-0 text-right">
-            <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <div className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
               Rank by {p.rank.metric}
             </div>
             <div className="text-lg font-bold text-primary">
               #{p.rank.college_rank}
               <span className="text-sm text-muted-foreground">/{p.rank.college_total}</span>
             </div>
-            <div className="font-mono text-[10px] text-muted-foreground">
+            <div className="font-mono text-3xs text-muted-foreground">
               #{p.rank.overall_rank} of {p.rank.overall_total} on {p.name}
             </div>
           </div>
@@ -193,7 +193,7 @@ export function UnavailablePanel({
       <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
         {statusNote(platformId, status)}
       </p>
-      <p className="mt-3 font-mono text-[11px] text-muted-foreground">
+      <p className="mt-3 font-mono text-2xs text-muted-foreground">
         Saved handle: <span className="text-foreground">@{handle}</span>
       </p>
     </div>
@@ -338,7 +338,7 @@ export function ContestTable({ history }: { history: RatingPoint[] }) {
   return (
     <div className="max-h-72 overflow-y-auto">
       <table className="w-full text-left text-xs">
-        <thead className="sticky top-0 bg-surface font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <thead className="sticky top-0 bg-surface font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           <tr>
             <th className="py-1.5 pr-2">Contest</th>
             <th className="px-2 py-1.5 text-right">Rank</th>
@@ -357,7 +357,7 @@ export function ContestTable({ history }: { history: RatingPoint[] }) {
                   <div className="truncate" title={h.label}>
                     {h.label || "—"}
                   </div>
-                  <div className="font-mono text-[10px] text-muted-foreground">
+                  <div className="font-mono text-3xs text-muted-foreground">
                     {h.at ? String(h.at).slice(0, 10) : ""}
                   </div>
                 </td>

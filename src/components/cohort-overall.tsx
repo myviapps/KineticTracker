@@ -121,7 +121,7 @@ export function CohortOverall({
           <SectionTitle>Performance by Platform</SectionTitle>
         </div>
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Platform</th>
               <th className="px-3 py-2 text-right">Students</th>
@@ -149,7 +149,7 @@ export function CohortOverall({
                 </td>
                 <td className="px-3 py-2.5 text-right font-bold">
                   {r.avg !== null ? r.avg.toLocaleString() : <Dash />}
-                  <span className="ml-1 font-mono text-[10px] font-normal text-muted-foreground">
+                  <span className="ml-1 font-mono text-3xs font-normal text-muted-foreground">
                     {r.platform.rank_metric}
                   </span>
                 </td>
@@ -164,7 +164,7 @@ export function CohortOverall({
                       className="text-xs hover:text-primary hover:underline"
                     >
                       {r.best.name}
-                      <span className="ml-1 font-mono text-[10px] text-muted-foreground">
+                      <span className="ml-1 font-mono text-3xs text-muted-foreground">
                         {r.bestValue?.toLocaleString()}
                       </span>
                     </Link>
@@ -181,7 +181,7 @@ export function CohortOverall({
       {/* Full roster */}
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-3 py-2">#</th>
               <th className="px-3 py-2">Student</th>
@@ -240,7 +240,7 @@ export function CohortOverall({
                         <span
                           key={p.id}
                           title={p.name}
-                          className="rounded bg-muted px-1 py-0.5 font-mono text-[9px] uppercase text-muted-foreground"
+                          className="rounded bg-muted px-1 py-0.5 font-mono text-4xs uppercase text-muted-foreground"
                         >
                           {p.id.slice(0, 2)}
                         </span>

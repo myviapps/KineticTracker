@@ -35,7 +35,7 @@ export function PerspectiveFrame({ children }: { children: ReactNode }) {
               <span className="size-2.5 rounded-full bg-medium/70" />
               <span className="size-2.5 rounded-full bg-easy/70" />
             </div>
-            <div className="mx-auto flex w-full max-w-sm items-center gap-2 rounded-md border border-border bg-background px-3 py-1 font-mono text-[10px] text-muted-foreground">
+            <div className="mx-auto flex w-full max-w-sm items-center gap-2 rounded-md border border-border bg-background px-3 py-1 font-mono text-3xs text-muted-foreground">
               <span className="size-1.5 rounded-full bg-easy" aria-hidden />
               almanac.app/classrooms/cse-a
             </div>

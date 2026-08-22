@@ -216,7 +216,7 @@ function AddStudentsPage() {
         <Link
           to="/classrooms/$id"
           params={{ id }}
-          className="mb-4 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary"
+          className="mb-4 inline-flex items-center gap-1 font-mono text-3xs uppercase tracking-widest text-muted-foreground hover:text-primary"
         >
           <ArrowLeft className="size-3" /> Back to classroom
         </Link>
@@ -237,7 +237,7 @@ function AddStudentsPage() {
       <Link
         to="/classrooms/$id"
         params={{ id }}
-        className="mb-4 inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:text-primary"
+        className="mb-4 inline-flex items-center gap-1 font-mono text-3xs uppercase tracking-widest text-muted-foreground hover:text-primary"
       >
         <ArrowLeft className="size-3" /> Back to classroom
       </Link>
@@ -320,10 +320,10 @@ function AddStudentsPage() {
             */}
             <div className="border-t border-border pt-4">
               <div className="mb-2 flex items-baseline justify-between gap-2">
-                <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                <Label className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                   Other platforms
                 </Label>
-                <span className="font-mono text-[10px] text-muted-foreground">all optional</span>
+                <span className="font-mono text-3xs text-muted-foreground">all optional</span>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {OTHER_PLATFORMS.map((p) => {
@@ -360,7 +360,7 @@ function AddStudentsPage() {
                         />
                         {!fetchable && (
                           <span
-                            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"
+                            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-4xs uppercase tracking-wider text-muted-foreground"
                             title={statusNote(p.id, platformStatus(p.id, false))}
                           >
                             not fetched
@@ -371,7 +371,7 @@ function AddStudentsPage() {
                   );
                 })}
               </div>
-              <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+              <p className="mt-2 font-mono text-3xs text-muted-foreground">
                 “not fetched” platforms have no scraper yet — the handle is saved and starts
                 updating once one ships.
               </p>
@@ -397,7 +397,7 @@ function AddStudentsPage() {
               <a
                 href={`data:text/csv;charset=utf-8,${encodeURIComponent(templateCsv())}`}
                 download="students.csv"
-                className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-primary hover:underline"
+                className="shrink-0 font-mono text-3xs uppercase tracking-widest text-primary hover:underline"
               >
                 ↓ Template
               </a>
@@ -449,13 +449,13 @@ function AddStudentsPage() {
                 column, and you only find out once the handles are missing. */}
             {preview.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                   Handle columns found:
                 </span>
                 {detected.map((p) => (
                   <span
                     key={p.id}
-                    className="rounded border border-easy/40 bg-easy/10 px-1.5 py-0.5 font-mono text-[10px] text-easy"
+                    className="rounded border border-easy/40 bg-easy/10 px-1.5 py-0.5 font-mono text-3xs text-easy"
                   >
                     {p.label}
                   </span>
@@ -468,7 +468,7 @@ function AddStudentsPage() {
                 <Label>Preview ({preview.length} rows)</Label>
                 <div className="mt-1 max-h-64 overflow-auto rounded border border-border bg-background">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-surface-2 font-mono text-[10px] uppercase text-muted-foreground">
+                    <thead className="bg-surface-2 font-mono text-3xs uppercase text-muted-foreground">
                       <tr>
                         <th className="px-2 py-1.5">Name</th>
                         <th className="px-2 py-1.5">Roll</th>

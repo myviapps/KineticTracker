@@ -44,7 +44,7 @@ export function TrendWindowControl({
 
   return (
     <div className={cn("flex items-center gap-1", className)}>
-      <span className="mr-1 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+      <span className="mr-1 font-mono text-4xs uppercase tracking-widest text-muted-foreground">
         Window
       </span>
       {PRESETS.map((p) => (
@@ -57,7 +57,7 @@ export function TrendWindowControl({
           }}
           aria-pressed={value === p.days}
           className={cn(
-            "rounded px-2 py-0.5 font-mono text-[11px] font-bold transition-colors",
+            "rounded px-2 py-0.5 font-mono text-2xs font-bold transition-colors",
             value === p.days
               ? "bg-primary text-primary-foreground"
               : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -79,7 +79,7 @@ export function TrendWindowControl({
           // Empty means "still typing", not "zero days".
           if (e.target.value !== "") onChange(clampTrendDays(e.target.value));
         }}
-        className="h-6 w-12 rounded border border-border bg-background px-1.5 text-center font-mono text-[11px] text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        className="h-6 w-12 rounded border border-border bg-background px-1.5 text-center font-mono text-2xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
       />
     </div>
   );

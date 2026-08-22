@@ -49,7 +49,7 @@ export function LeaderboardBars({
             >
               <span
                 className={cn(
-                  "w-6 shrink-0 text-right font-mono text-[11px] font-bold tabular-nums",
+                  "w-6 shrink-0 text-right font-mono text-2xs font-bold tabular-nums",
                   podium ? "text-primary" : "text-muted-foreground/60",
                 )}
               >
@@ -62,7 +62,7 @@ export function LeaderboardBars({
                   // Capped at two: a student in four cohorts would otherwise wrap
                   // and break the row rhythm the ranking depends on.
                   <span
-                    className="truncate font-mono text-[9px] text-muted-foreground"
+                    className="truncate font-mono text-4xs text-muted-foreground"
                     title={e.classrooms.join(" · ")}
                   >
                     {e.classrooms.slice(0, 2).join(" · ")}
@@ -86,7 +86,7 @@ export function LeaderboardBars({
                 `hidden`) so rows don't reflow, and readable by screen readers
                 regardless of opacity.
               */}
-              <span className="w-12 shrink-0 text-right font-mono text-[11px] font-bold tabular-nums text-foreground opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-visible/row:opacity-100">
+              <span className="w-12 shrink-0 text-right font-mono text-2xs font-bold tabular-nums text-foreground opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-visible/row:opacity-100">
                 {e.total.toLocaleString()}
               </span>
             </Link>

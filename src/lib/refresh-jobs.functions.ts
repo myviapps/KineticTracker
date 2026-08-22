@@ -129,26 +129,61 @@ export const enqueueRefresh = createServerFn({ method: "POST" })
   });
 
 /**
- * Every non-terminal job, plus the display name of the platform each belongs to.
+ * Every non-terminal job, the display name of the platform each belongs to, and
+ * a PULSE that changes whenever scraped data has moved.
  *
  * Was `.limit(1).maybeSingle()`, which made sense while a refresh was one global
  * job. Now that the enqueue fans out per platform there can be one job per
  * enabled adapter, and returning only the newest made the other four invisible —
  * the progress UI would show one platform and silently ignore the rest.
+ *
+ * ── Why `pulse` exists ─────────────────────────────────────────────────────
+ * Every page in the app refetches its data off ONE signal: this query going
+ * non-empty and then empty again (see useRefreshJobStatus). That is an EDGE,
+ * and a tab only sees an edge it was awake for. A passive tab polls on an idle
+ * interval, so a refresh that starts and finishes between two polls is invisible
+ * to it — it never observed `active`, so it never invalidated, so it showed
+ * pre-refresh numbers until someone hit reload. That is exactly the "stats don't
+ * update for everyone else" report.
+ *
+ * A pulse is a level, not an edge. It moves when a job finishes and when a chunk
+ * advances, so a tab compares "what it saw last time" against "what is true now"
+ * and cannot miss anything by being asleep at the wrong moment. It also fixes
+ * the parked-platform case: while one platform sits rate-limited for 15 minutes
+ * the job list never empties, so the edge never fires — but the platforms that
+ * DID finish have bumped their finished_at, and the pulse carries that.
+ *
+ * Note it is a string, not a number: it is only ever compared for equality, and
+ * an opaque token cannot be mistaken for something meaningful to display.
  */
 export const getActiveRefreshJobs = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth, withRole])
+  .middleware([requireSupabaseAuth])
   .handler(async () => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const { data } = await supabaseAdmin
-      .from("refresh_jobs")
-      .select("*")
-      .in("status", ["queued", "running", "paused"])
-      .order("created_at", { ascending: true });
+    const [{ data }, { data: lastDone }] = await Promise.all([
+      supabaseAdmin
+        .from("refresh_jobs")
+        .select("*")
+        .in("status", ["queued", "running", "paused"])
+        .order("created_at", { ascending: true }),
+      supabaseAdmin
+        .from("refresh_jobs")
+        .select("finished_at")
+        .not("finished_at", "is", null)
+        .order("finished_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
     const jobs = data ?? [];
-    if (jobs.length === 0) return [];
+    // Summed progress covers the in-flight half: a long run writes students
+    // continuously, and waiting for the whole job to finish before anyone else
+    // sees anything is a 15-minute lie on a 1000-student refresh.
+    const processed = jobs.reduce((a, j) => a + (j.processed ?? 0), 0);
+    const pulse = `${lastDone?.finished_at ?? ""}|${processed}`;
+
+    if (jobs.length === 0) return { jobs: [], pulse };
 
     // Names for the UI. A legacy job (platform_id null) is LeetCode by
     // definition — that is what the old worker refreshes.
@@ -160,14 +195,19 @@ export const getActiveRefreshJobs = createServerFn({ method: "GET" })
     const nameById = new Map((platforms ?? []).map((p) => [p.id, p.name]));
     const orderById = new Map((platforms ?? []).map((p) => [p.id, p.sort_order ?? 100]));
 
-    return jobs
-      .map((j) => ({
-        ...j,
-        platform_id: j.platform_id ?? "leetcode",
-        platform_name: j.platform_id ? (nameById.get(j.platform_id) ?? j.platform_id) : "LeetCode",
-        sort_order: j.platform_id ? (orderById.get(j.platform_id) ?? 100) : 0,
-      }))
-      .sort((a, b) => a.sort_order - b.sort_order);
+    return {
+      jobs: jobs
+        .map((j) => ({
+          ...j,
+          platform_id: j.platform_id ?? "leetcode",
+          platform_name: j.platform_id
+            ? (nameById.get(j.platform_id) ?? j.platform_id)
+            : "LeetCode",
+          sort_order: j.platform_id ? (orderById.get(j.platform_id) ?? 100) : 0,
+        }))
+        .sort((a, b) => a.sort_order - b.sort_order),
+      pulse,
+    };
   });
 
 /**

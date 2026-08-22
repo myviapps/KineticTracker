@@ -15,10 +15,28 @@ import { Toaster } from "@/components/ui/sonner";
 import { useTheme } from "@/components/theme-toggle";
 import { useAuthCacheSync } from "@/hooks/use-auth-cache-sync";
 
-const THEME_INIT = `
-(function(){try{var t=localStorage.getItem('kinetic-theme');var d=document.documentElement;
+/*
+  Theme AND reading preferences, stamped on <html> before the first paint.
+
+  Inline and synchronous for the same reason the theme always was: React cannot
+  read localStorage during SSR, so anything applied in an effect lands one frame
+  late — a visible flash of the wrong palette, and now also of the wrong text
+  size, on every single page load.
+
+  The scale table is duplicated from lib/appearance.ts rather than imported.
+  This string is injected raw into the document head and runs before any bundle
+  has loaded, so it cannot import anything. Four numbers is a cheap duplication;
+  a missing one just means the default size for a frame.
+*/
+const APPEARANCE_INIT = `
+(function(){try{var d=document.documentElement;
+var t=localStorage.getItem('kinetic-theme');
 if(t==='light'){d.classList.remove('dark');d.classList.add('light');}
-else{d.classList.remove('light');d.classList.add('dark');}}catch(e){}})();
+else{d.classList.remove('light');d.classList.add('dark');}
+var f=localStorage.getItem('almanac-font');
+if(f==='system'||f==='hyperlegible'){d.setAttribute('data-font',f);}
+var m={sm:0.9,md:1,lg:1.1,xl:1.25}[localStorage.getItem('almanac-font-scale')];
+if(m){d.style.setProperty('--app-font-scale',String(m));}}catch(e){}})();
 `;
 
 function NotFoundComponent() {
@@ -106,7 +124,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         // would silently render at normal width and the whole type direction
         // would be invisible. Weight is capped at 800 (Archivo's usable top) and
         // the subset stays minimal — one extra family, three axes.
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Archivo:wdth,wght@75..125,500..800&display=swap",
+        // Atkinson Hyperlegible is listed but not downloaded unless someone
+        // selects it — the stylesheet declares the @font-face, and browsers
+        // fetch the file only when a rule actually applies the family.
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Archivo:wdth,wght@75..125,500..800&family=Atkinson+Hyperlegible:wght@400;700&display=swap",
       },
     ],
   }),
@@ -122,7 +143,7 @@ function RootShell({ children }: { children: ReactNode }) {
       suppressHydrationWarning is required here, not a workaround.
 
       The server has no way to know the visitor's theme — it lives in
-      localStorage — so it always renders `dark`. THEME_INIT then runs inline in
+      localStorage — so it always renders `dark`. APPEARANCE_INIT then runs inline in
       <head>, BEFORE first paint, and swaps the class to `light` when that is the
       saved preference. That ordering is the whole point: it is what stops a
       light-theme user seeing a dark flash on every navigation.
@@ -136,7 +157,7 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_INIT }} />
       </head>
       <body>
         {children}

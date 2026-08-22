@@ -18,10 +18,25 @@ import { StatCard } from "@/components/stat-card";
 import { cn } from "@/lib/utils";
 import { AnimatedLoader } from "@/components/animated-loader";
 
+/*
+  This page is OUTSIDE the _authenticated layout, which is where the refresh
+  pump, the job-status poll and the progress strip all live. Nothing here can
+  observe a refresh: `["student", roll]` is listed in SCRAPE_TOUCHED_KEYS, but
+  no code in this tree ever calls invalidateScrapedData, so a student watching
+  their own profile saw numbers that never moved while an admin refreshed the
+  whole institution behind them.
+
+  It cannot poll the job status either — getActiveRefreshJobs requires a signed-in
+  session and this page serves anonymous visitors. So it does the simple thing:
+  a slow heartbeat, plus a refetch when the tab is looked at again. Thirty
+  seconds is far below the cost of a scrape and far above the cost of one read.
+*/
 const studentQO = (roll: string) =>
   queryOptions({
     queryKey: ["student", roll],
     queryFn: () => getStudentByRoll({ data: { roll } }),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 
 function PendingStudent() {
@@ -178,7 +193,7 @@ function StudentPage() {
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-3xl font-bold tracking-tight">{student.name}</h1>
-              <span className="rounded bg-primary/15 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-primary">
+              <span className="rounded bg-primary/15 px-2 py-0.5 font-mono text-3xs font-bold uppercase text-primary">
                 {student.roll}
               </span>
               {/* A student can be in several cohorts. Empty when masked — the
@@ -186,21 +201,21 @@ function StudentPage() {
               {classrooms.slice(0, 3).map((c) => (
                 <span
                   key={c.id}
-                  className="rounded bg-accent px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-accent-foreground"
+                  className="rounded bg-accent px-2 py-0.5 font-mono text-3xs font-bold uppercase text-accent-foreground"
                 >
                   {c.name}
                 </span>
               ))}
               {classrooms.length > 3 && (
                 <span
-                  className="rounded bg-accent px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-muted-foreground"
+                  className="rounded bg-accent px-2 py-0.5 font-mono text-3xs font-bold uppercase text-muted-foreground"
                   title={classrooms.map((c) => c.name).join(" · ")}
                 >
                   +{classrooms.length - 3}
                 </span>
               )}
               {stats?.contest_top_percentage != null && stats.contest_top_percentage < 5 && (
-                <span className="rounded bg-primary/20 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-primary ring-1 ring-primary/30">
+                <span className="rounded bg-primary/20 px-2 py-0.5 font-mono text-3xs font-bold uppercase text-primary ring-1 ring-primary/30">
                   ELITE
                 </span>
               )}
@@ -230,7 +245,7 @@ function StudentPage() {
               )}
             </div>
             {student.last_scraped_at && (
-              <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+              <p className="mt-2 font-mono text-3xs text-muted-foreground">
                 Last scraped {new Date(student.last_scraped_at).toLocaleString()}
               </p>
             )}

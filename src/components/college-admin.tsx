@@ -115,7 +115,7 @@ export function CollegeAdmin({ colleges }: { colleges: CollegeRow[] }) {
                       ) : (
                         <>
                           <div className="truncate text-sm font-medium">{c.name}</div>
-                          <div className="font-mono text-[10px] text-muted-foreground">
+                          <div className="font-mono text-3xs text-muted-foreground">
                             {c.classroom_count ?? 0} classroom
                             {(c.classroom_count ?? 0) === 1 ? "" : "s"}
                           </div>

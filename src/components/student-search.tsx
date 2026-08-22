@@ -123,7 +123,7 @@ export function StudentSearch({ className }: { className?: string }) {
             aria-label="Search students by roll number"
             className="h-8 w-full rounded-md border border-border bg-surface pl-8 pr-12 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary focus:ring-1 focus:ring-primary/30"
           />
-          <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-border px-1 font-mono text-[9px] text-muted-foreground lg:block">
+          <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-border px-1 font-mono text-4xs text-muted-foreground lg:block">
             ⌘K
           </kbd>
         </div>
@@ -166,13 +166,13 @@ export function StudentSearch({ className }: { className?: string }) {
                           onError={(e) => (e.currentTarget.style.display = "none")}
                         />
                       ) : (
-                        <div className="grid size-7 shrink-0 place-items-center rounded bg-muted font-mono text-[10px] font-bold">
+                        <div className="grid size-7 shrink-0 place-items-center rounded bg-muted font-mono text-3xs font-bold">
                           {s.name.slice(0, 2).toUpperCase()}
                         </div>
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium">{s.name}</div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-mono text-3xs text-muted-foreground">
                           <span>{s.roll}</span>
                           {s.classrooms.length > 0 ? (
                             s.classrooms.map((c) => (
@@ -198,7 +198,7 @@ export function StudentSearch({ className }: { className?: string }) {
                           )}
                         </div>
                       </div>
-                      <div className="shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+                      <div className="shrink-0 text-right font-mono text-3xs text-muted-foreground">
                         <div>{s.total_solved} solved</div>
                         {s.college_rank && (
                           <div className="opacity-70">
@@ -208,7 +208,7 @@ export function StudentSearch({ className }: { className?: string }) {
                       </div>
                     </CommandItem>
                   ))}
-                  <div className="flex items-center justify-end gap-1 border-t border-border px-2 pb-1 pt-1.5 font-mono text-[9px] text-muted-foreground">
+                  <div className="flex items-center justify-end gap-1 border-t border-border px-2 pb-1 pt-1.5 font-mono text-4xs text-muted-foreground">
                     <CornerDownLeft className="size-2.5" /> to open
                   </div>
                 </div>

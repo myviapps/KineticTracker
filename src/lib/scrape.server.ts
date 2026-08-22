@@ -62,6 +62,13 @@ export async function scrapeStudentById(id: string, deadline?: number) {
         .from("daily_snapshots")
         .select("total_solved")
         .eq("student_id", id)
+        // Scoped to the platform, not just the student. daily_snapshots has been
+        // keyed (student_id, platform_id, snapshot_date) since the platform_stats
+        // migration, so without this the newest row for a student can belong to
+        // Codeforces and this diffs a LeetCode total against it — a delta that is
+        // not a delta of anything. The current writer in platform-stats.server.ts
+        // already filters; this legacy path never got the fix.
+        .eq("platform_id", "leetcode")
         .lt("snapshot_date", dateStr)
         .order("snapshot_date", { ascending: false })
         .limit(1)
@@ -74,6 +81,7 @@ export async function scrapeStudentById(id: string, deadline?: number) {
     try {
       await supabaseAdmin.from("daily_snapshots").upsert({
         student_id: id,
+        platform_id: "leetcode",
         snapshot_date: dateStr,
         total_solved: p.totalSolved,
         easy_solved: p.easySolved,

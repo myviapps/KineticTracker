@@ -1,7 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { queryOptions, useQuery, useSuspenseQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Trophy, Users, Flame, Target, LayoutGrid, Activity, Layers, type LucideIcon } from "lucide-react";
+import { queryOptions, useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import {
+  Trophy,
+  Users,
+  Flame,
+  Target,
+  LayoutGrid,
+  Activity,
+  Layers,
+  type LucideIcon,
+} from "lucide-react";
 
 import { getOverview } from "@/lib/overview.functions";
 import { getPerformanceWindows } from "@/lib/performance.functions";
@@ -41,7 +50,8 @@ const OVERVIEW_ICONS: Record<string, LucideIcon> = {
   "Solved (all platforms)": Target,
   "Total solved": Target,
   "Problems solved": Target,
-  "Avg / student": Target,
+  Contests: Trophy,
+  "On a streak": Flame,
   "Avg rating": Trophy,
   "Cohort best": Trophy,
   "Avg score": Trophy,
@@ -81,20 +91,18 @@ function OverviewPage() {
   const { data } = useSuspenseQuery(qo);
   const { canAdminister, canManageStudents, role } = useRole();
   const { status: refreshStatus } = useRefreshJobStatus();
-  const qc = useQueryClient();
   const [refreshCohortsOpen, setRefreshCohortsOpen] = useState(false);
 
-  // When a refresh job completes and returns to idle, immediately refetch the overview
-  // and performance queries so all cards, charts, and leaderboards update live without a hard reload.
-  const prevStatus = useRef(refreshStatus);
-  useEffect(() => {
-    if (prevStatus.current !== "idle" && refreshStatus === "idle") {
-      qc.invalidateQueries({ queryKey: ["overview"], refetchType: "all" });
-      qc.invalidateQueries({ queryKey: ["performance-windows"], refetchType: "all" });
-    }
-    prevStatus.current = refreshStatus;
-  }, [refreshStatus, qc]);
+  /*
+    No local invalidation effect here any more.
 
+    There used to be one watching refreshStatus for a "not idle -> idle" edge.
+    It duplicated the latch inside useRefreshJobStatus, invalidated keys that
+    SCRAPE_TOUCHED_KEYS already covers by prefix, and — the reason it is gone —
+    shared that latch's blind spot: a tab that never saw the job active never
+    fired either of them. The pulse in useRefreshJobStatus replaces both, so
+    there is exactly one propagation mechanism to reason about.
+  */
   // See the note in chart-motion.ts: a live refresh job invalidates this query
   // every few seconds, and replaying the draw-in each time reads as flicker.
   const chartMotion =
@@ -207,7 +215,6 @@ function OverviewPage() {
   */
   const allTotals = sumRows(allRows);
   const totals = sumRows(rows);
-  const activeStudents = allRows.filter((r) => r.last30 > 0).length;
 
   /*
     Built once. The previous version nested `data.students.find()` inside
@@ -244,6 +251,12 @@ function OverviewPage() {
     .map((c) => {
       const cRows = rows.filter((r) => classroomIdsOf.get(r.id)?.includes(c.id));
       const total = cRows.reduce((s, r) => s + solvedOf(r), 0);
+      // On the "all" lens, tracked means "on any platform"; under a single lens
+      // it means "on that platform" — the same test solvedOf reads from.
+      const tracked = cRows.filter((r) => {
+        const per = statsByStudent.get(r.id) ?? {};
+        return lens.isAll ? Object.keys(per).length > 0 : !!per[lens.id];
+      }).length;
       const g = (pick: (x: ClassroomGains) => number) =>
         cRows.reduce(
           (s, r) => s + pick(gainsById.get(r.id) ?? { today: 0, yesterday: 0, d7: 0, d30: 0 }),
@@ -260,7 +273,18 @@ function OverviewPage() {
         yesterday: g((x) => x.yesterday),
         d7: g((x) => x.d7),
         d30: g((x) => x.d30),
-        avg: cRows.length ? Math.round(total / cRows.length) : 0,
+        /*
+          Divided by students who are actually TRACKED, not by headcount.
+
+          Dividing by headcount counts a student with no handle as having solved
+          zero — but they have not solved zero, they are unmeasured, and averaging
+          them in understates every cohort by exactly its coverage gap. It also
+          made this number disagree with the "Avg Solved" card one screen up and
+          with the workbook's per-platform average, which both divide by the
+          measured population. Three definitions of one word; now one.
+        */
+        tracked,
+        avg: tracked ? Math.round(total / tracked) : 0,
       };
     })
     .sort((a, b) => b.total - a.total);
@@ -347,10 +371,8 @@ function OverviewPage() {
     queryFn: () => getPerformanceWindows({ data: { windows: [7, 30] } }),
     staleTime: 5 * 60_000,
   });
-  const windowPlatforms = useMemo(
-    () => perf?.windows?.find((w) => w.days === 30)?.platforms ?? [],
-    [perf],
-  );
+  const window30 = useMemo(() => perf?.windows?.find((w) => w.days === 30), [perf]);
+  const windowPlatforms = useMemo(() => window30?.platforms ?? [], [window30]);
   const lensWindow = lens.isAll ? null : windowPlatforms.find((w) => w.platform_id === lens.id);
   const allWindowSolved = windowPlatforms.length
     ? windowPlatforms.reduce<number | null>(
@@ -381,7 +403,21 @@ function OverviewPage() {
         */
         windowSolved: lens.isAll ? allWindowSolved : (lensWindow?.solved ?? null),
         windowDays: 30,
-        activeInWindow: activeStudents,
+        /*
+          Follows the lens, like every other number in this card set.
+
+          This was hardcoded to `activeStudents`, which counts rows with
+          submissions in LeetCode's calendar — so switching to the Codeforces
+          lens changed every card except this one, which went on quoting
+          LeetCode activity under a Codeforces heading. The classroom page has
+          always done this correctly; this now matches it.
+
+          `active_any` is a union across platforms, not a sum or a max: a
+          student practising on two sites is one active student.
+        */
+        activeInWindow: lens.isAll
+          ? (window30?.active_any ?? null)
+          : (lensWindow?.active_students ?? null),
         firstSnapshotDate: lens.isAll
           ? (windowPlatforms
               .map((w) => w.first_snapshot_date)
@@ -390,7 +426,16 @@ function OverviewPage() {
           : (lensWindow?.first_snapshot_date ?? null),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lens, allRows, statsByStudent, data.platforms, activeStudents, almanacById, windowPlatforms],
+    [
+      lens,
+      allRows,
+      statsByStudent,
+      data.platforms,
+      window30,
+      lensWindow,
+      almanacById,
+      windowPlatforms,
+    ],
   );
 
   return (
@@ -541,8 +586,8 @@ function OverviewPage() {
                       aria-pressed={gainWindow === w.id}
                       className={
                         gainWindow === w.id
-                          ? "rounded bg-primary px-2 py-0.5 font-mono text-[10px] font-medium text-primary-foreground"
-                          : "rounded px-2 py-0.5 font-mono text-[10px] text-muted-foreground hover:text-foreground"
+                          ? "rounded bg-primary px-2 py-0.5 font-mono text-3xs font-medium text-primary-foreground"
+                          : "rounded px-2 py-0.5 font-mono text-3xs text-muted-foreground hover:text-foreground"
                       }
                     >
                       {w.label}
@@ -553,7 +598,7 @@ function OverviewPage() {
               </div>
             </div>
             {sharedStudents && (
-              <p className="mb-3 text-[11px] text-muted-foreground">
+              <p className="mb-3 text-2xs text-muted-foreground">
                 Students in more than one cohort are counted in each, so these add up to more than
                 the headcount.
               </p>
@@ -571,8 +616,14 @@ function OverviewPage() {
                   </div>
                   <div className="flex-1">
                     <div className="text-sm font-semibold">{c.name}</div>
-                    <div className="font-mono text-[10px] text-muted-foreground">
+                    <div className="font-mono text-3xs text-muted-foreground">
                       {c.students} students · avg {c.avg}
+                      {c.tracked < c.students && (
+                        <span title="Averaged over students with a tracked handle — untracked students are unmeasured, not zero">
+                          {" "}
+                          / {c.tracked} tracked
+                        </span>
+                      )}
                     </div>
                   </div>
                   {/* The unit is spelled out. Unlabelled, this number was read as
@@ -580,7 +631,7 @@ function OverviewPage() {
                       whole reason the card was wrong. */}
                   <div className="text-right font-mono">
                     <div className="text-lg font-bold">{c.total.toLocaleString()}</div>
-                    <div className="text-[10px] text-muted-foreground">
+                    <div className="text-3xs text-muted-foreground">
                       solved
                       <span className={c[gainWindow] > 0 ? "ml-1 text-primary" : "ml-1 opacity-60"}>
                         +{c[gainWindow].toLocaleString()}{" "}

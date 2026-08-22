@@ -46,6 +46,8 @@ export type ReportData = {
   roster: Row[];
   fact: Row[];
   daily: Row[];
+  /** LeetCode-only: no other platform publishes a submission calendar. */
+  streaks: Row[];
 };
 
 /** Column widths from content, so nothing lands as `####`. */
@@ -114,9 +116,31 @@ export function buildReportWorkbook(data: ReportData): XLSX.WorkBook {
     // apples-to-oranges, which is why the Almanac Score exists alongside it.
     { Field: "Problems Solved (raw sum)", Value: data.totals.totalSolved },
     { Field: "Daily history window (days)", Value: data.scope.days },
-    { Field: "", Value: "" },
-    { Field: "PER PLATFORM", Value: "" },
   ];
+
+  /*
+    Streak headline on the cover sheet.
+
+    Counted at >= 7 to match the "Consistent (7d streak)" filter on the cohort
+    page and the "On a streak" stat card, so the workbook, the chip and the card
+    are three views of one number rather than three definitions of it.
+  */
+  if (data.streaks?.length) {
+    const through = data.streaks
+      .map((r) => r["Streak Through"])
+      .filter((v): v is number => typeof v === "number");
+    if (through.length) {
+      summary.push(
+        { Field: "", Value: "" },
+        { Field: "STREAKS", Value: `as of ${data.streaks[0]["As Of"] ?? "today"}` },
+        { Field: "On a 7+ day streak", Value: through.filter((v) => v >= 7).length },
+        { Field: "Longest active streak", Value: Math.max(...through) },
+        { Field: "Measured for", Value: `${through.length} of ${data.streaks.length} students` },
+      );
+    }
+  }
+
+  summary.push({ Field: "", Value: "" }, { Field: "PER PLATFORM", Value: "" });
   for (const p of data.summaryPlatforms) {
     summary.push({
       Field: p.platform_name,
@@ -132,6 +156,7 @@ export function buildReportWorkbook(data: ReportData): XLSX.WorkBook {
   if (data.roster.length) XLSX.utils.book_append_sheet(wb, sheetFrom(data.roster), "Roster");
   if (data.fact.length) XLSX.utils.book_append_sheet(wb, sheetFrom(data.fact), "Fact");
   if (data.daily.length) XLSX.utils.book_append_sheet(wb, sheetFrom(data.daily), "Daily");
+  if (data.streaks?.length) XLSX.utils.book_append_sheet(wb, sheetFrom(data.streaks), "Streaks");
 
   return wb;
 }

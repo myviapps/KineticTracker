@@ -32,7 +32,7 @@ export function StatsStrip() {
       {TILES.map((t) => (
         <Reveal key={t.key}>
           <div className="rounded-xl border border-border bg-surface/60 p-4 backdrop-blur sm:p-5">
-            <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            <div className="font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
               {t.label}
             </div>
             {/*

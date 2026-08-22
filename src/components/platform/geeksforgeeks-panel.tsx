@@ -121,7 +121,7 @@ export function GeeksforgeeksPanel({ p }: { p: StudentPlatformSummary }) {
         />
         {(school !== null || basic !== null) && (
           <div className="mt-4 border-t border-border pt-3">
-            <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <p className="mb-2 font-mono text-3xs uppercase tracking-widest text-muted-foreground">
               Entry tiers
             </p>
             <div className="flex flex-wrap gap-4 text-sm">
@@ -136,7 +136,7 @@ export function GeeksforgeeksPanel({ p }: { p: StudentPlatformSummary }) {
                 </span>
               )}
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
+            <p className="mt-2 text-2xs text-muted-foreground">
               Counted separately because these tiers inflate a raw total — the Almanac Score weights
               them low for the same reason.
             </p>
@@ -215,7 +215,7 @@ export function GeeksforgeeksPanel({ p }: { p: StudentPlatformSummary }) {
       </PanelSection>
 
       {p.score_contribution != null && (
-        <p className="font-mono text-[10px] text-muted-foreground">
+        <p className="font-mono text-3xs text-muted-foreground">
           Contributes {Math.round(p.score_contribution).toLocaleString()} to this student&apos;s
           Almanac Score.
         </p>

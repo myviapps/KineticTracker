@@ -54,7 +54,7 @@ export function CohortFilterBar({
         <div className="min-w-0 shrink-0">
           <div className="truncate text-sm font-semibold leading-tight">{title}</div>
           {subtitle && (
-            <div className="truncate font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <div className="truncate font-mono text-3xs uppercase tracking-widest text-muted-foreground">
               {subtitle}
             </div>
           )}
@@ -98,7 +98,7 @@ export function CohortFilterBar({
 
         <div className="ml-auto flex shrink-0 items-center gap-3">
           {shownCount !== undefined && totalCount !== undefined && (
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
               <b className="text-foreground tabular-nums">{shownCount}</b> of{" "}
               <span className="tabular-nums">{totalCount}</span>
             </span>
@@ -181,14 +181,14 @@ function LensPill({
       <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
         {name}
         {running && determinate && (
-          <span className="font-mono text-[10px] tabular-nums opacity-80">
+          <span className="font-mono text-3xs tabular-nums opacity-80">
             {shown}/{live.total}
           </span>
         )}
         {running && !determinate && (
-          <span className="font-mono text-[10px] opacity-70">starting…</span>
+          <span className="font-mono text-3xs opacity-70">starting…</span>
         )}
-        {paused && <span className="font-mono text-[10px] text-medium">⏸</span>}
+        {paused && <span className="font-mono text-3xs text-medium">⏸</span>}
       </span>
     </button>
   );

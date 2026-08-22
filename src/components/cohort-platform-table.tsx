@@ -80,7 +80,7 @@ export function CohortPlatformTable({
         <p className="text-sm text-muted-foreground">
           No student in this cohort has a {platform.name} handle yet.
         </p>
-        <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+        <p className="mt-1 font-mono text-3xs text-muted-foreground">
           Add a “{platform.id}” column to your import file to start tracking it.
         </p>
       </div>
@@ -90,17 +90,17 @@ export function CohortPlatformTable({
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-surface">
       <div className="flex items-baseline justify-between border-b border-border px-3 py-2">
-        <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           {platform.name} · ranked by {platform.rank_metric}
         </span>
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-3xs text-muted-foreground">
           {onPlatform.length} of {rows.length} students
           {missing > 0 && <span className="text-medium"> · {missing} without a handle</span>}
         </span>
       </div>
 
       <table className="w-full text-left text-sm">
-        <thead className="border-b border-border bg-background/60 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+        <thead className="border-b border-border bg-background/60 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
           <tr>
             <th className="px-3 py-2">#</th>
             <th className="px-3 py-2">Student</th>

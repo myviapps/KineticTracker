@@ -56,7 +56,7 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
     <div className="rounded-lg border border-border bg-surface p-5">
       <div className="mb-4 flex items-end justify-between">
         <div>
-          <h3 className="font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <h3 className="font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
             Submission Activity
           </h3>
           <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -64,11 +64,11 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <span className="mr-1 font-mono text-[10px] text-muted-foreground">less</span>
+          <span className="mr-1 font-mono text-3xs text-muted-foreground">less</span>
           {[0, 1, 2, 3, 4].map((b) => (
             <div key={b} className={cn("size-3 rounded-sm", cellClass(b))} />
           ))}
-          <span className="ml-1 font-mono text-[10px] text-muted-foreground">more</span>
+          <span className="ml-1 font-mono text-3xs text-muted-foreground">more</span>
         </div>
       </div>
 
@@ -79,7 +79,7 @@ export function Heatmap({ calendar }: { calendar: CalendarMap }) {
             {monthLabels.map((m) => (
               <span
                 key={m.col}
-                className="absolute font-mono text-[10px] text-muted-foreground"
+                className="absolute font-mono text-3xs text-muted-foreground"
                 style={{ left: `${m.col * 14}px` }}
               >
                 {m.label}

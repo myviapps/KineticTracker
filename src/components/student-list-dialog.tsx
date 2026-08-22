@@ -88,7 +88,7 @@ export function StudentListDialog({
 
         <div className="max-h-[60vh] overflow-auto rounded-lg border border-border">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 z-10 border-b border-border bg-background font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <thead className="sticky top-0 z-10 border-b border-border bg-background font-mono text-3xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-3 py-2">Student</th>
                 {showClassroom && <th className="px-3 py-2">Classroom</th>}
@@ -129,7 +129,7 @@ export function StudentListDialog({
                     >
                       {s.name}
                     </Link>
-                    <div className="text-[10px] text-muted-foreground">{s.roll}</div>
+                    <div className="text-3xs text-muted-foreground">{s.roll}</div>
                   </td>
                   {showClassroom && (
                     <td className="px-3 py-2 text-xs text-muted-foreground">

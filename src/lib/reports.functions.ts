@@ -18,20 +18,20 @@ const Input = z.object({
   collegeIds: z.array(z.string().uuid()).max(50).optional(),
   platformIds: z.array(z.string().min(1).max(50)).max(20).optional(),
   days: z.number().int().min(0).max(365).default(30),
+  /**
+   * The date streaks are measured against — the "X" the Streak sheet answers
+   * for. Defaults to today. Same anchor the Streak Matrix on the cohort page
+   * uses, so the sheet and the screen cannot report different runs for the same
+   * day.
+   */
+  asOf: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 /** Refuse rather than truncate past this many fact rows. */
 const MAX_FACT_ROWS = 100_000;
-
-/**
- * Explicit fetch ceiling for the daily-history sheet.
- *
- * Held at MAX_FACT_ROWS so the export obeys one limit rather than two: past this
- * point the request is too large either way, and the check above is what turns
- * that into a refusal instead of a short sheet. Stating it also overrides
- * PostgREST's default db-max-rows, which is 1000 and truncates in silence.
- */
-const MAX_ROWS = MAX_FACT_ROWS;
 
 export type ReportScope = {
   colleges: { id: string; name: string }[];
@@ -56,6 +56,7 @@ export type ReportSummaryPlatform = {
 export type ReportRosterRow = Record<string, string | number | null>;
 export type ReportFactRow = Record<string, string | number | null>;
 export type ReportDailyRow = Record<string, string | number | null>;
+export type ReportStreakRow = Record<string, string | number | null>;
 
 export const buildReport = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth, withRole])
@@ -97,15 +98,28 @@ export const buildReport = createServerFn({ method: "POST" })
     const collegeName = new Map((colleges ?? []).map((c) => [c.id, c.name]));
     const classroomOf = new Map(classrooms.map((c) => [c.id, c]));
 
-    // Membership. A student in two selected cohorts appears once in Roster but
-    // carries both classroom names, so no row is silently dropped or doubled.
-    const { data: memberships } = await supabaseAdmin
-      .from("classroom_students")
-      .select("student_id, classroom_id")
-      .in("classroom_id", classroomIds);
+    /*
+      Membership. A student in two selected cohorts appears once in Roster but
+      carries both classroom names, so no row is silently dropped or doubled.
+
+      Chunked and paged: this is the SCOPING read, so a short answer here does
+      not merely shorten one sheet, it silently removes students from the entire
+      report. A 200-cohort selection is also well past the URL ceiling.
+    */
+    const { fetchAllIn } = await import("./supabase-batch.server");
+    const memberships = await fetchAllIn(
+      classroomIds,
+      (batch, from, to) =>
+        supabaseAdmin
+          .from("classroom_students")
+          .select("student_id, classroom_id")
+          .in("classroom_id", batch)
+          .range(from, to),
+      "report: rosters",
+    );
 
     const cohortsByStudent = new Map<string, string[]>();
-    for (const m of memberships ?? []) {
+    for (const m of memberships) {
       const list = cohortsByStudent.get(m.student_id) ?? [];
       list.push(m.classroom_id);
       cohortsByStudent.set(m.student_id, list);
@@ -113,12 +127,36 @@ export const buildReport = createServerFn({ method: "POST" })
     const studentIds = [...cohortsByStudent.keys()];
     if (studentIds.length === 0) return emptyReport(data.days);
 
-    const [{ data: students }, { data: accounts }, { data: platformRows }] = await Promise.all([
-      supabaseAdmin.from("students").select("id, name, roll, email").in("id", studentIds),
-      supabaseAdmin
-        .from("student_platform_accounts")
-        .select("id, student_id, platform_id, handle, status, last_fetched_at")
-        .in("student_id", studentIds),
+    /*
+      Chunked and paged, like every other large read in this codebase.
+
+      These were bare `.in()` calls listing every student id in the query
+      string. supabase-batch.server.ts documents both ways that fails: ~489 uuids
+      builds an 18KB URL and the request errors outright, and PostgREST caps any
+      response at db-max-rows regardless of Range. Either one produces a report
+      that looks complete and is not — the worst possible failure for an export.
+    */
+    const [students, accounts, { data: platformRows }] = await Promise.all([
+      fetchAllIn(
+        studentIds,
+        (batch, from, to) =>
+          supabaseAdmin
+            .from("students")
+            .select("id, name, roll, email")
+            .in("id", batch)
+            .range(from, to),
+        "report: students",
+      ),
+      fetchAllIn(
+        studentIds,
+        (batch, from, to) =>
+          supabaseAdmin
+            .from("student_platform_accounts")
+            .select("id, student_id, platform_id, handle, status, last_fetched_at")
+            .in("student_id", batch)
+            .range(from, to),
+        "report: accounts",
+      ),
       supabaseAdmin
         .from("platforms")
         .select("id, name, rank_metric, sort_order")
@@ -126,7 +164,7 @@ export const buildReport = createServerFn({ method: "POST" })
     ]);
 
     const wantPlatform = (id: string) => !data.platformIds?.length || data.platformIds.includes(id);
-    const accts = (accounts ?? []).filter((a) => wantPlatform(a.platform_id));
+    const accts = accounts.filter((a) => wantPlatform(a.platform_id));
 
     if (accts.length > MAX_FACT_ROWS) {
       // Refusing beats truncating: a report that quietly drops half a college is
@@ -136,20 +174,21 @@ export const buildReport = createServerFn({ method: "POST" })
       );
     }
 
-    const { data: stats } = accts.length
-      ? await supabaseAdmin
+    const stats = await fetchAllIn(
+      accts.map((a) => a.id),
+      (batch, from, to) =>
+        supabaseAdmin
           .from("platform_stats")
           .select(
             "account_id, platform_id, total_solved, easy_solved, medium_solved, hard_solved, unrated_solved, rating, max_rating, global_rank, country_rank, institute_rank, platform_score, stars, streak, contests_attended, fetch_status, fetched_at",
           )
-          .in(
-            "account_id",
-            accts.map((a) => a.id),
-          )
-      : { data: [] };
+          .in("account_id", batch)
+          .range(from, to),
+      "report: platform stats",
+    );
 
-    const statByAccount = new Map((stats ?? []).map((s) => [s.account_id, s]));
-    const studentById = new Map((students ?? []).map((s) => [s.id, s]));
+    const statByAccount = new Map(stats.map((s) => [s.account_id, s]));
+    const studentById = new Map(students.map((s) => [s.id, s]));
 
     const usedPlatformIds = [...new Set(accts.map((a) => a.platform_id))];
     const platforms = (platformRows ?? [])
@@ -272,28 +311,140 @@ export const buildReport = createServerFn({ method: "POST" })
     if (data.days > 0) {
       const since = new Date();
       since.setUTCDate(since.getUTCDate() - data.days);
-      const { data: snaps } = await supabaseAdmin
-        .from("daily_snapshots")
-        .select("student_id, platform_id, snapshot_date, total_solved, solved_that_day")
-        .in("student_id", studentIds)
-        .gte("snapshot_date", since.toISOString().slice(0, 10))
-        .order("snapshot_date", { ascending: true })
-        // PostgREST's default db-max-rows silently truncates. An export is the
-        // worst place to lose rows quietly: the sheet looks complete, and the
-        // missing days are the RECENT ones because this orders ascending.
-        .range(0, MAX_ROWS - 1);
+      /*
+        Paged, not a single big Range.
 
-      daily = (snaps ?? [])
+        The old call asked for 100,000 rows in one request with a comment saying
+        that prevented truncation. It does not — PostgREST caps every response at
+        db-max-rows whatever Range asks for, so this quietly returned the first
+        1000 rows. Worse, it orders ASCENDING, so the days it dropped were the
+        most recent ones: the sheet looked complete and was missing exactly the
+        period anyone opening it cared about.
+      */
+      const snaps = await fetchAllIn(
+        studentIds,
+        (batch, from, to) =>
+          supabaseAdmin
+            .from("daily_snapshots")
+            .select("student_id, platform_id, snapshot_date, total_solved, solved_that_day")
+            .in("student_id", batch)
+            .gte("snapshot_date", since.toISOString().slice(0, 10))
+            .order("snapshot_date", { ascending: true })
+            .range(from, to),
+        "report: daily snapshots",
+      );
+
+      /*
+        `solved_that_day` differences against the most recent EARLIER snapshot,
+        not against yesterday — so a platform refreshed weekly drops seven days
+        of progress onto one date and leaves six reading zero. That cannot be
+        fixed in the data, but it can stop being invisible: "Days Covered" says
+        how many days the number actually spans, so a reader can divide.
+      */
+      const prevDate = new Map<string, string>();
+      const dayGap = (a: string, b: string) =>
+        Math.max(
+          1,
+          Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000),
+        );
+
+      daily = snaps
         .filter((s) => wantPlatform(s.platform_id))
-        .map((s) => ({
-          Date: s.snapshot_date,
-          College: collegeFor(s.student_id),
-          Student: studentById.get(s.student_id)?.name ?? "",
-          Roll: studentById.get(s.student_id)?.roll ?? "",
-          Platform: platforms.find((p) => p.id === s.platform_id)?.name ?? s.platform_id,
-          "Total Solved": s.total_solved,
-          "Solved That Day": s.solved_that_day,
-        }));
+        .map((s) => {
+          const key = `${s.student_id}:${s.platform_id}`;
+          const before = prevDate.get(key);
+          prevDate.set(key, s.snapshot_date);
+          return {
+            Date: s.snapshot_date,
+            College: collegeFor(s.student_id),
+            Student: studentById.get(s.student_id)?.name ?? "",
+            Roll: studentById.get(s.student_id)?.roll ?? "",
+            Platform: platforms.find((p) => p.id === s.platform_id)?.name ?? s.platform_id,
+            "Total Solved": s.total_solved,
+            "Solved That Day": s.solved_that_day,
+            "Days Covered": before ? dayGap(before, s.snapshot_date) : 1,
+          };
+        });
+    }
+
+    /*
+      ── Streak sheet ────────────────────────────────────────────────────────
+      The Streak Matrix, as rows.
+
+      Reads student_stats.submission_calendar — LeetCode's complete day-by-day
+      record — for the same reason the on-screen matrix does: daily_snapshots
+      only holds days a refresh ran, so it cannot tell "idle" from "unobserved".
+      No other platform publishes a calendar, so this sheet is LeetCode-only and
+      says so rather than emitting empty columns for the rest.
+
+      Uses the SAME functions the cohort page calls, against the same calendar
+      and the same anchor, so a streak in this workbook and a streak on screen
+      can never disagree.
+    */
+    const { currentStreak, longestStreakBetween, shiftDays, streakEndingOn, dayCount } =
+      await import("./date-buckets");
+
+    const anchor = data.asOf ? new Date(`${data.asOf}T00:00:00Z`) : new Date();
+    const anchorDay = new Date(
+      Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate()),
+    );
+    const windowDays = data.days > 0 ? data.days : 30;
+    const windowStart = shiftDays(anchorDay, -(windowDays - 1));
+
+    let streaks: ReportStreakRow[] = [];
+    try {
+      const calRows = await fetchAllIn<{
+        student_id: string;
+        submission_calendar: unknown;
+        streak: number | null;
+      }>(
+        studentIds,
+        (batch, from, to) =>
+          supabaseAdmin
+            .from("student_stats")
+            .select("student_id, submission_calendar, streak")
+            .in("student_id", batch)
+            .range(from, to),
+        "report: submission calendars",
+      );
+
+      const lcHandle = new Map(
+        accts.filter((a) => a.platform_id === "leetcode").map((a) => [a.student_id, a.handle]),
+      );
+      const asOfLabel = anchorDay.toISOString().slice(0, 10);
+
+      streaks = calRows.map((r) => {
+        const cal = (r.submission_calendar ?? {}) as Record<string, number>;
+        // Empty calendar = never scraped, or a private profile. Every figure
+        // below would be 0, and 0 reads as "never submitted" rather than "we do
+        // not know" — the one distinction this sheet exists to preserve.
+        const known = Object.keys(cal).length > 0;
+        const active = known
+          ? Array.from({ length: windowDays }, (_, i) =>
+              dayCount(cal, shiftDays(windowStart, i)),
+            ).filter((n) => n > 0).length
+          : null;
+
+        return {
+          College: collegeFor(r.student_id),
+          Classrooms: cohortNames(r.student_id).join(" | "),
+          Student: studentById.get(r.student_id)?.name ?? "",
+          Roll: studentById.get(r.student_id)?.roll ?? "",
+          "LeetCode Handle": lcHandle.get(r.student_id) ?? "",
+          "As Of": asOfLabel,
+          // The two boundary questions, exactly as the Streak Matrix asks them.
+          "Streak Into": known ? streakEndingOn(cal, shiftDays(anchorDay, -1)) : null,
+          "Streak Through": known ? streakEndingOn(cal, anchorDay) : null,
+          "Current Streak": known ? currentStreak(cal) : null,
+          [`Longest In ${windowDays}d`]: known
+            ? longestStreakBetween(cal, windowStart, anchorDay)
+            : null,
+          [`Active Days In ${windowDays}d`]: active,
+          "Active %": active === null ? null : Math.round((active / windowDays) * 100),
+        };
+      });
+    } catch {
+      /* the calendar sheet is additive — the rest of the workbook still builds */
     }
 
     const scores = studentIds.map((sid) => ranks.get(sid)?.almanac_score ?? 0);
@@ -317,6 +468,7 @@ export const buildReport = createServerFn({ method: "POST" })
       roster,
       fact,
       daily,
+      streaks,
     };
   });
 
@@ -334,6 +486,7 @@ function emptyReport(days: number) {
     roster: [] as ReportRosterRow[],
     fact: [] as ReportFactRow[],
     daily: [] as ReportDailyRow[],
+    streaks: [] as ReportStreakRow[],
   };
 }
 

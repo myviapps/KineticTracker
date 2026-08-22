@@ -3,7 +3,7 @@ import { LogIn, LayoutDashboard } from "lucide-react";
 
 import { useRole } from "@/hooks/use-role";
 import { AlmanacLogo } from "@/components/almanac-logo";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { AppearanceMenu } from "@/components/appearance-menu";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -38,7 +38,7 @@ export function LandingHeader() {
         </nav>
 
         <div className="flex items-center gap-1 sm:gap-2">
-          <ThemeToggle />
+          <AppearanceMenu />
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
             <Link to="/search">Search</Link>
           </Button>

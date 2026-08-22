@@ -33,7 +33,7 @@ export function BentoFeatures() {
                 <f.icon className="size-5 text-primary" aria-hidden />
                 <span
                   aria-hidden
-                  className="font-mono text-[10px] font-bold tracking-widest text-muted-foreground/50"
+                  className="font-mono text-3xs font-bold tracking-widest text-muted-foreground/50"
                 >
                   {String(i + 1).padStart(2, "0")}
                 </span>

@@ -1,6 +1,6 @@
 // Behavioral buckets that group students by activity/skill signals.
 // Used as filters on the classroom detail page.
-import { todayCount, thisWeekCount, lastNDaysCount } from "./date-buckets";
+import { todayCount, thisWeekCount, lastNDaysCount, currentStreak } from "./date-buckets";
 
 export type StudentRow = {
   id: string;
@@ -18,6 +18,8 @@ export type StudentRow = {
   last30: number;
   streak: number;
   rank: number;
+  /** LeetCode contests entered. 0 when the student has never competed. */
+  contests: number;
   calendar: Record<string, number>;
 };
 
@@ -89,6 +91,7 @@ export type StudentStatsLike = {
   hard_solved?: number | null;
   streak?: number | null;
   ranking?: number | null;
+  contests_attended?: number | null;
 } | null;
 
 export function toStudentRow(s: {
@@ -123,8 +126,24 @@ export function toStudentRow(s: {
     week: thisWeekCount(cal),
     month: last30,
     last30,
-    streak: s.stats?.streak ?? 0,
+    /*
+      Recomputed from the calendar, not read off the column.
+
+      A stored streak is frozen at scrape time, so a student refreshed three days
+      ago and quiet since kept reading `10d` forever. Deriving it against TODAY
+      makes it decay on its own. It is the same function the scraper writes with,
+      over the same calendar, so the column and this can never disagree on the
+      day of a refresh — after that, this one is the more honest of the two.
+
+      Falls back to the column only when there is NO calendar at all — a partial
+      scrape, where 0 would be a claim we cannot support. Note the test is
+      "calendar absent", not "streak computed to 0": `|| stored` would have
+      thrown away every genuine 0 and put the stale value back, which is exactly
+      the freezing this is meant to fix.
+    */
+    streak: Object.keys(cal).length > 0 ? currentStreak(cal) : (s.stats?.streak ?? 0),
     rank: s.stats?.ranking ?? Number.MAX_SAFE_INTEGER,
+    contests: s.stats?.contests_attended ?? 0,
     calendar: cal,
   };
 }

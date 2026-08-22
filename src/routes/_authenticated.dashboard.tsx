@@ -200,10 +200,10 @@ function DashboardPage() {
               className="group relative block animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards rounded-lg border border-border bg-surface p-6 transition-colors hover:border-primary/50"
             >
               <div className="mb-6 flex items-start justify-between">
-                <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-primary">
+                <span className="font-mono text-3xs font-bold uppercase tracking-widest text-primary">
                   [ COHORT_{String(i + 1).padStart(2, "0")} ]
                 </span>
-                <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-primary">
+                <span className="rounded bg-primary/10 px-2 py-0.5 font-mono text-3xs font-bold uppercase text-primary">
                   LIVE
                 </span>
               </div>
@@ -211,7 +211,7 @@ function DashboardPage() {
               <p className="mb-6 line-clamp-2 min-h-[2.5rem] text-sm text-muted-foreground">
                 {c.description || <span className="italic">No description</span>}
               </p>
-              <div className="mb-6 flex gap-6 font-mono text-[10px]">
+              <div className="mb-6 flex gap-6 font-mono text-3xs">
                 <div>
                   <span className="block text-muted-foreground">STUDENTS</span>
                   <span className="text-base font-bold">{c.student_count}</span>

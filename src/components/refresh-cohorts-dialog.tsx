@@ -2,15 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import {
-  RefreshCw,
-  Search,
-  Building2,
-  Users,
-  CheckSquare,
-  Square,
-  X,
-} from "lucide-react";
+import { RefreshCw, Search, Building2, Users, CheckSquare, Square, X } from "lucide-react";
 
 import { enqueueRefresh } from "@/lib/refresh-jobs.functions";
 import { REFRESH_JOB_KEY, invalidateScrapedData } from "@/hooks/use-refresh-job";
@@ -89,13 +81,11 @@ export function RefreshCohortsDialog({
     >();
 
     for (const c of classrooms) {
-      const colName = c.college_id ? (collegeNameById.get(c.college_id) ?? "Unknown College") : "Unassigned";
+      const colName = c.college_id
+        ? (collegeNameById.get(c.college_id) ?? "Unknown College")
+        : "Unassigned";
       // Filter by search term
-      if (
-        q &&
-        !c.name.toLowerCase().includes(q) &&
-        !colName.toLowerCase().includes(q)
-      ) {
+      if (q && !c.name.toLowerCase().includes(q) && !colName.toLowerCase().includes(q)) {
         continue;
       }
 
@@ -206,7 +196,8 @@ export function RefreshCohortsDialog({
             Refresh Selected Cohorts
           </DialogTitle>
           <DialogDescription>
-            Select which cohorts to refresh. All student profiles across active platforms will be synced.
+            Select which cohorts to refresh. All student profiles across active platforms will be
+            synced.
           </DialogDescription>
         </DialogHeader>
 
@@ -216,7 +207,9 @@ export function RefreshCohortsDialog({
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder={hasMultipleColleges ? "Search cohorts or colleges…" : "Search cohorts…"}
+                placeholder={
+                  hasMultipleColleges ? "Search cohorts or colleges…" : "Search cohorts…"
+                }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-8 pr-8 text-sm"
@@ -276,7 +269,7 @@ export function RefreshCohortsDialog({
                           <span className="font-mono text-xs font-semibold uppercase tracking-wider text-foreground">
                             {group.collegeName}
                           </span>
-                          <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">
+                          <Badge variant="secondary" className="ml-1 text-3xs px-1.5 py-0">
                             {group.rooms.length}
                           </Badge>
                         </div>
@@ -285,7 +278,7 @@ export function RefreshCohortsDialog({
                           variant="ghost"
                           size="sm"
                           onClick={() => toggleCollegeGroup(group.rooms)}
-                          className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                          className="h-6 px-2 text-2xs text-muted-foreground hover:text-foreground"
                         >
                           {allGroupSelected ? "Deselect group" : "Select group"}
                         </Button>
@@ -315,7 +308,7 @@ export function RefreshCohortsDialog({
                             </div>
                             <Badge
                               variant="outline"
-                              className="shrink-0 text-[11px] font-mono text-muted-foreground"
+                              className="shrink-0 text-2xs font-mono text-muted-foreground"
                             >
                               <Users className="mr-1 size-3" />
                               {count}
@@ -358,9 +351,7 @@ export function RefreshCohortsDialog({
             onClick={() => mutation.mutate()}
             disabled={selectedIds.size === 0 || mutation.isPending}
           >
-            <RefreshCw
-              className={`mr-1.5 size-4 ${mutation.isPending ? "animate-spin" : ""}`}
-            />
+            <RefreshCw className={`mr-1.5 size-4 ${mutation.isPending ? "animate-spin" : ""}`} />
             {mutation.isPending
               ? "Queueing Refresh…"
               : selectedIds.size > 0

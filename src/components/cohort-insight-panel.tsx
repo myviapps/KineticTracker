@@ -128,7 +128,7 @@ export function CohortInsightPanel({
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <span className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
             {title}
           </span>
           {tab === "leaderboard" && <TopNControl value={topN} max={boardMax} onChange={onTopN} />}
@@ -177,7 +177,7 @@ export function CohortInsightPanel({
                 days into collecting now says so, and so does a query that came
                 back short.
               */}
-              <p className="mt-2 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <p className="mt-2 text-center font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                 solved per snapshot date · {trend.length}/{trendWindowDays} days with data
               </p>
             </>
@@ -213,13 +213,13 @@ export function CohortInsightPanel({
                     <div className="text-2xl font-bold leading-none text-foreground">
                       {(center ? center.value : diffTotal).toLocaleString()}
                     </div>
-                    <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <div className="mt-1 text-3xs uppercase tracking-wider text-muted-foreground">
                       {center ? center.name : "Solved"}
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center font-mono text-[10px]">
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center font-mono text-3xs">
                 <div>
                   <span className="text-easy">■</span> Easy {diff[0].value.toLocaleString()}
                 </div>
@@ -264,9 +264,7 @@ function Empty({ title, note }: { title: string; note: string }) {
   return (
     <div className="flex h-56 flex-col items-center justify-center gap-1 text-center">
       <p className="text-sm text-muted-foreground">{title}</p>
-      <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        {note}
-      </p>
+      <p className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">{note}</p>
     </div>
   );
 }

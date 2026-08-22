@@ -115,7 +115,7 @@ function CollegesPage() {
         />
       </div>
 
-      <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+      <h2 className="mb-3 font-mono text-3xs uppercase tracking-widest text-muted-foreground">
         Per college
       </h2>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -130,12 +130,12 @@ function CollegesPage() {
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-base font-bold">{c.college_name}</div>
-                  <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <div className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                     {c.college_slug}
                   </div>
                 </div>
                 {colleges.length > 1 && (
-                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary">
+                  <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-3xs text-primary">
                     #{i + 1}
                   </span>
                 )}
@@ -157,12 +157,12 @@ function CollegesPage() {
               </div>
 
               <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-                <span className="font-mono text-[10px] text-muted-foreground">
+                <span className="font-mono text-3xs text-muted-foreground">
                   {c.platforms_in_use} platform{c.platforms_in_use === 1 ? "" : "s"} in use
                 </span>
                 <Link
                   to="/classrooms"
-                  className="font-mono text-[10px] uppercase tracking-widest text-primary hover:underline"
+                  className="font-mono text-3xs uppercase tracking-widest text-primary hover:underline"
                 >
                   Classrooms →
                 </Link>
@@ -177,7 +177,7 @@ function CollegesPage() {
 function Metric({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
   return (
     <div>
-      <div className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-1 font-mono text-3xs uppercase tracking-wider text-muted-foreground">
         {icon}
         {label}
       </div>

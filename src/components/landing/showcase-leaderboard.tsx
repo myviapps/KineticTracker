@@ -28,7 +28,7 @@ export function ShowcaseLeaderboard() {
       whileInView="visible"
       viewport={{ once: true, margin: "-40px" }}
     >
-      <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+      <div className="mb-3 font-mono text-3xs font-bold uppercase tracking-widest text-muted-foreground">
         Classroom leaderboard
       </div>
       <div className="flex flex-col gap-2.5">
@@ -41,7 +41,7 @@ export function ShowcaseLeaderboard() {
               visible: { opacity: 1, x: 0, transition: { delay: i * 0.07, duration: 0.4 } },
             }}
           >
-            <span className="w-6 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+            <span className="w-6 shrink-0 text-right font-mono text-3xs text-muted-foreground">
               {i + 1}
             </span>
             <div className="min-w-0 flex-1">

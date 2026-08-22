@@ -40,6 +40,10 @@ const SCRAPE_TOUCHED_KEYS: readonly (readonly string[])[] = [
   ["cohort-performance"],
   ["performance-windows"],
   ["colleges"],
+  // Both read scraped numbers and both were missing, so a refresh left the
+  // reports scope picker and the platform health page quoting stale figures.
+  ["report-scopes"],
+  ["platform-health"],
 ];
 
 export function invalidateScrapedData(qc: QueryClient) {
@@ -56,6 +60,9 @@ export type RefreshJobView = JobRow & {
   platform_name: string;
   sort_order: number;
 };
+
+/** What getActiveRefreshJobs returns: the live jobs plus a change token. */
+export type RefreshJobsResult = { jobs: RefreshJobView[]; pulse: string };
 
 export type RefreshAggregate = {
   /** Non-terminal jobs, in platform sort order. */
@@ -109,6 +116,30 @@ function aggregate(jobs: RefreshJobView[]): RefreshAggregate {
 }
 
 /**
+ * Slowest cadence at which a moving pulse may refetch every scraped query.
+ * Progress advances continuously during a run; the pages do not need to.
+ */
+const PULSE_THROTTLE_MS = 5000;
+
+/*
+  Module scope, not component refs, and deliberately so.
+
+  useRefreshJobStatus is mounted several times over on a single page — the
+  refresh button, the progress strip, the lens pills, the route itself, the
+  pump. Per-instance refs would give each of them its own idea of "have I seen
+  this pulse", so one change would fan out into five invalidateScrapedData calls
+  in the same tick. One tab, one watermark, one refetch.
+
+  Only ever touched inside effects, so it never runs during SSR, where module
+  state would be shared across requests.
+*/
+const pulseWatch: {
+  seen: string | undefined;
+  lastAt: number;
+  trailing: ReturnType<typeof setTimeout> | null;
+} = { seen: undefined, lastAt: 0, trailing: null };
+
+/**
  * Read-only view of the active refresh. Safe to call from any number of
  * components — they all share one query. Does NOT pump; see useRefreshJobPump.
  */
@@ -118,8 +149,14 @@ export function useRefreshJobStatus() {
     queryKey: REFRESH_JOB_KEY,
     queryFn: () => getActiveRefreshJobs(),
     // Poll fast while anything is running so progress feels live; slow when idle.
+    //
+    // The idle interval used to be 15s, which was the width of the window a
+    // short refresh could hide in: a cohort of twenty students finishes inside
+    // one tick, so a tab that was not the one that clicked the button saw an
+    // empty list before and an empty list after. 8s halves that, and the pulse
+    // below closes it properly.
     refetchInterval: (q) =>
-      (q.state.data as RefreshJobView[] | undefined)?.length ? 2000 : 15_000,
+      (q.state.data as RefreshJobsResult | undefined)?.jobs.length ? 2000 : 8_000,
     // Keep polling while the tab is backgrounded. A 1000-student refresh runs
     // for ~15 minutes and the user will switch away; with the default (false)
     // the pump's view of the job froze and it hammered a dead job forever.
@@ -127,12 +164,62 @@ export function useRefreshJobStatus() {
     staleTime: 0,
   });
 
-  const jobs = useMemo(() => (query.data as RefreshJobView[] | undefined) ?? [], [query.data]);
+  const result = query.data as RefreshJobsResult | undefined;
+  const jobs = useMemo(() => result?.jobs ?? [], [result]);
+  const pulse = result?.pulse;
   const agg = useMemo(() => aggregate(jobs), [jobs]);
 
-  // When an active refresh finishes and the queue clears to idle, immediately
-  // invalidate all scraped queries so every page, leaderboard, trend chart, and
-  // stat card updates without requiring a manual browser refresh.
+  /*
+    THE propagation mechanism: refetch everything whenever the server says
+    scraped data has moved.
+
+    Level-triggered on purpose. The edge-triggered version below only fires for
+    a tab that personally witnessed the job go active and then idle, which the
+    tab that clicked the button always does and a passive tab often does not —
+    it polls on an interval, and a short refresh lives and dies between two
+    ticks. That is why an admin's "Refresh All" updated the admin's screen and
+    nobody else's.
+
+    Comparing a token instead means being asleep costs latency, not correctness.
+
+    The first observed pulse is recorded WITHOUT invalidating: on a cold mount
+    the data was just fetched, and refetching every query on arrival would make
+    every navigation pay for a refresh that happened yesterday.
+  */
+  useEffect(() => {
+    if (pulse === undefined) return;
+    const seen = pulseWatch.seen;
+    pulseWatch.seen = pulse;
+    if (seen === undefined || seen === pulse) return;
+
+    /*
+      Throttled, with a guaranteed trailing run.
+
+      The pulse also carries in-flight progress, and while a job is running this
+      query polls every 2s — so an unthrottled version would refetch nine query
+      prefixes every two seconds for the fifteen minutes a 1000-student refresh
+      takes. The trailing timer is what makes throttling safe here: dropping the
+      last change would leave the page one batch short of the truth forever,
+      which is the failure this whole mechanism exists to prevent.
+    */
+    const since = Date.now() - pulseWatch.lastAt;
+    if (since >= PULSE_THROTTLE_MS) {
+      pulseWatch.lastAt = Date.now();
+      invalidateScrapedData(qc);
+      return;
+    }
+    if (pulseWatch.trailing) return; // already armed; it will pick up this change
+    pulseWatch.trailing = setTimeout(() => {
+      pulseWatch.trailing = null;
+      pulseWatch.lastAt = Date.now();
+      invalidateScrapedData(qc);
+    }, PULSE_THROTTLE_MS - since);
+    // No unmount cleanup: the timer is tab-wide, and another mounted consumer
+    // (or the next mount) still needs the trailing refetch to land.
+  }, [pulse, qc]);
+
+  // Kept as a second path, cheap and independent: it covers the first tick
+  // after a cold mount, where the pulse has nothing to compare against yet.
   const wasActive = useRef(false);
   useEffect(() => {
     if (agg.active) {
@@ -188,24 +275,14 @@ export function useRefreshJobPump() {
   const jobsRef = useRef<RefreshJobView[]>([]);
   jobsRef.current = jobs;
 
-  const lastProcessed = useRef<number | null>(null);
-  const lastInvalidate = useRef(0);
+  /*
+    No progress-driven invalidation here any more.
 
-  // Refresh the underlying page data as progress advances — throttled, so a
-  // 1000-student run doesn't refetch every classroom query every 2 seconds.
-  const processed = active ? jobs.reduce((a, j) => a + (j.processed ?? 0), 0) : null;
-  useEffect(() => {
-    if (processed === null) {
-      lastProcessed.current = null;
-      return;
-    }
-    if (processed === lastProcessed.current) return;
-    lastProcessed.current = processed;
-    const now = Date.now();
-    if (now - lastInvalidate.current < 5000) return;
-    lastInvalidate.current = now;
-    invalidateScrapedData(qc);
-  }, [processed, qc]);
+    It used to watch summed `processed` and refetch on a 5s throttle — the same
+    signal, the same throttle, but only in the ONE tab holding the pump. Every
+    tab now gets it from the pulse in useRefreshJobStatus, which is strictly
+    more coverage from strictly less code.
+  */
 
   /*
     Keyed on "is anything live at all", not on a job id — a job finishing no

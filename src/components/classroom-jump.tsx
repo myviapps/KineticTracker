@@ -60,7 +60,7 @@ export function ClassroomJump({ className }: { className?: string }) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="max-h-[70vh] w-64 overflow-y-auto">
-        <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <DropdownMenuLabel className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           Jump to classroom
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -84,7 +84,7 @@ export function ClassroomJump({ className }: { className?: string }) {
                   {active ? "●" : "○"}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                <span className="shrink-0 font-mono text-3xs text-muted-foreground">
                   {c.student_count}
                 </span>
               </Link>

@@ -43,7 +43,7 @@ export function ScrapeStatusBadge({
         <button
           type="button"
           className={cn(
-            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] transition-colors",
+            "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-3xs transition-colors",
             clean
               ? "border-border text-muted-foreground hover:text-foreground"
               : failed > 0
@@ -69,7 +69,7 @@ export function ScrapeStatusBadge({
 
       <PopoverContent align="end" className="w-80">
         <div className="space-y-2 text-sm">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <div className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
             Scraping status
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -98,7 +98,7 @@ export function ScrapeStatusBadge({
 
           {errors.length > 0 && (
             <div className="border-t border-border pt-2">
-              <ul className="space-y-1 font-mono text-[11px] text-muted-foreground">
+              <ul className="space-y-1 font-mono text-2xs text-muted-foreground">
                 {errors.map((s) => (
                   <li key={s.id}>
                     <span className="text-foreground">{s.roll}</span> · {s.leetcode_id} —{" "}

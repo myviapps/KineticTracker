@@ -94,11 +94,11 @@ export function EditStudentModal({
       <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edit Student</DialogTitle>
-          <DialogDescription className="font-mono text-[10px]">
+          <DialogDescription className="font-mono text-3xs">
             {student.roll} · id: {student.id.slice(0, 8)}…
           </DialogDescription>
           {shared && (
-            <p className="flex items-start gap-1.5 rounded-md bg-medium/10 px-2 py-1.5 text-left text-[11px] text-muted-foreground">
+            <p className="flex items-start gap-1.5 rounded-md bg-medium/10 px-2 py-1.5 text-left text-2xs text-muted-foreground">
               <Users2 className="mt-px size-3.5 shrink-0 text-medium" />
               <span>
                 Also in other cohorts — changes apply everywhere. Roll number is admin-only for
@@ -172,10 +172,10 @@ export function EditStudentModal({
               source of truth (a trigger mirrors it into the accounts table). */}
           <div className="border-t border-border pt-3">
             <div className="mb-2 flex items-baseline justify-between gap-2">
-              <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <Label className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
                 Other platforms
               </Label>
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-3xs text-muted-foreground">
                 clear a field to unlink
               </span>
             </div>
@@ -217,7 +217,7 @@ export function EditStudentModal({
                       {/* Fetch state, so a handle that looks fine but keeps
                           failing explains itself rather than just showing no data. */}
                       <span
-                        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[9px] uppercase tracking-wider"
+                        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-4xs uppercase tracking-wider"
                         title={h.fetch_error ?? undefined}
                       >
                         {changed ? (
@@ -250,10 +250,10 @@ export function EditStudentModal({
         */}
         {canAdminister && onMove && (otherClassrooms?.length ?? 0) > 0 && (
           <div className="border-t border-border pt-3">
-            <Label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <Label className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
               Cohort
             </Label>
-            <p className="mb-2 mt-1 text-[11px] text-muted-foreground">
+            <p className="mb-2 mt-1 text-2xs text-muted-foreground">
               Move takes them out of this cohort. Add keeps both — a student can belong to several.
             </p>
             <div className="flex flex-wrap items-center gap-2">

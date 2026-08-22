@@ -18,7 +18,7 @@ export function applyTheme(theme: Theme) {
 }
 
 export function useTheme(): [Theme, (t: Theme) => void] {
-  // Initialised from what the inline THEME_INIT script already stamped on <html>
+  // Initialised from what the inline APPEARANCE_INIT script already stamped on <html>
   // rather than a hardcoded "dark". Previously this always started dark and only
   // corrected in an effect, so a light-mode user's toasts rendered with the dark
   // theme for a frame after hydration.

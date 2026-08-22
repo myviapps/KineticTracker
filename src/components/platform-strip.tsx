@@ -77,10 +77,10 @@ export function PlatformStrip({
   return (
     <div className="mb-6">
       <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <h2 className="font-mono text-3xs uppercase tracking-widest text-muted-foreground">
           Platforms
         </h2>
-        <span className="font-mono text-[10px] text-muted-foreground">
+        <span className="font-mono text-3xs text-muted-foreground">
           {platforms.length} connected
         </span>
       </div>
@@ -105,7 +105,7 @@ export function PlatformStrip({
 
               <div className="flex items-baseline gap-1.5">
                 <span className="text-2xl font-bold leading-none text-foreground">{h.value}</span>
-                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span className="font-mono text-3xs uppercase tracking-wider text-muted-foreground">
                   {h.label}
                 </span>
               </div>
@@ -113,7 +113,7 @@ export function PlatformStrip({
               {/* Both ranks, because they answer different questions: one is
                   "where am I here", the other "where am I overall". */}
               {rank ? (
-                <div className="mt-2 flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                <div className="mt-2 flex items-center gap-2 font-mono text-3xs text-muted-foreground">
                   <span className="text-primary">
                     #{rank.college_rank}
                     <span className="text-muted-foreground">/{rank.college_total}</span>
@@ -125,7 +125,7 @@ export function PlatformStrip({
                   </span>
                 </div>
               ) : (
-                <div className="mt-2 font-mono text-[10px] text-muted-foreground opacity-60">
+                <div className="mt-2 font-mono text-3xs text-muted-foreground opacity-60">
                   unranked
                 </div>
               )}
@@ -136,7 +136,7 @@ export function PlatformStrip({
                     href={p.profile_url}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="inline-flex items-center gap-1 truncate font-mono text-[10px] text-muted-foreground hover:text-primary"
+                    className="inline-flex items-center gap-1 truncate font-mono text-3xs text-muted-foreground hover:text-primary"
                     title={p.handle}
                   >
                     @{p.handle}
@@ -144,7 +144,7 @@ export function PlatformStrip({
                   </a>
                 ) : (
                   <span
-                    className="truncate font-mono text-[10px] text-muted-foreground"
+                    className="truncate font-mono text-3xs text-muted-foreground"
                     title={p.handle}
                   >
                     @{p.handle}
@@ -152,7 +152,7 @@ export function PlatformStrip({
                 )}
                 {p.score_contribution != null && p.score_contribution > 0 && (
                   <span
-                    className="shrink-0 font-mono text-[10px] text-primary"
+                    className="shrink-0 font-mono text-3xs text-primary"
                     title="Contribution to this student's Almanac Score"
                   >
                     +{compact(p.score_contribution)}
@@ -162,7 +162,7 @@ export function PlatformStrip({
 
               {p.fetch_error && (
                 <div
-                  className="mt-1.5 flex items-start gap-1 text-[10px] text-hard"
+                  className="mt-1.5 flex items-start gap-1 text-3xs text-hard"
                   title={p.fetch_error}
                 >
                   <AlertTriangle className="mt-px size-3 shrink-0" />
